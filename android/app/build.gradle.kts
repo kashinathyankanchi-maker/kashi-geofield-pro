@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "com.kashi.kashi_geofield_pro"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
