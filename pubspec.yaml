@@ -38,7 +38,7 @@ dependencies:
   # PDF & Print
   pdf: ^3.10.0
   printing: ^5.13.1
-  screenshot: ^2.5.0
+  screenshot: ^3.0.0
 
   # UI
   flutter_colorpicker: ^1.0.3
