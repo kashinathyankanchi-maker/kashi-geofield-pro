@@ -13,6 +13,7 @@ import 'map_controller.dart';
 import 'widgets/draw_toolbar.dart';
 import 'widgets/layer_panel.dart';
 import 'widgets/shape_detail_sheet.dart';
+import 'package:screenshot/screenshot.dart';
 import '../offline_maps/offline_maps_screen.dart';
 
 class MapScreen extends StatefulWidget {
@@ -25,12 +26,18 @@ class MapScreen extends StatefulWidget {
 class _MapScreenState extends State<MapScreen> {
   final MapController _mapController = MapController();
   late final fmap.MapController _flutterMapController;
+  final ScreenshotController _screenshotController = ScreenshotController();
   final TextEditingController _searchController = TextEditingController();
+  
   bool _showLayerPanel = false;
   bool _isSearching = false;
   List<VillageModel> _villages = [];
   List<PolygonModel> _savedPolygons = [];
   bool _loadingLocation = false;
+  
+  // Draggable toolbar state
+  Offset _toolbarOffset = const Offset(0, 120);
+  bool _isToolbarOffsetInitialized = false;
 
   @override
   void initState() {
@@ -144,6 +151,9 @@ class _MapScreenState extends State<MapScreen> {
       builder: (_) => ShapeDetailSheet(
         shape: shape,
         controller: _mapController,
+        takeScreenshot: () async {
+          return await _screenshotController.capture();
+        },
       ),
     );
   }
@@ -413,6 +423,12 @@ class _MapScreenState extends State<MapScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (!_isToolbarOffsetInitialized) {
+      // Initialize to right side with some padding
+      _toolbarOffset = Offset(MediaQuery.of(context).size.width - 64, 120);
+      _isToolbarOffsetInitialized = true;
+    }
+
     return ListenableBuilder(
       listenable: _mapController,
       builder: (context, _) {
@@ -421,18 +437,20 @@ class _MapScreenState extends State<MapScreen> {
           body: Stack(
             children: [
               // ── Map ──────────────────────────────────────────────────────────
-              fmap.FlutterMap(
-                mapController: _flutterMapController,
-                options: fmap.MapOptions(
-                  initialCenter: const LatLng(26.9124, 75.7873),
-                  initialZoom: 13,
-                  onTap: _onMapTap,
-                  interactionOptions: const fmap.InteractionOptions(
-                    flags: fmap.InteractiveFlag.all,
+              Screenshot(
+                controller: _screenshotController,
+                child: fmap.FlutterMap(
+                  mapController: _flutterMapController,
+                  options: fmap.MapOptions(
+                    initialCenter: const LatLng(26.9124, 75.7873),
+                    initialZoom: 13,
+                    onTap: _onMapTap,
+                    interactionOptions: const fmap.InteractionOptions(
+                      flags: fmap.InteractiveFlag.all,
+                    ),
                   ),
-                ),
-                children: [
-                  fmap.TileLayer(
+                  children: [
+                    fmap.TileLayer(
                     urlTemplate: _mapController.mapStyle == 'Satellite'
                         ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
                         : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
@@ -444,6 +462,7 @@ class _MapScreenState extends State<MapScreen> {
                   fmap.MarkerLayer(markers: _buildMarkers()),
                 ],
               ),
+              ), // Close Screenshot
 
               // ── Top search bar ────────────────────────────────────────────
               SafeArea(
@@ -551,11 +570,27 @@ class _MapScreenState extends State<MapScreen> {
                 ),
               ),
 
-              // ── Right-side draw toolbar ───────────────────────────────────
+              // ── Right-side draw toolbar (Draggable) ───────────────────────
               Positioned(
-                right: 12,
-                top: 120,
-                child: DrawToolbar(controller: _mapController),
+                left: _toolbarOffset.dx,
+                top: _toolbarOffset.dy,
+                child: GestureDetector(
+                  onPanUpdate: (details) {
+                    setState(() {
+                      _toolbarOffset += details.delta;
+                      // Safe bounds
+                      final size = MediaQuery.of(context).size;
+                      double dx = _toolbarOffset.dx;
+                      double dy = _toolbarOffset.dy;
+                      if (dx < 0) dx = 0;
+                      if (dy < 40) dy = 40;
+                      if (dx > size.width - 64) dx = size.width - 64;
+                      if (dy > size.height - 200) dy = size.height - 200;
+                      _toolbarOffset = Offset(dx, dy);
+                    });
+                  },
+                  child: DrawToolbar(controller: _mapController),
+                ),
               ),
 
               // ── Layer panel ───────────────────────────────────────────────

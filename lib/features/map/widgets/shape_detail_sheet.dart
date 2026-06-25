@@ -5,18 +5,23 @@ import '../../../shared/theme.dart';
 import '../../../core/utils/geo_calculator.dart';
 import '../../../core/utils/kml_engine.dart';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:printing/printing.dart';
+import '../../../core/utils/pdf_generator.dart';
 
 class ShapeDetailSheet extends StatelessWidget {
   final DrawnShape shape;
   final MapController controller;
+  final Future<Uint8List?> Function()? takeScreenshot;
 
   const ShapeDetailSheet({
     super.key,
     required this.shape,
     required this.controller,
+    this.takeScreenshot,
   });
 
   @override
@@ -168,6 +173,13 @@ class ShapeDetailSheet extends StatelessWidget {
                   label: 'Export KML',
                   onTap: () => _exportKml(context),
                 ),
+                if (shape.type == DrawMode.polygon)
+                  _ActionChip(
+                    icon: Icons.print,
+                    label: 'Print',
+                    color: AppTheme.infoColor,
+                    onTap: () => _printPdf(context),
+                  ),
                 _ActionChip(
                   icon: Icons.delete_outline,
                   label: 'Delete',
@@ -307,6 +319,42 @@ class ShapeDetailSheet extends StatelessWidget {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Export failed: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _printPdf(BuildContext context) async {
+    if (shape.type != DrawMode.polygon) return;
+    try {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Generating PDF...')),
+      );
+
+      Uint8List? mapScreenshot;
+      if (takeScreenshot != null) {
+        mapScreenshot = await takeScreenshot!();
+      }
+
+      final pts = shape.points
+          .map((p) => {'lat': p.latitude, 'lng': p.longitude})
+          .toList();
+
+      final path = await PdfGenerator.generatePolygonPdf(
+        polygonName: shape.name,
+        points: pts,
+        areaHectares: shape.areaHectares,
+        perimeterMeters: shape.perimeterMeters,
+        color: '#${shape.color.value.toRadixString(16).padLeft(8, '0').substring(2)}',
+        mapScreenshot: mapScreenshot,
+      );
+
+      final pdfBytes = await File(path).readAsBytes();
+      await Printing.layoutPdf(onLayout: (_) => pdfBytes);
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Print failed: $e')),
         );
       }
     }

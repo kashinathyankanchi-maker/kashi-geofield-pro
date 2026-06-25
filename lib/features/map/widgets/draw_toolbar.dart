@@ -28,6 +28,11 @@ class DrawToolbar extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              // Drag handle
+              Container(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: const Icon(Icons.drag_indicator, size: 16, color: AppTheme.textMuted),
+              ),
               _ToolButton(
                 icon: Icons.pentagon_outlined,
                 label: 'Polygon',
