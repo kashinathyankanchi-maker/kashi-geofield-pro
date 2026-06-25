@@ -13,6 +13,7 @@ import 'map_controller.dart';
 import 'widgets/draw_toolbar.dart';
 import 'widgets/layer_panel.dart';
 import 'widgets/shape_detail_sheet.dart';
+import '../offline_maps/offline_maps_screen.dart';
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -143,6 +144,31 @@ class _MapScreenState extends State<MapScreen> {
       builder: (_) => ShapeDetailSheet(
         shape: shape,
         controller: _mapController,
+      ),
+    );
+  }
+
+  void _onDownloadMapArea() {
+    // Get visible bounds
+    final bounds = _flutterMapController.camera.visibleBounds;
+    final minLat = bounds.south;
+    final maxLat = bounds.north;
+    final minLng = bounds.west;
+    final maxLng = bounds.east;
+
+    _mapController.toggleOfflineDownloadMode();
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => OfflineMapsScreen(
+          initialBounds: {
+            'minLat': minLat,
+            'maxLat': maxLat,
+            'minLng': minLng,
+            'maxLng': maxLng,
+          },
+        ),
       ),
     );
   }
@@ -407,8 +433,9 @@ class _MapScreenState extends State<MapScreen> {
                 ),
                 children: [
                   fmap.TileLayer(
-                    urlTemplate:
-                        'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                    urlTemplate: _mapController.mapStyle == 'Satellite'
+                        ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+                        : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                     userAgentPackageName: 'com.kashi.kashi_geofield_pro',
                     maxZoom: 19,
                   ),
@@ -604,6 +631,71 @@ class _MapScreenState extends State<MapScreen> {
                   child: const Icon(Icons.list_alt),
                 ),
               ),
+              // ── Offline Download Mode Overlay ──────────────────────────────
+              if (_mapController.isOfflineDownloadMode)
+                Positioned.fill(
+                  child: Container(
+                    color: Colors.black.withOpacity(0.4),
+                    child: SafeArea(
+                      child: Column(
+                        children: [
+                          const SizedBox(height: 20),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: AppTheme.bgCard,
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: const Text(
+                              'Position the area to download',
+                              style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                          const Spacer(),
+                          // Center frame
+                          Container(
+                            width: MediaQuery.of(context).size.width * 0.8,
+                            height: MediaQuery.of(context).size.width * 0.8,
+                            decoration: BoxDecoration(
+                              border: Border.all(color: AppTheme.greenPrimary, width: 3),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Center(
+                              child: Icon(Icons.add, color: AppTheme.greenPrimary.withOpacity(0.5), size: 30),
+                            ),
+                          ),
+                          const Spacer(),
+                          // Bottom buttons
+                          Container(
+                            padding: const EdgeInsets.all(20),
+                            decoration: BoxDecoration(
+                              color: AppTheme.bgCard,
+                              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: OutlinedButton(
+                                    onPressed: () => _mapController.toggleOfflineDownloadMode(),
+                                    child: const Text('Cancel'),
+                                  ),
+                                ),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: ElevatedButton(
+                                    onPressed: _onDownloadMapArea,
+                                    style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryColor, foregroundColor: Colors.white),
+                                    child: const Text('Download'),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
             ],
           ),
         );

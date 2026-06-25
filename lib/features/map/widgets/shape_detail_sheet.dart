@@ -7,6 +7,7 @@ import '../../../core/utils/kml_engine.dart';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:file_picker/file_picker.dart';
 
 class ShapeDetailSheet extends StatelessWidget {
   final DrawnShape shape;
@@ -283,12 +284,24 @@ class ShapeDetailSheet extends StatelessWidget {
           ? KmlEngine.generatePolygonKml(name: shape.name, points: pts)
           : KmlEngine.generatePathKml(name: shape.name, points: pts);
 
-      final dir = await getApplicationDocumentsDirectory();
-      final file = File('${dir.path}/${shape.name}.kml');
-      await file.writeAsString(kml);
+      final String? outputPath = await FilePicker.platform.saveFile(
+        dialogTitle: 'Save KML File',
+        fileName: '${shape.name}.kml',
+        type: FileType.custom,
+        allowedExtensions: ['kml'],
+      );
 
-      if (context.mounted) {
-        await Share.shareXFiles([XFile(file.path)], subject: 'KML - ${shape.name}');
+      if (outputPath != null) {
+        final file = File(outputPath);
+        await file.writeAsString(kml);
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('KML saved to $outputPath'),
+              backgroundColor: AppTheme.greenPrimary,
+            ),
+          );
+        }
       }
     } catch (e) {
       if (context.mounted) {

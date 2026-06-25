@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:printing/printing.dart';
+import 'package:file_picker/file_picker.dart';
 import '../../shared/theme.dart';
 import '../../core/models/village_model.dart';
 import '../../core/utils/kml_engine.dart';
@@ -46,15 +47,20 @@ class _VillageDetailScreenState extends State<VillageDetailScreen> {
         description:
             'District: ${widget.village.district}, State: ${widget.village.state}',
       );
-      final dir = await getApplicationDocumentsDirectory();
-      final file = File(
-          '${dir.path}/${widget.village.villageName.replaceAll(RegExp(r'[^\w]'), '_')}.kml');
-      await file.writeAsString(kml);
-      if (mounted) {
-        await Share.shareXFiles(
-          [XFile(file.path, mimeType: 'application/vnd.google-earth.kml+xml')],
-          subject: 'KML - ${widget.village.villageName}',
-        );
+      
+      final String? outputPath = await FilePicker.platform.saveFile(
+        dialogTitle: 'Save KML File',
+        fileName: '${widget.village.villageName.replaceAll(RegExp(r'[^\w]'), '_')}.kml',
+        type: FileType.custom,
+        allowedExtensions: ['kml'],
+      );
+
+      if (outputPath != null) {
+        final file = File(outputPath);
+        await file.writeAsString(kml);
+        if (mounted) {
+          _showSnack('KML saved to $outputPath');
+        }
       }
     } catch (e) {
       _showSnack('Export failed: $e', isError: true);

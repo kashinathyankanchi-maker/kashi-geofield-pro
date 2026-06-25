@@ -47,12 +47,20 @@ class MapController extends ChangeNotifier {
   // KML shapes loaded on map
   List<KmlShape> _kmlShapes = [];
 
+  // Map Style (Street / Satellite)
+  String _mapStyle = 'Street';
+  
+  // Offline Download Mode
+  bool _isOfflineDownloadMode = false;
+
   // Getters
   DrawMode get drawMode => _drawMode;
   List<LatLng> get currentPoints => List.unmodifiable(_currentPoints);
   List<DrawnShape> get drawnShapes => List.unmodifiable(_drawnShapes);
   DrawnShape? get selectedShape => _selectedShape;
   List<KmlShape> get kmlShapes => _kmlShapes;
+  String get mapStyle => _mapStyle;
+  bool get isOfflineDownloadMode => _isOfflineDownloadMode;
   bool get isDrawing => _drawMode != DrawMode.none;
   bool get canUndo => _currentPoints.isNotEmpty;
   bool get canRedo => _redoStack.isNotEmpty;
@@ -256,6 +264,18 @@ class MapController extends ChangeNotifier {
     _drawnShapes.clear();
     _currentPoints.clear();
     _selectedShape = null;
+    notifyListeners();
+  }
+
+  void setMapStyle(String style) {
+    if (_mapStyle != style) {
+      _mapStyle = style;
+      notifyListeners();
+    }
+  }
+
+  void toggleOfflineDownloadMode() {
+    _isOfflineDownloadMode = !_isOfflineDownloadMode;
     notifyListeners();
   }
 }

@@ -80,7 +80,9 @@ class OfflineRegion {
 // ---------------------------------------------------------------------------
 
 class OfflineMapsScreen extends StatefulWidget {
-  const OfflineMapsScreen({super.key});
+  final Map<String, double>? initialBounds;
+
+  const OfflineMapsScreen({super.key, this.initialBounds});
 
   @override
   State<OfflineMapsScreen> createState() => _OfflineMapsScreenState();
@@ -110,6 +112,12 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
   @override
   void initState() {
     super.initState();
+    if (widget.initialBounds != null) {
+      _minLatCtrl.text = widget.initialBounds!['minLat']!.toStringAsFixed(4);
+      _maxLatCtrl.text = widget.initialBounds!['maxLat']!.toStringAsFixed(4);
+      _minLngCtrl.text = widget.initialBounds!['minLng']!.toStringAsFixed(4);
+      _maxLngCtrl.text = widget.initialBounds!['maxLng']!.toStringAsFixed(4);
+    }
     _loadRegions();
   }
 

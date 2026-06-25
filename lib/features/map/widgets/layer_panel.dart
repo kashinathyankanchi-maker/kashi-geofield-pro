@@ -59,6 +59,37 @@ class LayerPanel extends StatelessWidget {
                   ],
                 ),
               ),
+              // Map Style Toggle
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: SegmentedButton<String>(
+                        segments: const [
+                          ButtonSegment(value: 'Street', label: Text('Street', style: TextStyle(fontSize: 11))),
+                          ButtonSegment(value: 'Satellite', label: Text('Satellite', style: TextStyle(fontSize: 11))),
+                        ],
+                        selected: {controller.mapStyle},
+                        onSelectionChanged: (Set<String> newSelection) {
+                          controller.setMapStyle(newSelection.first);
+                        },
+                        style: ButtonStyle(
+                          visualDensity: VisualDensity.compact,
+                          backgroundColor: WidgetStateProperty.resolveWith<Color>(
+                            (Set<WidgetState> states) {
+                              if (states.contains(WidgetState.selected)) {
+                                return AppTheme.greenPrimary.withOpacity(0.2);
+                              }
+                              return Colors.transparent;
+                            },
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
               const Divider(height: 1, color: AppTheme.borderColor),
 
               // Polygon layer
@@ -133,6 +164,35 @@ class LayerPanel extends StatelessWidget {
                           ),
                         )),
                   ],
+                ),
+              ),
+
+              const Divider(height: 1, color: AppTheme.borderColor),
+              
+              // Offline Tool
+              InkWell(
+                onTap: () {
+                  onClose();
+                  controller.toggleOfflineDownloadMode();
+                },
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.download_for_offline, color: AppTheme.textPrimary, size: 18),
+                      const SizedBox(width: 10),
+                      const Expanded(
+                        child: Text(
+                          'Download Map Area',
+                          style: TextStyle(
+                            color: AppTheme.textPrimary,
+                            fontWeight: FontWeight.w500,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ],
