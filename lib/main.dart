@@ -1,0 +1,34 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'shared/theme.dart';
+import 'shared/bottom_nav.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.landscapeLeft,
+    DeviceOrientation.landscapeRight,
+  ]);
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.light,
+    ),
+  );
+  runApp(const KashiGeoFieldApp());
+}
+
+class KashiGeoFieldApp extends StatelessWidget {
+  const KashiGeoFieldApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'kashi GeoField Pro',
+      debugShowCheckedModeBanner: false,
+      theme: AppTheme.darkTheme,
+      home: const MainScaffold(),
+    );
+  }
+}

@@ -1,0 +1,72 @@
+name: kashi_geofield_pro
+description: "kashi GeoField Pro - Professional Android Field Mapping Application"
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Map Engine
+  flutter_map: ^6.0.0
+  latlong2: ^0.9.0
+
+  # Database
+  sqflite: ^2.3.0
+  path_provider: ^2.1.0
+
+  # File & Archive
+  archive: ^3.4.0
+  file_picker: ^8.0.0
+
+  # XML & GeoJSON
+  xml: ^6.3.0
+  geojson_vi: ^2.2.0
+
+  # Sharing
+  share_plus: ^7.2.0
+
+  # Location
+  geolocator: ^10.1.0
+
+  # Permissions
+  permission_handler: ^11.0.0
+
+  # PDF & Print
+  pdf: ^3.10.0
+  printing: ^5.11.0
+  screenshot: ^2.1.0
+
+  # UI
+  flutter_colorpicker: ^1.0.3
+
+  # HTTP (for Nominatim search)
+  http: ^1.1.0
+
+  # Shared Preferences (for settings)
+  shared_preferences: ^2.2.0
+
+  # Icon
+  cupertino_icons: ^1.0.6
+
+  # Offline maps tile caching
+  flutter_map_cancellable_tile_provider: ^2.0.0
+
+  # Path utilities
+  path: ^1.8.3
+
+  # URL launcher
+  url_launcher: ^6.2.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
