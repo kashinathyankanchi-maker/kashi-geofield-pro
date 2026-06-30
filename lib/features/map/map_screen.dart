@@ -41,10 +41,6 @@ class _MapScreenState extends State<MapScreen> {
   List<PolygonModel> _savedPolygons = [];
   bool _loadingLocation = false;
 
-  // Draggable toolbar state
-  Offset _toolbarOffset = const Offset(0, 120);
-  bool _isToolbarOffsetInitialized = false;
-
   @override
   void initState() {
     super.initState();
@@ -56,10 +52,12 @@ class _MapScreenState extends State<MapScreen> {
     final db = DbHelper();
     final villages = await db.getAllVillages();
     final polygons = await db.getAllPolygons();
-    setState(() {
-      _villages = villages;
-      _savedPolygons = polygons;
-    });
+    if (mounted) {
+      setState(() {
+        _villages = villages;
+        _savedPolygons = polygons;
+      });
+    }
   }
 
   Future<void> _goToCurrentLocation() async {
@@ -87,9 +85,9 @@ class _MapScreenState extends State<MapScreen> {
       );
       _showSnackBar('Moved to current location');
     } catch (e) {
-      _showSnackBar('Could not get location: $e', isError: true);
+      _showSnackBar('Error: $e', isError: true);
     } finally {
-      setState(() => _loadingLocation = false);
+      if (mounted) setState(() => _loadingLocation = false);
     }
   }
 
@@ -115,13 +113,14 @@ class _MapScreenState extends State<MapScreen> {
         }
       }
     } catch (e) {
-      _showSnackBar('Search failed: $e', isError: true);
+      _showSnackBar('Search failed', isError: true);
     } finally {
-      setState(() => _isSearching = false);
+      if (mounted) setState(() => _isSearching = false);
     }
   }
 
   void _showSnackBar(String msg, {bool isError = false}) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(msg),
       backgroundColor: isError ? AppTheme.errorColor : AppTheme.greenPrimary,
@@ -131,7 +130,6 @@ class _MapScreenState extends State<MapScreen> {
   void _onMapTap(fmap.TapPosition tapPos, LatLng latLng) {
     if (_mapController.drawMode != DrawMode.none) {
       _mapController.addPoint(latLng);
-      // Auto-open waypoint panel when drawing
       if (!_showWaypointPanel && _mapController.drawMode == DrawMode.polygon) {
         setState(() => _showWaypointPanel = true);
       }
@@ -151,9 +149,7 @@ class _MapScreenState extends State<MapScreen> {
       builder: (_) => ShapeDetailSheet(
         shape: shape,
         controller: _mapController,
-        takeScreenshot: () async {
-          return await _screenshotController.capture();
-        },
+        takeScreenshot: () async => await _screenshotController.capture(),
       ),
     );
   }
@@ -176,37 +172,37 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
+  // ── Map layer builders ─────────────────────────────────────────────────────
+
   List<fmap.Polygon> _buildPolygons() {
     final polygons = <fmap.Polygon>[];
 
-    // Current drawing polygon preview
-    if (_mapController.currentPoints.length >= 3 &&
+    // Live drawing preview
+    if (_mapController.currentPoints.length >= 2 &&
         _mapController.drawMode == DrawMode.polygon) {
       polygons.add(fmap.Polygon(
         points: _mapController.currentPoints,
-        color: const Color(0xFF2EA043).withValues(alpha: 0.15),
+        color: AppTheme.greenPrimary.withValues(alpha: 0.12),
         borderColor: AppTheme.greenAccent,
         borderStrokeWidth: 2,
         isDotted: true,
       ));
     }
 
-    // Drawn shapes (polygons)
     if (_mapController.showPolygonLayer) {
       for (final shape in _mapController.drawnShapes) {
         if (shape.type == DrawMode.polygon) {
           final isSelected = _mapController.selectedShape?.id == shape.id;
           polygons.add(fmap.Polygon(
             points: shape.points,
-            color: shape.color.withValues(alpha: isSelected ? 0.35 : 0.2),
+            color: shape.color.withValues(alpha: isSelected ? 0.35 : 0.18),
             borderColor: isSelected ? Colors.white : shape.color,
-            borderStrokeWidth: isSelected ? 3 : 2,
+            borderStrokeWidth: isSelected ? 3.5 : 2.5,
           ));
         }
       }
     }
 
-    // Village polygons
     if (_mapController.showVillageLayer) {
       for (final v in _villages) {
         try {
@@ -219,7 +215,7 @@ class _MapScreenState extends State<MapScreen> {
               .toList();
           polygons.add(fmap.Polygon(
             points: pts,
-            color: AppTheme.infoColor.withValues(alpha: 0.15),
+            color: AppTheme.infoColor.withValues(alpha: 0.12),
             borderColor: AppTheme.infoColor,
             borderStrokeWidth: 1.5,
           ));
@@ -227,7 +223,6 @@ class _MapScreenState extends State<MapScreen> {
       }
     }
 
-    // KML polygons
     if (_mapController.showKmlLayer) {
       for (final kmlShape in _mapController.kmlShapes) {
         if (kmlShape.type == 'polygon' && kmlShape.coordinates.isNotEmpty) {
@@ -236,7 +231,7 @@ class _MapScreenState extends State<MapScreen> {
               .toList();
           polygons.add(fmap.Polygon(
             points: pts,
-            color: const Color(0xFFD29922).withValues(alpha: 0.2),
+            color: const Color(0xFFD29922).withValues(alpha: 0.18),
             borderColor: const Color(0xFFD29922),
             borderStrokeWidth: 2,
           ));
@@ -244,7 +239,6 @@ class _MapScreenState extends State<MapScreen> {
       }
     }
 
-    // Saved polygons from DB
     for (final poly in _savedPolygons) {
       try {
         final coords = jsonDecode(poly.coordinates) as List;
@@ -256,7 +250,7 @@ class _MapScreenState extends State<MapScreen> {
             .toList();
         polygons.add(fmap.Polygon(
           points: pts,
-          color: const Color(0xFF8B5CF6).withValues(alpha: 0.2),
+          color: const Color(0xFF8B5CF6).withValues(alpha: 0.15),
           borderColor: const Color(0xFF8B5CF6),
           borderStrokeWidth: 1.5,
           isDotted: true,
@@ -283,7 +277,6 @@ class _MapScreenState extends State<MapScreen> {
       }
     }
 
-    // KML paths
     if (_mapController.showKmlLayer) {
       for (final kmlShape in _mapController.kmlShapes) {
         if (kmlShape.type == 'path' && kmlShape.coordinates.isNotEmpty) {
@@ -304,57 +297,20 @@ class _MapScreenState extends State<MapScreen> {
   List<fmap.Marker> _buildMarkers() {
     final markers = <fmap.Marker>[];
 
-    // ── In-progress drawing points with sequential numbered labels ──
+    // In-progress drawing: numbered dots
     for (int i = 0; i < _mapController.currentPoints.length; i++) {
       final pt = _mapController.currentPoints[i];
       final label = (i + 1).toString().padLeft(3, '0');
       markers.add(fmap.Marker(
         point: pt,
-        width: 52,
+        width: 54,
         height: 46,
         alignment: Alignment.bottomCenter,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-              decoration: BoxDecoration(
-                color: Colors.yellow,
-                borderRadius: BorderRadius.circular(4),
-                border: Border.all(color: Colors.black54),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.4),
-                    blurRadius: 3,
-                    offset: const Offset(0, 1),
-                  )
-                ],
-              ),
-              child: Text(
-                label,
-                style: const TextStyle(
-                  color: Colors.black,
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-            const SizedBox(height: 2),
-            Container(
-              width: 11,
-              height: 11,
-              decoration: BoxDecoration(
-                color: AppTheme.greenAccent,
-                shape: BoxShape.circle,
-                border: Border.all(color: Colors.white, width: 2),
-              ),
-            ),
-          ],
-        ),
+        child: _WaypointPin(label: label, color: AppTheme.greenAccent, isActive: true),
       ));
     }
 
-    // ── Drawn polygon vertices with numbered labels ──
+    // Completed polygon vertices
     if (_mapController.showPolygonLayer) {
       for (final shape in _mapController.drawnShapes) {
         if (shape.type == DrawMode.polygon) {
@@ -364,68 +320,38 @@ class _MapScreenState extends State<MapScreen> {
             final label = (i + 1).toString().padLeft(3, '0');
             markers.add(fmap.Marker(
               point: pt,
-              width: 52,
+              width: 54,
               height: 46,
               alignment: Alignment.bottomCenter,
               child: GestureDetector(
                 onTap: () {
                   _mapController.selectShape(shape);
+                  setState(() => _showWaypointPanel = true);
                   _showShapeDetail();
                 },
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: isSelected ? Colors.yellow : Colors.white,
-                        borderRadius: BorderRadius.circular(4),
-                        border: Border.all(color: Colors.black38),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.3),
-                            blurRadius: 3,
-                          ),
-                        ],
-                      ),
-                      child: Text(
-                        label,
-                        style: TextStyle(
-                          color: isSelected ? Colors.black : shape.color,
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Container(
-                      width: 11,
-                      height: 11,
-                      decoration: BoxDecoration(
-                        color: shape.color,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 2),
-                      ),
-                    ),
-                  ],
+                child: _WaypointPin(
+                  label: label,
+                  color: shape.color,
+                  isActive: isSelected,
                 ),
               ),
             ));
           }
         }
 
-        // Drawn standalone markers
         if (shape.type == DrawMode.marker) {
           markers.add(fmap.Marker(
             point: shape.points.first,
-            width: 36,
-            height: 40,
+            width: 40,
+            height: 44,
+            alignment: Alignment.bottomCenter,
             child: GestureDetector(
               onTap: () {
                 _mapController.selectShape(shape);
                 _showShapeDetail();
               },
               child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -434,10 +360,8 @@ class _MapScreenState extends State<MapScreen> {
                       borderRadius: BorderRadius.circular(4),
                       border: Border.all(color: shape.color),
                     ),
-                    child: Text(
-                      shape.name,
-                      style: TextStyle(color: shape.color, fontSize: 8),
-                    ),
+                    child: Text(shape.name,
+                        style: TextStyle(color: shape.color, fontSize: 8)),
                   ),
                   Icon(Icons.place, color: shape.color, size: 28),
                 ],
@@ -448,7 +372,6 @@ class _MapScreenState extends State<MapScreen> {
       }
     }
 
-    // KML markers
     if (_mapController.showKmlLayer) {
       for (final kmlShape in _mapController.kmlShapes) {
         if (kmlShape.type == 'marker' && kmlShape.coordinates.isNotEmpty) {
@@ -467,10 +390,10 @@ class _MapScreenState extends State<MapScreen> {
     return markers;
   }
 
-  // ── Get active waypoints for the panel ──
+  // ── Waypoints data ─────────────────────────────────────────────────────────
+
   List<Map<String, dynamic>> _getActiveWaypoints() {
     final points = <LatLng>[];
-
     if (_mapController.drawMode == DrawMode.polygon &&
         _mapController.currentPoints.isNotEmpty) {
       points.addAll(_mapController.currentPoints);
@@ -483,7 +406,6 @@ class _MapScreenState extends State<MapScreen> {
           .lastOrNull;
       if (poly != null) points.addAll(poly.points);
     }
-
     return [
       for (int i = 0; i < points.length; i++)
         {
@@ -496,443 +418,34 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   String _getActiveShapeName() {
-    if (_mapController.drawMode == DrawMode.polygon) return 'Drawing...';
+    if (_mapController.drawMode == DrawMode.polygon) return 'Drawing Polygon...';
     if (_mapController.selectedShape != null) {
       return _mapController.selectedShape!.name;
     }
     final poly = _mapController.drawnShapes
         .where((s) => s.type == DrawMode.polygon)
         .lastOrNull;
-    return poly?.name ?? 'Polygon';
+    return poly?.name ?? 'No Polygon';
   }
 
-  @override
-  Widget build(BuildContext context) {
-    if (!_isToolbarOffsetInitialized) {
-      _toolbarOffset = Offset(MediaQuery.of(context).size.width - 64, 120);
-      _isToolbarOffsetInitialized = true;
-    }
-
-    return ListenableBuilder(
-      listenable: _mapController,
-      builder: (context, _) {
-        final waypoints = _getActiveWaypoints();
-        final shapeName = _getActiveShapeName();
-
-        return Scaffold(
-          backgroundColor: AppTheme.bgPrimary,
-          body: Stack(
-            children: [
-              // ── Map ──────────────────────────────────────────────────────────
-              Screenshot(
-                controller: _screenshotController,
-                child: fmap.FlutterMap(
-                  mapController: _flutterMapController,
-                  options: fmap.MapOptions(
-                    initialCenter: const LatLng(26.9124, 75.7873),
-                    initialZoom: 13,
-                    onTap: _onMapTap,
-                    interactionOptions: const fmap.InteractionOptions(
-                      flags: fmap.InteractiveFlag.all,
-                    ),
-                  ),
-                  children: [
-                    fmap.TileLayer(
-                      urlTemplate: _mapController.mapStyle == 'Satellite'
-                          ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
-                          : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                      userAgentPackageName: 'com.kashi.kashi_geofield_pro',
-                      maxZoom: 19,
-                    ),
-                    fmap.PolygonLayer(polygons: _buildPolygons()),
-                    fmap.PolylineLayer(polylines: _buildPolylines()),
-                    fmap.MarkerLayer(markers: _buildMarkers()),
-                  ],
-                ),
-              ),
-
-              // ── Waypoint Side Panel ──────────────────────────────────────────
-              if (_showWaypointPanel)
-                Positioned(
-                  left: 0,
-                  top: 0,
-                  bottom: 0,
-                  width: 225,
-                  child: _WaypointPanel(
-                    waypoints: waypoints,
-                    shapeName: shapeName,
-                    onClose: () => setState(() => _showWaypointPanel = false),
-                    onWaypointTap: (wp) {
-                      _flutterMapController.move(
-                        LatLng(wp['lat'] as double, wp['lng'] as double),
-                        16,
-                      );
-                    },
-                    onPrint: waypoints.isNotEmpty
-                        ? () => _printPolygon(waypoints, shapeName)
-                        : null,
-                    onExportKml: waypoints.isNotEmpty
-                        ? () => _exportKml(waypoints, shapeName)
-                        : null,
-                  ),
-                ),
-
-              // ── Top search bar ────────────────────────────────────────────
-              SafeArea(
-                child: Padding(
-                  padding: EdgeInsets.only(
-                    left: _showWaypointPanel ? 233 : 0,
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Row(
-                          children: [
-                            _MapIconBtn(
-                              icon: Icons.table_rows_rounded,
-                              isActive: _showWaypointPanel,
-                              onTap: () => setState(() =>
-                                  _showWaypointPanel = !_showWaypointPanel),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Container(
-                                height: 44,
-                                decoration: BoxDecoration(
-                                  color: AppTheme.bgCard,
-                                  borderRadius: BorderRadius.circular(12),
-                                  border:
-                                      Border.all(color: AppTheme.borderColor),
-                                ),
-                                child: Row(
-                                  children: [
-                                    const SizedBox(width: 10),
-                                    const Icon(Icons.search,
-                                        color: AppTheme.textSecondary,
-                                        size: 18),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: TextField(
-                                        controller: _searchController,
-                                        style: const TextStyle(
-                                            color: AppTheme.textPrimary,
-                                            fontSize: 14),
-                                        decoration: const InputDecoration(
-                                          hintText:
-                                              'Search village, town, city...',
-                                          border: InputBorder.none,
-                                          filled: false,
-                                          contentPadding: EdgeInsets.zero,
-                                        ),
-                                        onSubmitted: _searchLocation,
-                                      ),
-                                    ),
-                                    if (_isSearching)
-                                      const SizedBox(
-                                        width: 18,
-                                        height: 18,
-                                        child: CircularProgressIndicator(
-                                            strokeWidth: 2),
-                                      )
-                                    else if (_searchController.text.isNotEmpty)
-                                      IconButton(
-                                        icon: const Icon(Icons.clear,
-                                            size: 16,
-                                            color: AppTheme.textSecondary),
-                                        onPressed: () {
-                                          _searchController.clear();
-                                          setState(() {});
-                                        },
-                                      ),
-                                    const SizedBox(width: 4),
-                                  ],
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            _MapIconBtn(
-                              icon: Icons.layers,
-                              isActive: _showLayerPanel,
-                              onTap: () => setState(
-                                  () => _showLayerPanel = !_showLayerPanel),
-                            ),
-                          ],
-                        ),
-                      ),
-                      // Drawing mode indicator banner
-                      if (_mapController.drawMode != DrawMode.none)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 14, vertical: 8),
-                            decoration: BoxDecoration(
-                              color: AppTheme.greenPrimary
-                                  .withValues(alpha: 0.92),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Row(
-                              children: [
-                                const Icon(Icons.touch_app,
-                                    color: Colors.white, size: 16),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    _drawModeHint(),
-                                    style: const TextStyle(
-                                        color: Colors.white, fontSize: 12),
-                                  ),
-                                ),
-                                TextButton(
-                                  onPressed: () => _mapController
-                                      .setDrawMode(DrawMode.none),
-                                  child: const Text('Cancel',
-                                      style: TextStyle(
-                                          color: Colors.white, fontSize: 12)),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-
-              // ── Draggable Draw Toolbar ──────────────────────────────────────
-              Positioned(
-                left: _toolbarOffset.dx,
-                top: _toolbarOffset.dy,
-                child: GestureDetector(
-                  onPanUpdate: (details) {
-                    setState(() {
-                      _toolbarOffset += details.delta;
-                      final size = MediaQuery.of(context).size;
-                      double dx = _toolbarOffset.dx;
-                      double dy = _toolbarOffset.dy;
-                      if (dx < 0) dx = 0;
-                      if (dy < 40) dy = 40;
-                      if (dx > size.width - 64) dx = size.width - 64;
-                      if (dy > size.height - 220) dy = size.height - 220;
-                      _toolbarOffset = Offset(dx, dy);
-                    });
-                  },
-                  child: DrawToolbar(controller: _mapController),
-                ),
-              ),
-
-              // ── Layer panel ───────────────────────────────────────────────
-              if (_showLayerPanel)
-                Positioned(
-                  right: 12,
-                  top: 80,
-                  child: LayerPanel(
-                    controller: _mapController,
-                    onClose: () => setState(() => _showLayerPanel = false),
-                  ),
-                ),
-
-              // ── Bottom stats bar (when shape selected) ────────────────────
-              if (_mapController.selectedShape != null)
-                Positioned(
-                  bottom: 16,
-                  left: _showWaypointPanel ? 237 : 12,
-                  right: 12,
-                  child: GestureDetector(
-                    onTap: _showShapeDetail,
-                    child: _SelectedShapeBar(
-                        shape: _mapController.selectedShape!),
-                  ),
-                ),
-
-              // ── GPS button ────────────────────────────────────────────────
-              Positioned(
-                bottom: _mapController.selectedShape != null ? 80 : 16,
-                left: _showWaypointPanel ? 244 : 12,
-                child: _MapIconBtn(
-                  icon: Icons.my_location,
-                  isActive: false,
-                  isLoading: _loadingLocation,
-                  onTap: _goToCurrentLocation,
-                ),
-              ),
-
-              // ── Zoom controls ─────────────────────────────────────────────
-              Positioned(
-                bottom: _mapController.selectedShape != null ? 80 : 16,
-                right: 72,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _MapIconBtn(
-                        icon: Icons.add,
-                        isActive: false,
-                        onTap: () {
-                          final c = _flutterMapController.camera;
-                          _flutterMapController.move(c.center, c.zoom + 1);
-                        }),
-                    const SizedBox(height: 4),
-                    _MapIconBtn(
-                        icon: Icons.remove,
-                        isActive: false,
-                        onTap: () {
-                          final c = _flutterMapController.camera;
-                          _flutterMapController.move(c.center, c.zoom - 1);
-                        }),
-                  ],
-                ),
-              ),
-
-              // ── FAB ──────────────────────────────────────────────────────
-              Positioned(
-                bottom: _mapController.selectedShape != null ? 80 : 16,
-                right: 16,
-                child: FloatingActionButton(
-                  heroTag: 'shapes_list',
-                  onPressed: _showShapesList,
-                  child: const Icon(Icons.list_alt),
-                ),
-              ),
-
-              // ── Offline Download Mode Overlay ─────────────────────────────
-              if (_mapController.isOfflineDownloadMode)
-                Positioned.fill(
-                  child: Container(
-                    color: Colors.black.withValues(alpha: 0.4),
-                    child: SafeArea(
-                      child: Column(
-                        children: [
-                          const SizedBox(height: 20),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 16, vertical: 8),
-                            decoration: BoxDecoration(
-                              color: AppTheme.bgCard,
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: const Text(
-                              'Position the area to download',
-                              style: TextStyle(
-                                  color: AppTheme.textPrimary,
-                                  fontWeight: FontWeight.w600),
-                            ),
-                          ),
-                          const Spacer(),
-                          Container(
-                            width: MediaQuery.of(context).size.width * 0.8,
-                            height: MediaQuery.of(context).size.width * 0.8,
-                            decoration: BoxDecoration(
-                              border: Border.all(
-                                  color: AppTheme.greenPrimary, width: 3),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Center(
-                              child: Icon(Icons.add,
-                                  color: AppTheme.greenPrimary
-                                      .withValues(alpha: 0.5),
-                                  size: 30),
-                            ),
-                          ),
-                          const Spacer(),
-                          Container(
-                            padding: const EdgeInsets.all(20),
-                            decoration: BoxDecoration(
-                              color: AppTheme.bgCard,
-                              borderRadius: const BorderRadius.vertical(
-                                  top: Radius.circular(20)),
-                            ),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: OutlinedButton(
-                                    onPressed: () => _mapController
-                                        .toggleOfflineDownloadMode(),
-                                    child: const Text('Cancel'),
-                                  ),
-                                ),
-                                const SizedBox(width: 16),
-                                Expanded(
-                                  child: ElevatedButton(
-                                    onPressed: _onDownloadMapArea,
-                                    style: ElevatedButton.styleFrom(
-                                        backgroundColor: AppTheme.primaryColor,
-                                        foregroundColor: Colors.white),
-                                    child: const Text('Download'),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  String _drawModeHint() {
-    switch (_mapController.drawMode) {
-      case DrawMode.polygon:
-        final n = _mapController.currentPoints.length;
-        return 'Tap map to add points ($n added). Press ✓ to close.';
-      case DrawMode.path:
-        return 'Tap to add path points. Press ✓ to save.';
-      case DrawMode.marker:
-        return 'Tap to place marker.';
-      default:
-        return '';
-    }
-  }
-
-  void _showShapesList() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: AppTheme.bgCard,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (_) => _ShapesListPanel(
-        controller: _mapController,
-        onShapeTap: (shape) {
-          _mapController.selectShape(shape);
-          if (shape.points.isNotEmpty) {
-            _flutterMapController.move(shape.points.first, 15);
-          }
-          Navigator.pop(context);
-          setState(() => _showWaypointPanel = true);
-          _showShapeDetail();
-        },
-      ),
-    );
-  }
+  // ── Print / KML ────────────────────────────────────────────────────────────
 
   Future<void> _printPolygon(
       List<Map<String, dynamic>> waypoints, String name) async {
     try {
-      _showSnackBar('Generating PDF report...');
+      _showSnackBar('Generating PDF...');
       final Uint8List? mapShot = await _screenshotController.capture();
-
       final pts = waypoints
           .map((w) => {'lat': w['lat'] as double, 'lng': w['lng'] as double})
           .toList();
-
       final shape = _mapController.selectedShape ??
           _mapController.drawnShapes
               .where((s) => s.type == DrawMode.polygon)
               .lastOrNull;
-
-      final area = shape?.areaHectares ??
-          GeoCalculator.calculateAreaHectares(pts);
+      final area =
+          shape?.areaHectares ?? GeoCalculator.calculateAreaHectares(pts);
       final perimeter = shape?.perimeterMeters ??
           GeoCalculator.calculatePerimeterMeters(pts);
-
       final path = await PdfGenerator.generatePolygonPdf(
         polygonName: name,
         points: pts,
@@ -941,7 +454,6 @@ class _MapScreenState extends State<MapScreen> {
         color: '#2EA043',
         mapScreenshot: mapShot,
       );
-
       final pdfBytes = await File(path).readAsBytes();
       await Printing.layoutPdf(onLayout: (_) => pdfBytes);
     } catch (e) {
@@ -955,19 +467,16 @@ class _MapScreenState extends State<MapScreen> {
       final pts = waypoints
           .map((w) => {'lat': w['lat'] as double, 'lng': w['lng'] as double})
           .toList();
-
       final kml = _buildFullKml(name, pts, waypoints);
-
       final String? outputPath = await FilePicker.platform.saveFile(
         dialogTitle: 'Save KML File',
         fileName: '$name.kml',
         type: FileType.custom,
         allowedExtensions: ['kml'],
       );
-
       if (outputPath != null) {
         await File(outputPath).writeAsString(kml);
-        if (mounted) _showSnackBar('KML saved: $outputPath');
+        if (mounted) _showSnackBar('KML saved successfully');
       }
     } catch (e) {
       if (mounted) _showSnackBar('KML export failed: $e', isError: true);
@@ -979,29 +488,26 @@ class _MapScreenState extends State<MapScreen> {
     List<Map<String, double>> pts,
     List<Map<String, dynamic>> waypoints,
   ) {
-    final coordString = pts
-        .map((p) => '${p['lng']},${p['lat']},0')
-        .followedBy(['${pts.first['lng']},${pts.first['lat']},0'])
-        .join('\n              ');
+    if (pts.isEmpty) return '';
+    final coordString = [
+      ...pts.map((p) => '${p['lng']},${p['lat']},0'),
+      '${pts.first['lng']},${pts.first['lat']},0',
+    ].join('\n              ');
 
-    final waypointPlacemarks = waypoints.map((w) {
+    final wpPlacemarks = waypoints.map((w) {
       final label = w['label'] as String;
       final lat = w['lat'] as double;
       final lng = w['lng'] as double;
       return '''    <Placemark>
       <name>$label</name>
-      <description>Waypoint $label&#10;Lat: ${lat.toStringAsFixed(6)}&#10;Lng: ${lng.toStringAsFixed(6)}</description>
+      <description>Lat: ${lat.toStringAsFixed(6)}, Lng: ${lng.toStringAsFixed(6)}</description>
       <Style>
-        <IconStyle>
-          <color>ff000000</color>
-          <scale>0.7</scale>
+        <IconStyle><color>ff000000</color><scale>0.7</scale>
           <Icon><href>http://maps.google.com/mapfiles/kml/shapes/placemark_square.png</href></Icon>
         </IconStyle>
         <LabelStyle><scale>0.9</scale></LabelStyle>
       </Style>
-      <Point>
-        <coordinates>$lng,$lat,0</coordinates>
-      </Point>
+      <Point><coordinates>$lng,$lat,0</coordinates></Point>
     </Placemark>''';
     }).join('\n');
 
@@ -1014,21 +520,273 @@ class _MapScreenState extends State<MapScreen> {
       <PolyStyle><color>302EA043</color></PolyStyle>
     </Style>
     <Placemark>
-      <name>$name (Polygon)</name>
+      <name>$name</name>
       <styleUrl>#polyStyle</styleUrl>
       <Polygon>
-        <outerBoundaryIs>
-          <LinearRing>
-            <coordinates>
-              $coordString
-            </coordinates>
-          </LinearRing>
-        </outerBoundaryIs>
+        <outerBoundaryIs><LinearRing>
+          <coordinates>$coordString</coordinates>
+        </LinearRing></outerBoundaryIs>
       </Polygon>
     </Placemark>
-$waypointPlacemarks
+$wpPlacemarks
   </Document>
 </kml>''';
+  }
+
+  // ── BUILD ──────────────────────────────────────────────────────────────────
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: _mapController,
+      builder: (context, _) {
+        final waypoints = _getActiveWaypoints();
+        final shapeName = _getActiveShapeName();
+
+        return Scaffold(
+          backgroundColor: AppTheme.bgPrimary,
+          // Fixed bottom toolbar — always visible
+          bottomNavigationBar: DrawToolbar(controller: _mapController),
+          body: Stack(
+            children: [
+              // ── Map (full screen) ───────────────────────────────────────────
+              Positioned.fill(
+                child: Screenshot(
+                  controller: _screenshotController,
+                  child: fmap.FlutterMap(
+                    mapController: _flutterMapController,
+                    options: fmap.MapOptions(
+                      initialCenter: const LatLng(26.9124, 75.7873),
+                      initialZoom: 13,
+                      onTap: _onMapTap,
+                      interactionOptions: const fmap.InteractionOptions(
+                        flags: fmap.InteractiveFlag.all,
+                      ),
+                    ),
+                    children: [
+                      fmap.TileLayer(
+                        urlTemplate: _mapController.mapStyle == 'Satellite'
+                            ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+                            : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                        userAgentPackageName: 'com.kashi.kashi_geofield_pro',
+                        maxZoom: 19,
+                      ),
+                      fmap.PolygonLayer(polygons: _buildPolygons()),
+                      fmap.PolylineLayer(polylines: _buildPolylines()),
+                      fmap.MarkerLayer(markers: _buildMarkers()),
+                    ],
+                  ),
+                ),
+              ),
+
+              // ── Left: Waypoint Panel ─────────────────────────────────────────
+              if (_showWaypointPanel)
+                Positioned(
+                  left: 0,
+                  top: 0,
+                  bottom: 0,
+                  width: 220,
+                  child: _WaypointPanel(
+                    waypoints: waypoints,
+                    shapeName: shapeName,
+                    onClose: () =>
+                        setState(() => _showWaypointPanel = false),
+                    onWaypointTap: (wp) {
+                      _flutterMapController.move(
+                        LatLng(
+                            wp['lat'] as double, wp['lng'] as double),
+                        17,
+                      );
+                    },
+                    onPrint: waypoints.isNotEmpty
+                        ? () => _printPolygon(waypoints, shapeName)
+                        : null,
+                    onExportKml: waypoints.isNotEmpty
+                        ? () => _exportKml(waypoints, shapeName)
+                        : null,
+                  ),
+                ),
+
+              // ── Top: Search bar + action buttons ────────────────────────────
+              SafeArea(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // ── Search row ─────────────────────────────────────────────
+                    Padding(
+                      padding: EdgeInsets.only(
+                        left: _showWaypointPanel ? 228 : 12,
+                        right: 12,
+                        top: 10,
+                        bottom: 6,
+                      ),
+                      child: Row(
+                        children: [
+                          // Waypoint panel toggle
+                          _RoundBtn(
+                            icon: Icons.format_list_numbered_rounded,
+                            tooltip: 'Waypoints',
+                            isActive: _showWaypointPanel,
+                            onTap: () => setState(() =>
+                                _showWaypointPanel = !_showWaypointPanel),
+                          ),
+                          const SizedBox(width: 8),
+                          // Search field
+                          Expanded(
+                            child: _SearchBar(
+                              controller: _searchController,
+                              isSearching: _isSearching,
+                              onSubmitted: _searchLocation,
+                              onClear: () {
+                                _searchController.clear();
+                                setState(() {});
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          // Layers toggle
+                          _RoundBtn(
+                            icon: Icons.layers_rounded,
+                            tooltip: 'Layers',
+                            isActive: _showLayerPanel,
+                            onTap: () => setState(
+                                () => _showLayerPanel = !_showLayerPanel),
+                          ),
+                          const SizedBox(width: 6),
+                          // Shapes list
+                          _RoundBtn(
+                            icon: Icons.list_alt_rounded,
+                            tooltip: 'Shapes',
+                            isActive: false,
+                            onTap: _showShapesList,
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // ── Drawing banner ─────────────────────────────────────────
+                    if (_mapController.drawMode != DrawMode.none)
+                      Padding(
+                        padding: EdgeInsets.only(
+                          left: _showWaypointPanel ? 228 : 12,
+                          right: 12,
+                          bottom: 4,
+                        ),
+                        child: _DrawingBanner(
+                          controller: _mapController,
+                          pointCount: _mapController.currentPoints.length,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+
+              // ── Right: Map controls ──────────────────────────────────────────
+              Positioned(
+                right: 12,
+                top: 80,
+                child: Column(
+                  children: [
+                    // Zoom in
+                    _MapFab(
+                      icon: Icons.add,
+                      tooltip: 'Zoom In',
+                      onTap: () {
+                        final c = _flutterMapController.camera;
+                        _flutterMapController.move(c.center, c.zoom + 1);
+                      },
+                    ),
+                    const SizedBox(height: 6),
+                    // Zoom out
+                    _MapFab(
+                      icon: Icons.remove,
+                      tooltip: 'Zoom Out',
+                      onTap: () {
+                        final c = _flutterMapController.camera;
+                        _flutterMapController.move(c.center, c.zoom - 1);
+                      },
+                    ),
+                    const SizedBox(height: 6),
+                    // GPS location
+                    _MapFab(
+                      icon: _loadingLocation
+                          ? Icons.hourglass_top_rounded
+                          : Icons.my_location_rounded,
+                      tooltip: 'My Location',
+                      onTap: _loadingLocation ? null : _goToCurrentLocation,
+                      isLoading: _loadingLocation,
+                    ),
+                    const SizedBox(height: 6),
+                    // Download offline
+                    _MapFab(
+                      icon: Icons.download_rounded,
+                      tooltip: 'Download Area',
+                      onTap: _onDownloadMapArea,
+                    ),
+                  ],
+                ),
+              ),
+
+              // ── Layer panel ──────────────────────────────────────────────────
+              if (_showLayerPanel)
+                Positioned(
+                  right: 12,
+                  top: 80,
+                  child: LayerPanel(
+                    controller: _mapController,
+                    onClose: () =>
+                        setState(() => _showLayerPanel = false),
+                  ),
+                ),
+
+              // ── Bottom: Selected shape info bar ──────────────────────────────
+              if (_mapController.selectedShape != null)
+                Positioned(
+                  bottom: 8,
+                  left: _showWaypointPanel ? 228 : 12,
+                  right: 12,
+                  child: GestureDetector(
+                    onTap: _showShapeDetail,
+                    child: _ShapeInfoBar(
+                        shape: _mapController.selectedShape!),
+                  ),
+                ),
+
+              // ── Offline Download Overlay ─────────────────────────────────────
+              if (_mapController.isOfflineDownloadMode)
+                _OfflineOverlay(
+                  onCancel: _mapController.toggleOfflineDownloadMode,
+                  onDownload: _onDownloadMapArea,
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _showShapesList() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppTheme.bgCard,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => _ShapesListSheet(
+        controller: _mapController,
+        onShapeTap: (shape) {
+          _mapController.selectShape(shape);
+          if (shape.points.isNotEmpty) {
+            _flutterMapController.move(shape.points.first, 15);
+          }
+          Navigator.pop(context);
+          if (shape.type == DrawMode.polygon) {
+            setState(() => _showWaypointPanel = true);
+          }
+          _showShapeDetail();
+        },
+      ),
+    );
   }
 
   @override
@@ -1038,20 +796,380 @@ $waypointPlacemarks
   }
 }
 
-// ─── Waypoint Side Panel ──────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+// HELPER WIDGETS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// Numbered waypoint pin displayed on the map
+class _WaypointPin extends StatelessWidget {
+  final String label;
+  final Color color;
+  final bool isActive;
+
+  const _WaypointPin({
+    required this.label,
+    required this.color,
+    required this.isActive,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          decoration: BoxDecoration(
+            color: isActive ? Colors.yellow : Colors.white,
+            borderRadius: BorderRadius.circular(4),
+            border: Border.all(color: Colors.black38),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.35),
+                blurRadius: 4,
+                offset: const Offset(0, 1),
+              ),
+            ],
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: isActive ? Colors.black : color,
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+        const SizedBox(height: 2),
+        Container(
+          width: 12,
+          height: 12,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 2),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.3),
+                blurRadius: 3,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Compact round icon button for map controls
+class _RoundBtn extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final bool isActive;
+  final VoidCallback onTap;
+
+  const _RoundBtn({
+    required this.icon,
+    required this.tooltip,
+    required this.isActive,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          width: 42,
+          height: 42,
+          decoration: BoxDecoration(
+            color: isActive ? AppTheme.greenPrimary : AppTheme.bgCard,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+                color: isActive
+                    ? AppTheme.greenPrimary
+                    : AppTheme.borderColor),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.3),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Icon(
+            icon,
+            size: 20,
+            color: isActive ? Colors.white : AppTheme.textSecondary,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Square map FAB (zoom/GPS/download)
+class _MapFab extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onTap;
+  final bool isLoading;
+
+  const _MapFab({
+    required this.icon,
+    required this.tooltip,
+    this.onTap,
+    this.isLoading = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: AppTheme.bgCard,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: AppTheme.borderColor),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.25),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: isLoading
+              ? const Center(
+                  child: SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: AppTheme.greenAccent,
+                    ),
+                  ),
+                )
+              : Icon(icon, size: 20, color: AppTheme.textSecondary),
+        ),
+      ),
+    );
+  }
+}
+
+/// Search bar widget
+class _SearchBar extends StatelessWidget {
+  final TextEditingController controller;
+  final bool isSearching;
+  final void Function(String) onSubmitted;
+  final VoidCallback onClear;
+
+  const _SearchBar({
+    required this.controller,
+    required this.isSearching,
+    required this.onSubmitted,
+    required this.onClear,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 42,
+      decoration: BoxDecoration(
+        color: AppTheme.bgCard,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.borderColor),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.25),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          const SizedBox(width: 12),
+          const Icon(Icons.search_rounded,
+              color: AppTheme.textSecondary, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: TextField(
+              controller: controller,
+              style: const TextStyle(
+                  color: AppTheme.textPrimary, fontSize: 13),
+              decoration: const InputDecoration(
+                hintText: 'Search village, city...',
+                hintStyle: TextStyle(
+                    color: AppTheme.textMuted, fontSize: 13),
+                border: InputBorder.none,
+                filled: false,
+                contentPadding: EdgeInsets.zero,
+              ),
+              onSubmitted: onSubmitted,
+            ),
+          ),
+          if (isSearching)
+            const Padding(
+              padding: EdgeInsets.only(right: 10),
+              child: SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: AppTheme.greenAccent),
+              ),
+            )
+          else if (controller.text.isNotEmpty)
+            GestureDetector(
+              onTap: onClear,
+              child: const Padding(
+                padding: EdgeInsets.only(right: 10),
+                child: Icon(Icons.close_rounded,
+                    size: 16, color: AppTheme.textSecondary),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Drawing mode status banner
+class _DrawingBanner extends StatelessWidget {
+  final MapController controller;
+  final int pointCount;
+
+  const _DrawingBanner({
+    required this.controller,
+    required this.pointCount,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    String hint;
+    switch (controller.drawMode) {
+      case DrawMode.polygon:
+        hint = pointCount < 3
+            ? 'Tap map to add points ($pointCount added, need 3+)'
+            : 'Tap to add more points ($pointCount added) · Press ✓ to close';
+        break;
+      case DrawMode.path:
+        hint = pointCount < 2
+            ? 'Tap map to add path points ($pointCount added)'
+            : 'Tap to add more · Press ✓ to save';
+        break;
+      case DrawMode.marker:
+        hint = 'Tap on map to place a marker';
+        break;
+      default:
+        hint = '';
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppTheme.greenPrimary.withValues(alpha: 0.92),
+        borderRadius: BorderRadius.circular(10),
+        boxShadow: [
+          BoxShadow(
+            color: AppTheme.greenPrimary.withValues(alpha: 0.3),
+            blurRadius: 8,
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.touch_app_rounded,
+              color: Colors.white, size: 16),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(hint,
+                style: const TextStyle(color: Colors.white, fontSize: 12)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Selected shape info bar at the bottom
+class _ShapeInfoBar extends StatelessWidget {
+  final DrawnShape shape;
+  const _ShapeInfoBar({required this.shape});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppTheme.bgCard,
+        borderRadius: BorderRadius.circular(14),
+        border:
+            Border.all(color: shape.color.withValues(alpha: 0.5)),
+        boxShadow: [
+          BoxShadow(
+            color: shape.color.withValues(alpha: 0.18),
+            blurRadius: 14,
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 10,
+            height: 10,
+            decoration: BoxDecoration(
+                color: shape.color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(shape.name,
+                    style: const TextStyle(
+                        color: AppTheme.textPrimary,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13)),
+                if (shape.type == DrawMode.polygon)
+                  Text(
+                    '${GeoCalculator.formatArea(shape.areaHectares)} · ${shape.points.length} pts',
+                    style: TextStyle(color: shape.color, fontSize: 11),
+                  ),
+              ],
+            ),
+          ),
+          const Icon(Icons.expand_less_rounded,
+              color: AppTheme.textSecondary, size: 18),
+        ],
+      ),
+    );
+  }
+}
+
+/// Waypoint side panel
 class _WaypointPanel extends StatelessWidget {
   final List<Map<String, dynamic>> waypoints;
+  final String shapeName;
   final VoidCallback onClose;
   final void Function(Map<String, dynamic>) onWaypointTap;
   final VoidCallback? onPrint;
   final VoidCallback? onExportKml;
-  final String shapeName;
 
   const _WaypointPanel({
     required this.waypoints,
+    required this.shapeName,
     required this.onClose,
     required this.onWaypointTap,
-    required this.shapeName,
     this.onPrint,
     this.onExportKml,
   });
@@ -1059,23 +1177,31 @@ class _WaypointPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      elevation: 8,
+      elevation: 12,
       color: AppTheme.bgCard,
       child: SafeArea(
         child: Column(
           children: [
             // Header
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               decoration: BoxDecoration(
                 color: AppTheme.bgSurface,
-                border: Border(bottom: BorderSide(color: AppTheme.borderColor)),
+                border: Border(
+                    bottom: BorderSide(color: AppTheme.borderColor)),
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.pentagon,
-                      color: AppTheme.greenAccent, size: 15),
-                  const SizedBox(width: 6),
+                  Container(
+                    width: 6,
+                    height: 6,
+                    decoration: const BoxDecoration(
+                      color: AppTheme.greenAccent,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       shapeName,
@@ -1089,7 +1215,7 @@ class _WaypointPanel extends StatelessWidget {
                   ),
                   GestureDetector(
                     onTap: onClose,
-                    child: const Icon(Icons.close,
+                    child: const Icon(Icons.close_rounded,
                         color: AppTheme.textMuted, size: 18),
                   ),
                 ],
@@ -1103,16 +1229,15 @@ class _WaypointPanel extends StatelessWidget {
               child: const Row(
                 children: [
                   SizedBox(
-                    width: 40,
-                    child: Text('Name',
+                    width: 42,
+                    child: Text('WPT',
                         style: TextStyle(
                             color: AppTheme.textSecondary,
                             fontSize: 9,
                             fontWeight: FontWeight.bold)),
                   ),
-                  SizedBox(width: 4),
                   Expanded(
-                    child: Text('Position',
+                    child: Text('Latitude / Longitude',
                         style: TextStyle(
                             color: AppTheme.textSecondary,
                             fontSize: 9,
@@ -1125,121 +1250,50 @@ class _WaypointPanel extends StatelessWidget {
             // Waypoints list
             Expanded(
               child: waypoints.isEmpty
-                  ? const Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(16),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.touch_app,
-                                color: AppTheme.textMuted, size: 36),
-                            SizedBox(height: 10),
-                            Text(
-                              'Tap the Polygon tool\nthen tap the map to\nadd waypoints',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                  color: AppTheme.textMuted, fontSize: 11),
-                            ),
-                          ],
-                        ),
-                      ),
-                    )
+                  ? const _EmptyWaypointState()
                   : ListView.builder(
                       itemCount: waypoints.length,
-                      itemBuilder: (ctx, i) {
+                      itemBuilder: (_, i) {
                         final wp = waypoints[i];
-                        final lat = (wp['lat'] as double).toStringAsFixed(5);
-                        final lng = (wp['lng'] as double).toStringAsFixed(5);
-                        return InkWell(
+                        return _WaypointRow(
+                          wp: wp,
+                          isEven: i % 2 == 0,
                           onTap: () => onWaypointTap(wp),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: i % 2 == 0
-                                  ? Colors.transparent
-                                  : const Color(0xFF0D1B2A)
-                                      .withValues(alpha: 0.5),
-                              border: Border(
-                                bottom: BorderSide(
-                                    color: AppTheme.borderColor
-                                        .withValues(alpha: 0.4)),
-                              ),
-                            ),
-                            child: Row(
-                              children: [
-                                // Label badge
-                                Container(
-                                  width: 40,
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 3, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: Colors.yellow,
-                                    borderRadius: BorderRadius.circular(3),
-                                    border: Border.all(color: Colors.black38),
-                                  ),
-                                  child: Text(
-                                    wp['label'] as String,
-                                    textAlign: TextAlign.center,
-                                    style: const TextStyle(
-                                      color: Colors.black,
-                                      fontSize: 9,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 6),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        'N${lat}°',
-                                        style: const TextStyle(
-                                            color: AppTheme.textPrimary,
-                                            fontSize: 9.5,
-                                            fontFamily: 'monospace'),
-                                      ),
-                                      Text(
-                                        'E${lng}°',
-                                        style: const TextStyle(
-                                            color: AppTheme.textSecondary,
-                                            fontSize: 9.5,
-                                            fontFamily: 'monospace'),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
                         );
                       },
                     ),
             ),
 
-            // Action buttons footer
+            // Footer actions
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
                 color: AppTheme.bgSurface,
-                border: Border(top: BorderSide(color: AppTheme.borderColor)),
+                border:
+                    Border(top: BorderSide(color: AppTheme.borderColor)),
               ),
               child: Column(
                 children: [
-                  Text(
-                    '${waypoints.length} Waypoints',
-                    style: const TextStyle(
-                        color: AppTheme.textMuted,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w500),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.place_rounded,
+                          color: AppTheme.textMuted, size: 12),
+                      const SizedBox(width: 4),
+                      Text(
+                        '${waypoints.length} waypoints',
+                        style: const TextStyle(
+                            color: AppTheme.textMuted,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w500),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 8),
                   Row(
                     children: [
                       Expanded(
-                        child: _PanelBtn(
+                        child: _ActionBtn(
                           icon: Icons.print_rounded,
                           label: 'Print Map',
                           color: AppTheme.infoColor,
@@ -1248,9 +1302,9 @@ class _WaypointPanel extends StatelessWidget {
                       ),
                       const SizedBox(width: 8),
                       Expanded(
-                        child: _PanelBtn(
+                        child: _ActionBtn(
                           icon: Icons.download_rounded,
-                          label: 'KML File',
+                          label: 'Save KML',
                           color: AppTheme.greenPrimary,
                           onTap: onExportKml,
                         ),
@@ -1267,13 +1321,123 @@ class _WaypointPanel extends StatelessWidget {
   }
 }
 
-class _PanelBtn extends StatelessWidget {
+class _EmptyWaypointState extends StatelessWidget {
+  const _EmptyWaypointState();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Padding(
+        padding: EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.pentagon_outlined,
+                color: AppTheme.textMuted, size: 40),
+            SizedBox(height: 12),
+            Text(
+              'Tap Polygon in toolbar\nthen tap on the map\nto add waypoints',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                  color: AppTheme.textMuted,
+                  fontSize: 11,
+                  height: 1.5),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _WaypointRow extends StatelessWidget {
+  final Map<String, dynamic> wp;
+  final bool isEven;
+  final VoidCallback onTap;
+
+  const _WaypointRow({
+    required this.wp,
+    required this.isEven,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final lat = (wp['lat'] as double).toStringAsFixed(6);
+    final lng = (wp['lng'] as double).toStringAsFixed(6);
+
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        decoration: BoxDecoration(
+          color: isEven
+              ? Colors.transparent
+              : const Color(0xFF0D1B2A).withValues(alpha: 0.6),
+          border: Border(
+            bottom: BorderSide(
+                color: AppTheme.borderColor.withValues(alpha: 0.35)),
+          ),
+        ),
+        child: Row(
+          children: [
+            // Yellow badge
+            Container(
+              width: 42,
+              padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.yellow,
+                borderRadius: BorderRadius.circular(3),
+                border: Border.all(color: Colors.black26),
+              ),
+              child: Text(
+                wp['label'] as String,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.black,
+                  fontSize: 9,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'N $lat°',
+                    style: const TextStyle(
+                      color: AppTheme.textPrimary,
+                      fontSize: 9.5,
+                      fontFeatures: [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                  Text(
+                    'E $lng°',
+                    style: const TextStyle(
+                      color: AppTheme.textSecondary,
+                      fontSize: 9.5,
+                      fontFeatures: [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ActionBtn extends StatelessWidget {
   final IconData icon;
   final String label;
   final Color color;
   final VoidCallback? onTap;
 
-  const _PanelBtn({
+  const _ActionBtn({
     required this.icon,
     required this.label,
     required this.color,
@@ -1295,7 +1459,7 @@ class _PanelBtn extends StatelessWidget {
           borderRadius: BorderRadius.circular(9),
           border: Border.all(
               color: enabled
-                  ? color.withValues(alpha: 0.45)
+                  ? color.withValues(alpha: 0.5)
                   : AppTheme.borderColor),
         ),
         child: Column(
@@ -1317,119 +1481,12 @@ class _PanelBtn extends StatelessWidget {
   }
 }
 
-// ─── Helper widgets ───────────────────────────────────────────────────────────
-
-class _MapIconBtn extends StatelessWidget {
-  final IconData icon;
-  final bool isActive;
-  final VoidCallback onTap;
-  final bool isLoading;
-
-  const _MapIconBtn({
-    required this.icon,
-    required this.isActive,
-    required this.onTap,
-    this.isLoading = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        width: 44,
-        height: 44,
-        decoration: BoxDecoration(
-          color: isActive ? AppTheme.greenPrimary : AppTheme.bgCard,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-              color: isActive ? AppTheme.greenPrimary : AppTheme.borderColor),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.25),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: isLoading
-            ? const Center(
-                child: SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: AppTheme.greenAccent,
-                  ),
-                ),
-              )
-            : Icon(
-                icon,
-                color: isActive ? Colors.white : AppTheme.textSecondary,
-                size: 20,
-              ),
-      ),
-    );
-  }
-}
-
-class _SelectedShapeBar extends StatelessWidget {
-  final DrawnShape shape;
-  const _SelectedShapeBar({required this.shape});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: AppTheme.bgCard,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: shape.color.withValues(alpha: 0.5)),
-        boxShadow: [
-          BoxShadow(
-            color: shape.color.withValues(alpha: 0.15),
-            blurRadius: 12,
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 10,
-            height: 10,
-            decoration:
-                BoxDecoration(color: shape.color, shape: BoxShape.circle),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              shape.name,
-              style: const TextStyle(
-                  color: AppTheme.textPrimary,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 13),
-            ),
-          ),
-          if (shape.type == DrawMode.polygon)
-            Text(
-              GeoCalculator.formatArea(shape.areaHectares),
-              style: TextStyle(color: shape.color, fontSize: 12),
-            ),
-          const SizedBox(width: 8),
-          const Icon(Icons.expand_less,
-              color: AppTheme.textSecondary, size: 18),
-        ],
-      ),
-    );
-  }
-}
-
-class _ShapesListPanel extends StatelessWidget {
+/// Shapes list bottom sheet
+class _ShapesListSheet extends StatelessWidget {
   final MapController controller;
   final void Function(DrawnShape) onShapeTap;
 
-  const _ShapesListPanel({
+  const _ShapesListSheet({
     required this.controller,
     required this.onShapeTap,
   });
@@ -1452,49 +1509,47 @@ class _ShapesListPanel extends StatelessWidget {
           ),
         ),
         const Padding(
-          padding: EdgeInsets.all(14),
+          padding: EdgeInsets.fromLTRB(16, 12, 16, 8),
           child: Row(
             children: [
-              Icon(Icons.list_alt, color: AppTheme.greenAccent, size: 18),
+              Icon(Icons.layers_rounded, color: AppTheme.greenAccent, size: 20),
               SizedBox(width: 8),
-              Text(
-                'Drawn Shapes',
-                style: TextStyle(
-                    color: AppTheme.textPrimary,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 15),
-              ),
+              Text('Drawn Shapes',
+                  style: TextStyle(
+                      color: AppTheme.textPrimary,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16)),
             ],
           ),
         ),
         if (shapes.isEmpty)
           const Padding(
-            padding: EdgeInsets.all(24),
+            padding: EdgeInsets.all(32),
             child: Column(
               children: [
-                Icon(Icons.draw, color: AppTheme.textMuted, size: 48),
-                SizedBox(height: 8),
+                Icon(Icons.draw_rounded, color: AppTheme.textMuted, size: 52),
+                SizedBox(height: 12),
                 Text('No shapes drawn yet',
-                    style: TextStyle(color: AppTheme.textSecondary)),
+                    style: TextStyle(
+                        color: AppTheme.textSecondary,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500)),
                 SizedBox(height: 4),
-                Text(
-                  'Use the toolbar to draw polygons, paths, or markers',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: AppTheme.textMuted, fontSize: 12),
-                ),
+                Text('Use the bottom toolbar to draw polygons',
+                    style: TextStyle(
+                        color: AppTheme.textMuted, fontSize: 12)),
               ],
             ),
           )
         else
           ConstrainedBox(
             constraints: BoxConstraints(
-                maxHeight: MediaQuery.of(context).size.height * 0.4),
+                maxHeight: MediaQuery.of(context).size.height * 0.45),
             child: ListView.separated(
               shrinkWrap: true,
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
               itemCount: shapes.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 4),
+              separatorBuilder: (_, __) => const SizedBox(height: 6),
               itemBuilder: (ctx, i) {
                 final s = shapes[i];
                 return ListTile(
@@ -1508,10 +1563,10 @@ class _ShapesListPanel extends StatelessWidget {
                     backgroundColor: s.color.withValues(alpha: 0.2),
                     child: Icon(
                       s.type == DrawMode.polygon
-                          ? Icons.pentagon
+                          ? Icons.pentagon_rounded
                           : s.type == DrawMode.path
-                              ? Icons.polyline
-                              : Icons.place,
+                              ? Icons.polyline_rounded
+                              : Icons.place_rounded,
                       color: s.color,
                       size: 18,
                     ),
@@ -1519,7 +1574,7 @@ class _ShapesListPanel extends StatelessWidget {
                   title: Text(s.name,
                       style: const TextStyle(
                           color: AppTheme.textPrimary,
-                          fontWeight: FontWeight.w500)),
+                          fontWeight: FontWeight.w600)),
                   subtitle: Text(
                     s.type == DrawMode.polygon
                         ? '${s.points.length} pts · ${GeoCalculator.formatArea(s.areaHectares)}'
@@ -1529,14 +1584,109 @@ class _ShapesListPanel extends StatelessWidget {
                     style: const TextStyle(
                         color: AppTheme.textSecondary, fontSize: 11),
                   ),
-                  trailing: const Icon(Icons.chevron_right,
-                      color: AppTheme.textMuted, size: 16),
+                  trailing: const Icon(Icons.chevron_right_rounded,
+                      color: AppTheme.textMuted, size: 18),
                 );
               },
             ),
           ),
-        const SizedBox(height: 12),
       ],
+    );
+  }
+}
+
+/// Offline download mode overlay
+class _OfflineOverlay extends StatelessWidget {
+  final VoidCallback onCancel;
+  final VoidCallback onDownload;
+
+  const _OfflineOverlay({
+    required this.onCancel,
+    required this.onDownload,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned.fill(
+      child: Container(
+        color: Colors.black.withValues(alpha: 0.45),
+        child: SafeArea(
+          child: Column(
+            children: [
+              const SizedBox(height: 16),
+              Container(
+                margin: const EdgeInsets.symmetric(horizontal: 24),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 16, vertical: 10),
+                decoration: BoxDecoration(
+                  color: AppTheme.bgCard,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: AppTheme.borderColor),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.download_rounded,
+                        color: AppTheme.greenAccent, size: 18),
+                    SizedBox(width: 8),
+                    Text('Pan & zoom to frame the download area',
+                        style: TextStyle(
+                            color: AppTheme.textPrimary,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13)),
+                  ],
+                ),
+              ),
+              const Spacer(),
+              Center(
+                child: Container(
+                  width: MediaQuery.of(context).size.width * 0.75,
+                  height: MediaQuery.of(context).size.width * 0.75,
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                        color: AppTheme.greenAccent, width: 2.5),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: AppTheme.bgCard,
+                  borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(20)),
+                  border: Border(
+                      top: BorderSide(color: AppTheme.borderColor)),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: onCancel,
+                        icon: const Icon(Icons.close_rounded),
+                        label: const Text('Cancel'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: onDownload,
+                        icon: const Icon(Icons.download_rounded),
+                        label: const Text('Download'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.greenPrimary,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
