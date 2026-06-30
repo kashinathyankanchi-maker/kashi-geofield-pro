@@ -278,30 +278,109 @@ class PdfGenerator {
   }
 
   static pw.Widget _buildCoordinatesSection(List<Map<String, double>> points) {
-    final coordStr = points
-        .take(20)
-        .map((p) =>
-            '${p['lat']!.toStringAsFixed(6)}, ${p['lng']!.toStringAsFixed(6)}')
-        .join('\n');
-    final suffix = points.length > 20 ? '\n... (${points.length - 20} more)' : '';
+    // Build a proper numbered table like GPS software output
+    final rows = <pw.TableRow>[
+      pw.TableRow(
+        decoration: const pw.BoxDecoration(color: PdfColors.green800),
+        children: [
+          pw.Padding(
+            padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+            child: pw.Text('#',
+                style: pw.TextStyle(
+                    color: PdfColors.white,
+                    fontWeight: pw.FontWeight.bold,
+                    fontSize: 9)),
+          ),
+          pw.Padding(
+            padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+            child: pw.Text('Waypoint',
+                style: pw.TextStyle(
+                    color: PdfColors.white,
+                    fontWeight: pw.FontWeight.bold,
+                    fontSize: 9)),
+          ),
+          pw.Padding(
+            padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+            child: pw.Text('Latitude',
+                style: pw.TextStyle(
+                    color: PdfColors.white,
+                    fontWeight: pw.FontWeight.bold,
+                    fontSize: 9)),
+          ),
+          pw.Padding(
+            padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+            child: pw.Text('Longitude',
+                style: pw.TextStyle(
+                    color: PdfColors.white,
+                    fontWeight: pw.FontWeight.bold,
+                    fontSize: 9)),
+          ),
+        ],
+      ),
+    ];
+
+    for (int i = 0; i < points.length; i++) {
+      final p = points[i];
+      final label = (i + 1).toString().padLeft(3, '0');
+      final isEven = i % 2 == 0;
+      rows.add(pw.TableRow(
+        decoration: pw.BoxDecoration(
+          color: isEven ? PdfColors.grey100 : PdfColors.white,
+        ),
+        children: [
+          pw.Padding(
+            padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+            child: pw.Text('${i + 1}',
+                style: const pw.TextStyle(
+                    fontSize: 8, color: PdfColors.grey700)),
+          ),
+          pw.Padding(
+            padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+            child: pw.Container(
+              padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+              decoration: pw.BoxDecoration(
+                color: PdfColors.yellow,
+                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(2)),
+              ),
+              child: pw.Text(label,
+                  style: pw.TextStyle(
+                      fontSize: 8,
+                      fontWeight: pw.FontWeight.bold,
+                      color: PdfColors.black)),
+            ),
+          ),
+          pw.Padding(
+            padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+            child: pw.Text(p['lat']!.toStringAsFixed(6),
+                style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey900)),
+          ),
+          pw.Padding(
+            padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+            child: pw.Text(p['lng']!.toStringAsFixed(6),
+                style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey900)),
+          ),
+        ],
+      ));
+    }
 
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
-        pw.Text('Coordinates:',
-            style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
-        pw.SizedBox(height: 4),
-        pw.Container(
-          width: double.infinity,
-          padding: const pw.EdgeInsets.all(8),
-          decoration: pw.BoxDecoration(
-            color: PdfColors.grey100,
-            borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
-          ),
-          child: pw.Text(
-            coordStr + suffix,
-            style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey800),
-          ),
+        pw.Text('Waypoint Coordinates:',
+            style: pw.TextStyle(
+                fontWeight: pw.FontWeight.bold,
+                fontSize: 12,
+                color: PdfColors.grey800)),
+        pw.SizedBox(height: 6),
+        pw.Table(
+          border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
+          columnWidths: {
+            0: const pw.FixedColumnWidth(24),
+            1: const pw.FixedColumnWidth(36),
+            2: const pw.FlexColumnWidth(),
+            3: const pw.FlexColumnWidth(),
+          },
+          children: rows,
         ),
       ],
     );
