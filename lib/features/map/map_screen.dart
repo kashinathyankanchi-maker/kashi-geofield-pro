@@ -1,5 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:collection/collection.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart' as fmap;
 import 'package:latlong2/latlong.dart';
@@ -11,9 +14,11 @@ import 'package:share_plus/share_plus.dart';
 import 'package:printing/printing.dart';
 import '../../shared/theme.dart';
 import '../../core/database/db_helper.dart';
+import '../../core/models/kml_file_model.dart';
 import '../../core/models/village_model.dart';
 import '../../core/models/polygon_model.dart';
 import '../../core/utils/geo_calculator.dart';
+import '../../core/utils/kml_engine.dart';
 import '../../core/utils/pdf_generator.dart';
 import 'map_controller.dart';
 import 'widgets/draw_toolbar.dart';
@@ -41,13 +46,47 @@ class _MapScreenState extends State<MapScreen> {
   List<PolygonModel> _savedPolygons = [];
   bool _loadingLocation = false;
 
+  // GPS live position dot
+  LatLng? _currentPosition;
+  StreamSubscription<Position>? _positionStream;
+
   @override
   void initState() {
     super.initState();
     _flutterMapController = fmap.MapController();
     _loadData();
+    // Load persisted shapes from DB
+    _mapController.loadFromDatabase();
     // Auto-navigate to current location on startup
-    WidgetsBinding.instance.addPostFrameCallback((_) => _goToCurrentLocation());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _goToCurrentLocation();
+      _startLocationStream();
+    });
+  }
+
+
+  /// Start continuous GPS position stream for the blue dot + live tracking
+  void _startLocationStream() async {
+    try {
+      final permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        return;
+      }
+      _positionStream = Geolocator.getPositionStream(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: 3, // update every 3 metres
+        ),
+      ).listen((pos) {
+        final pt = LatLng(pos.latitude, pos.longitude);
+        if (mounted) {
+          setState(() => _currentPosition = pt);
+          // Feed into live tracker if active
+          _mapController.addTrackingPoint(pt);
+        }
+      });
+    } catch (_) {}
   }
 
   Future<void> _loadData() async {
@@ -536,6 +575,430 @@ class _MapScreenState extends State<MapScreen> {
     return poly?.name ?? 'No Polygon';
   }
 
+  // ── Import KML / GeoJSON file ───────────────────────────────────────────────
+
+  Future<void> _importKmlFile() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        allowMultiple: false,
+        type: FileType.custom,
+        allowedExtensions: ['kml', 'kmz', 'json', 'geojson'],
+      );
+      if (result == null || result.files.isEmpty) return;
+
+      final pickedFile = result.files.first;
+      final path = pickedFile.path;
+      if (path == null) return;
+
+      _showSnackBar('Importing ${pickedFile.name}…');
+
+      List<KmlShape> shapes = [];
+      final ext = pickedFile.extension?.toLowerCase() ?? '';
+      if (ext == 'json' || ext == 'geojson') {
+        final content = await File(path).readAsString();
+        shapes = KmlEngine.parseGeoJson(content);
+      } else {
+        shapes = await KmlEngine.parseFile(path);
+      }
+
+      if (shapes.isEmpty) {
+        if (mounted) _showSnackBar('No shapes found in file', isError: true);
+        return;
+      }
+
+      // Add to map
+      _mapController.addKmlShapes(shapes);
+
+      // Save to DB + zoom to first shape
+      final dir = await getApplicationDocumentsDirectory();
+      final destPath = '${dir.path}/${pickedFile.name}';
+      await File(path).copy(destPath);
+      await DbHelper().insertKmlFile(KmlFileModel(
+        filename: pickedFile.name,
+        filepath: destPath,
+        layerColor: '#2EA043',
+        createdAt: DateTime.now().toIso8601String(),
+      ));
+
+      // Zoom to first coordinate
+      if (shapes.first.coordinates.isNotEmpty) {
+        final c = shapes.first.coordinates.first;
+        _flutterMapController.move(LatLng(c['lat']!, c['lng']!), 14);
+      }
+
+      if (mounted) {
+        _showSnackBar('Imported ${shapes.length} shape(s) from ${pickedFile.name}');
+      }
+    } catch (e) {
+      if (mounted) _showSnackBar('Import failed: $e', isError: true);
+    }
+  }
+
+  // ── Export GPS tracking path as KML ────────────────────────────────────────
+
+  Future<void> _exportTrackingKml(DrawnShape shape) async {
+    try {
+      final coords = [
+        ...shape.points.map((p) => '${p.longitude},${p.latitude},0'),
+      ].join('\n          ');
+
+      final kml = '''<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>${shape.name}</name>
+    <Style id="trackStyle">
+      <LineStyle><color>ff006FFF</color><width>4</width></LineStyle>
+    </Style>
+    <Placemark>
+      <name>${shape.name}</name>
+      <description>Distance: ${GeoCalculator.formatPerimeter(shape.perimeterMeters)} · ${shape.points.length} points</description>
+      <styleUrl>#trackStyle</styleUrl>
+      <LineString>
+        <tessellate>1</tessellate>
+        <coordinates>$coords</coordinates>
+      </LineString>
+    </Placemark>
+  </Document>
+</kml>''';
+
+      final dir = await getApplicationDocumentsDirectory();
+      final safe = shape.name.replaceAll(RegExp(r'[^\w\s-]'), '_');
+      final file = File('${dir.path}/$safe.kml');
+      await file.writeAsString(kml);
+
+      await Share.shareXFiles(
+        [XFile(file.path, mimeType: 'application/vnd.google-earth.kml+xml')],
+        subject: '${shape.name} — GPS Track KML',
+        text: 'GPS Track: ${GeoCalculator.formatPerimeter(shape.perimeterMeters)}',
+      );
+
+      if (mounted) {
+        _showSnackBar('GPS track saved & shared (${GeoCalculator.formatPerimeter(shape.perimeterMeters)})');
+      }
+    } catch (e) {
+      if (mounted) _showSnackBar('KML export failed: $e', isError: true);
+    }
+  }
+
+  // ── Manual Coordinate Entry ─────────────────────────────────────────────────
+
+  Future<void> _showManualCoordinateEntry() async {
+    // Each entry is {lat, lng}
+    final List<Map<String, double>> coords = [];
+    final nameCtrl = TextEditingController(text: 'Manual Polygon');
+    bool asClosed = true; // close polygon vs leave as path
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) {
+          final latCtrl = TextEditingController();
+          final lngCtrl = TextEditingController();
+
+          void addPoint() {
+            final lat = double.tryParse(latCtrl.text.trim());
+            final lng = double.tryParse(lngCtrl.text.trim());
+            if (lat == null || lng == null) return;
+            if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return;
+            setLocal(() => coords.add({'lat': lat, 'lng': lng}));
+            latCtrl.clear();
+            lngCtrl.clear();
+          }
+
+          return AlertDialog(
+            backgroundColor: AppTheme.bgCard,
+            insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 24),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+            title: Row(
+              children: [
+                const Icon(Icons.edit_location_alt_rounded, color: AppTheme.greenAccent, size: 22),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text('Manual Coordinates',
+                      style: TextStyle(color: AppTheme.textPrimary, fontSize: 15)),
+                ),
+                // Close as polygon / path toggle
+                Row(
+                  children: [
+                    Text('Polygon', style: TextStyle(
+                        color: asClosed ? AppTheme.greenAccent : AppTheme.textMuted,
+                        fontSize: 11)),
+                    Switch(
+                      value: asClosed,
+                      activeColor: AppTheme.greenPrimary,
+                      onChanged: (v) => setLocal(() => asClosed = v),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Name field
+                  TextField(
+                    controller: nameCtrl,
+                    style: const TextStyle(color: AppTheme.textPrimary, fontSize: 13),
+                    decoration: _inputDeco('Polygon / Path Name', Icons.label_rounded),
+                  ),
+                  const SizedBox(height: 10),
+                  // Coordinate entry row
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: latCtrl,
+                          keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true, signed: true),
+                          style: const TextStyle(color: AppTheme.textPrimary, fontSize: 13),
+                          decoration: _inputDeco('Latitude', Icons.north_rounded),
+                          onSubmitted: (_) => addPoint(),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextField(
+                          controller: lngCtrl,
+                          keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true, signed: true),
+                          style: const TextStyle(color: AppTheme.textPrimary, fontSize: 13),
+                          decoration: _inputDeco('Longitude', Icons.east_rounded),
+                          onSubmitted: (_) => addPoint(),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      GestureDetector(
+                        onTap: addPoint,
+                        child: Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: AppTheme.greenPrimary,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(Icons.add_rounded, color: Colors.white, size: 20),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  // Point list
+                  if (coords.isNotEmpty) ...[
+                    Container(
+                      constraints: const BoxConstraints(maxHeight: 200),
+                      decoration: BoxDecoration(
+                        color: AppTheme.bgSurface,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: AppTheme.borderColor),
+                      ),
+                      child: ListView.separated(
+                        shrinkWrap: true,
+                        itemCount: coords.length,
+                        separatorBuilder: (_, __) => const Divider(height: 1, color: AppTheme.borderColor),
+                        itemBuilder: (_, i) {
+                          final pt = coords[i];
+                          return ListTile(
+                            dense: true,
+                            leading: Container(
+                              width: 26, height: 26,
+                              decoration: BoxDecoration(
+                                color: AppTheme.greenPrimary,
+                                borderRadius: BorderRadius.circular(5),
+                              ),
+                              child: Center(
+                                child: Text(
+                                  (i + 1).toString().padLeft(2, '0'),
+                                  style: const TextStyle(
+                                      color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                            ),
+                            title: Text(
+                              'N ${pt['lat']!.toStringAsFixed(6)}',
+                              style: const TextStyle(color: AppTheme.textPrimary, fontSize: 12),
+                            ),
+                            subtitle: Text(
+                              'E ${pt['lng']!.toStringAsFixed(6)}',
+                              style: const TextStyle(color: AppTheme.textSecondary, fontSize: 11),
+                            ),
+                            trailing: IconButton(
+                              icon: const Icon(Icons.delete_outline, color: Colors.red, size: 18),
+                              onPressed: () => setLocal(() => coords.removeAt(i)),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        const Icon(Icons.info_outline, color: AppTheme.textMuted, size: 14),
+                        const SizedBox(width: 4),
+                        Text('${coords.length} point(s) entered',
+                            style: const TextStyle(color: AppTheme.textMuted, fontSize: 11)),
+                      ],
+                    ),
+                  ] else
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 12),
+                      child: Text('Enter lat/lng and tap + to add points',
+                          style: TextStyle(color: AppTheme.textMuted, fontSize: 12)),
+                    ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancel'),
+              ),
+              // Create on map only
+              if (coords.length >= 2)
+                ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    _createShapeFromCoords(coords, nameCtrl.text.trim(), asClosed);
+                  },
+                  icon: const Icon(Icons.map_rounded, size: 16),
+                  label: const Text('Add to Map'),
+                ),
+              // Create + export KML
+              if (coords.length >= 2)
+                ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    _createShapeFromCoords(coords, nameCtrl.text.trim(), asClosed,
+                        exportKml: true);
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.greenPrimary.withValues(alpha: 0.85),
+                  ),
+                  icon: const Icon(Icons.save_alt_rounded, size: 16),
+                  label: const Text('Add + KML'),
+                ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  InputDecoration _inputDeco(String label, IconData icon) => InputDecoration(
+        labelText: label,
+        prefixIcon: Icon(icon, size: 16, color: AppTheme.textMuted),
+        filled: true,
+        fillColor: AppTheme.bgSurface,
+        labelStyle: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: const BorderSide(color: AppTheme.borderColor)),
+        enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: const BorderSide(color: AppTheme.borderColor)),
+        focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: const BorderSide(color: AppTheme.greenPrimary, width: 2)),
+      );
+
+  /// Create a DrawnShape from manually entered coordinates
+  void _createShapeFromCoords(
+    List<Map<String, double>> coords,
+    String name,
+    bool asClosed, {
+    bool exportKml = false,
+  }) {
+    final pts = coords.map((c) => LatLng(c['lat']!, c['lng']!)).toList();
+    final pointMaps = coords.toList();
+
+    final perimeter = GeoCalculator.calculatePerimeterMeters(pointMaps);
+    final area = asClosed && pts.length >= 3
+        ? GeoCalculator.calculateAreaHectares(pointMaps)
+        : 0.0;
+
+    final shape = DrawnShape(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      name: name.isEmpty ? (asClosed ? 'Manual Polygon' : 'Manual Path') : name,
+      type: asClosed && pts.length >= 3 ? DrawMode.polygon : DrawMode.path,
+      points: pts,
+      areaHectares: area,
+      perimeterMeters: perimeter,
+      color: asClosed ? const Color(0xFF2EA043) : const Color(0xFF388BFD),
+    );
+
+    // Add to map
+    _mapController.addManualShape(shape);
+
+    // Zoom to first point
+    _flutterMapController.move(pts.first, 15);
+    _showSnackBar('${shape.name} created (${pts.length} points)');
+
+    // Export KML if requested
+    if (exportKml) {
+      _exportManualKml(shape, coords, asClosed);
+    }
+  }
+
+  Future<void> _exportManualKml(
+      DrawnShape shape, List<Map<String, double>> coords, bool asClosed) async {
+    try {
+      final pts = coords
+          .map((c) => '${c['lng']},${c['lat']},0')
+          .toList();
+      // Close polygon by repeating first point
+      if (asClosed && pts.isNotEmpty) pts.add(pts.first);
+      final coordStr = pts.join('\n          ');
+
+      final wpPlacemarks = coords.mapIndexed((i, c) => '''    <Placemark>
+      <name>${(i + 1).toString().padLeft(3, '0')}</name>
+      <description>Lat: ${c['lat']!.toStringAsFixed(6)}, Lng: ${c['lng']!.toStringAsFixed(6)}</description>
+      <Style>
+        <IconStyle><color>ff000000</color><scale>0.6</scale>
+          <Icon><href>http://maps.google.com/mapfiles/kml/shapes/placemark_square.png</href></Icon>
+        </IconStyle>
+      </Style>
+      <Point><coordinates>${c['lng']},${c['lat']},0</coordinates></Point>
+    </Placemark>''').join('\n');
+
+      final geomTag = asClosed && coords.length >= 3
+          ? '<Polygon>\n        <outerBoundaryIs><LinearRing>\n          <coordinates>$coordStr</coordinates>\n        </LinearRing></outerBoundaryIs>\n      </Polygon>'
+          : '<LineString>\n        <tessellate>1</tessellate>\n        <coordinates>$coordStr</coordinates>\n      </LineString>';
+
+      final kml = '''<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>${shape.name}</name>
+    <Style id="s">
+      <LineStyle><color>ff2EA043</color><width>3</width></LineStyle>
+      <PolyStyle><color>302EA043</color></PolyStyle>
+    </Style>
+    <Placemark>
+      <name>${shape.name}</name>
+      <styleUrl>#s</styleUrl>
+      $geomTag
+    </Placemark>
+$wpPlacemarks
+  </Document>
+</kml>''';
+
+      final dir = await getApplicationDocumentsDirectory();
+      final safe = shape.name.replaceAll(RegExp(r'[^\w\s-]'), '_');
+      final file = File('${dir.path}/$safe.kml');
+      await file.writeAsString(kml);
+
+      await Share.shareXFiles(
+        [XFile(file.path, mimeType: 'application/vnd.google-earth.kml+xml')],
+        subject: '${shape.name} - KML',
+      );
+
+      if (mounted) _showSnackBar('KML exported: ${shape.name}');
+    } catch (e) {
+      if (mounted) _showSnackBar('KML export failed: $e', isError: true);
+    }
+  }
+
   // ── Print Dialog ────────────────────────────────────────────────────────────
 
   Future<void> _printPolygon(
@@ -931,14 +1394,60 @@ $wpPlacemarks
                     children: [
                       fmap.TileLayer(
                         urlTemplate: _mapController.mapStyle == 'Satellite'
-                            ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+                            // Google Maps satellite — recent imagery
+                            ? 'https://mt0.google.com/vt/lyrs=s&x={x}&y={y}&z={z}'
+                            : _mapController.mapStyle == 'Hybrid'
+                            ? 'https://mt0.google.com/vt/lyrs=y&x={x}&y={y}&z={z}'
                             : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                         userAgentPackageName: 'com.kashi.kashi_geofield_pro',
-                        maxZoom: 19,
+                        maxZoom: 20,
+                        maxNativeZoom: 20,
                       ),
                       fmap.PolygonLayer(polygons: _buildPolygons()),
                       fmap.PolylineLayer(polylines: _buildPolylines()),
+                      // ── Live tracking path ─────────────────────────────────
+                      if (_mapController.trackingPoints.length > 1)
+                        fmap.PolylineLayer(
+                          polylines: [
+                            fmap.Polyline(
+                              points: _mapController.trackingPoints,
+                              color: const Color(0xFFFF6F00),
+                              strokeWidth: 4.0,
+                            ),
+                          ],
+                        ),
                       fmap.MarkerLayer(markers: _buildMarkers()),
+                      // ── GPS blue dot ───────────────────────────────────────
+                      if (_currentPosition != null)
+                        fmap.MarkerLayer(
+                          markers: [
+                            fmap.Marker(
+                              point: _currentPosition!,
+                              width: 30,
+                              height: 30,
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: const Color(0xFF1565C0).withValues(alpha: 0.25),
+                                  border: Border.all(
+                                    color: Colors.white,
+                                    width: 2.5,
+                                  ),
+                                ),
+                                child: Center(
+                                  child: Container(
+                                    width: 12,
+                                    height: 12,
+                                    decoration: const BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: Color(0xFF1976D2),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                     ],
                   ),
                 ),
@@ -971,6 +1480,27 @@ $wpPlacemarks
                         : null,
                   ),
                 ),
+
+              // ── GPS Live Tracking Panel ─────────────────────────────────────
+              if (_mapController.trackingState != TrackingState.idle ||
+                  _mapController.hasTracking)
+                Positioned(
+                  bottom: 8,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: _GpsTrackingPanel(
+                      controller: _mapController,
+                      onStop: () async {
+                        final shape = _mapController.stopTracking();
+                        if (shape != null) {
+                          await _exportTrackingKml(shape);
+                        }
+                      },
+                    ),
+                  ),
+                ),
+
 
               // ── Top: Search bar + action buttons ────────────────────────────
               SafeArea(
@@ -1088,6 +1618,50 @@ $wpPlacemarks
                       tooltip: 'Download Area',
                       onTap: _onDownloadMapArea,
                     ),
+                    const SizedBox(height: 6),
+                    // GPS Track Start/Stop
+                    _MapFab(
+                      icon: _mapController.isTracking
+                          ? Icons.pause_circle_rounded
+                          : (_mapController.isTrackingPaused
+                              ? Icons.play_circle_rounded
+                              : Icons.directions_walk_rounded),
+                      tooltip: _mapController.isTracking
+                          ? 'Pause Tracking'
+                          : (_mapController.isTrackingPaused
+                              ? 'Resume Tracking'
+                              : 'Start GPS Track'),
+                      color: _mapController.isTracking
+                          ? const Color(0xFFFF6F00)
+                          : (_mapController.isTrackingPaused
+                              ? Colors.amber
+                              : null),
+                      onTap: () {
+                        if (_mapController.isTracking) {
+                          _mapController.pauseTracking();
+                        } else if (_mapController.isTrackingPaused) {
+                          _mapController.resumeTracking();
+                        } else {
+                          _mapController.startTracking();
+                          _showSnackBar('GPS tracking started — walk to record path');
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 6),
+                    // Quick Import KML
+                    _MapFab(
+                      icon: Icons.upload_file_rounded,
+                      tooltip: 'Import KML / GeoJSON',
+                      onTap: _importKmlFile,
+                    ),
+                    const SizedBox(height: 6),
+                    // Manual lat/lng entry
+                    _MapFab(
+                      icon: Icons.pin_drop_rounded,
+                      tooltip: 'Enter Coordinates Manually',
+                      color: const Color(0xFF9C27B0),
+                      onTap: _showManualCoordinateEntry,
+                    ),
                   ],
                 ),
               ),
@@ -1156,6 +1730,7 @@ $wpPlacemarks
 
   @override
   void dispose() {
+    _positionStream?.cancel();
     _searchController.dispose();
     super.dispose();
   }
@@ -1282,12 +1857,14 @@ class _MapFab extends StatelessWidget {
   final String tooltip;
   final VoidCallback? onTap;
   final bool isLoading;
+  final Color? color;
 
   const _MapFab({
     required this.icon,
     required this.tooltip,
     this.onTap,
     this.isLoading = false,
+    this.color,
   });
 
   @override
@@ -1302,7 +1879,9 @@ class _MapFab extends StatelessWidget {
           decoration: BoxDecoration(
             color: AppTheme.bgCard,
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: AppTheme.borderColor),
+            border: Border.all(
+              color: color != null ? color!.withValues(alpha: 0.6) : AppTheme.borderColor,
+            ),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.25),
@@ -1322,7 +1901,7 @@ class _MapFab extends StatelessWidget {
                     ),
                   ),
                 )
-              : Icon(icon, size: 20, color: AppTheme.textSecondary),
+              : Icon(icon, size: 20, color: color ?? AppTheme.textSecondary),
         ),
       ),
     );
@@ -2051,6 +2630,136 @@ class _OfflineOverlay extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+// ── GPS Tracking Panel ────────────────────────────────────────────────────────
+
+class _GpsTrackingPanel extends StatelessWidget {
+  final MapController controller;
+  final Future<void> Function() onStop;
+
+  const _GpsTrackingPanel({
+    required this.controller,
+    required this.onStop,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final dist = controller.trackingDistanceMeters;
+    final distStr = dist >= 1000
+        ? '${(dist / 1000).toStringAsFixed(2)} km'
+        : '${dist.toStringAsFixed(0)} m';
+    final pts = controller.trackingPoints.length;
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppTheme.bgCard,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: controller.isTracking
+              ? const Color(0xFFFF6F00)
+              : Colors.amber,
+          width: 1.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.3),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Status indicator dot
+          Container(
+            width: 10,
+            height: 10,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: controller.isTracking
+                  ? const Color(0xFFFF6F00)
+                  : Colors.amber,
+            ),
+          ),
+          const SizedBox(width: 8),
+          // Distance + points
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                controller.isTracking ? 'RECORDING' : 'PAUSED',
+                style: TextStyle(
+                  color: controller.isTracking
+                      ? const Color(0xFFFF6F00)
+                      : Colors.amber,
+                  fontSize: 9,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.2,
+                ),
+              ),
+              Text(
+                '$distStr  ·  $pts pts',
+                style: const TextStyle(
+                  color: AppTheme.textPrimary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(width: 12),
+          // Pause / Resume
+          GestureDetector(
+            onTap: () {
+              if (controller.isTracking) {
+                controller.pauseTracking();
+              } else {
+                controller.resumeTracking();
+              }
+            },
+            child: Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: AppTheme.bgSurface,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(
+                controller.isTracking
+                    ? Icons.pause_rounded
+                    : Icons.play_arrow_rounded,
+                color: controller.isTracking
+                    ? const Color(0xFFFF6F00)
+                    : Colors.amber,
+                size: 18,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          // Stop & save
+          GestureDetector(
+            onTap: onStop,
+            child: Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: Colors.red.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(
+                Icons.stop_rounded,
+                color: Colors.red,
+                size: 18,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
