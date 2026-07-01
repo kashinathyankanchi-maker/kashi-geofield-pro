@@ -5,7 +5,7 @@ import '../../../shared/theme.dart';
 import '../../../core/utils/geo_calculator.dart';
 import '../../../core/utils/kml_engine.dart';
 import 'dart:io';
-import 'dart:typed_data';
+
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:file_picker/file_picker.dart';
@@ -331,22 +331,21 @@ class ShapeDetailSheet extends StatelessWidget {
         const SnackBar(content: Text('Generating PDF...')),
       );
 
-      Uint8List? mapScreenshot;
-      if (takeScreenshot != null) {
-        mapScreenshot = await takeScreenshot!();
-      }
 
       final pts = shape.points
           .map((p) => {'lat': p.latitude, 'lng': p.longitude})
           .toList();
 
       final path = await PdfGenerator.generatePolygonPdf(
-        polygonName: shape.name,
-        points: pts,
-        areaHectares: shape.areaHectares,
-        perimeterMeters: shape.perimeterMeters,
-        color: '#${shape.color.value.toRadixString(16).padLeft(8, '0').substring(2)}',
-        mapScreenshot: mapScreenshot,
+        parts: [
+          PolygonPart(
+            name: shape.name,
+            points: pts,
+            areaHectares: shape.areaHectares,
+            perimeterMeters: shape.perimeterMeters,
+          ),
+        ],
+        reportTitle: shape.name,
       );
 
       final pdfBytes = await File(path).readAsBytes();
