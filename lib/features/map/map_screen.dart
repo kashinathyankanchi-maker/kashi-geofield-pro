@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart' as fmap;
 import 'package:latlong2/latlong.dart';
@@ -537,31 +536,181 @@ class _MapScreenState extends State<MapScreen> {
     return poly?.name ?? 'No Polygon';
   }
 
-  // ── Print / KML ────────────────────────────────────────────────────────────
+  // ── Print Dialog ────────────────────────────────────────────────────────────
 
   Future<void> _printPolygon(
       List<Map<String, dynamic>> waypoints, String name) async {
+    if (!mounted) return;
+
+    // Collect all polygon parts for potential multi-part printing
+    final allPolygons = _mapController.drawnShapes
+        .where((s) => s.type == DrawMode.polygon)
+        .toList();
+
+    // Prepare print settings dialog
+    final titleCtrl = TextEditingController(text: name);
+    final orgCtrl = TextEditingController(text: '');
+    final now = DateTime.now();
+    final dateCtrl = TextEditingController(
+      text: '${now.day.toString().padLeft(2,'0')}/${now.month.toString().padLeft(2,'0')}/${now.year}  '
+            '${now.hour.toString().padLeft(2,'0')}:${now.minute.toString().padLeft(2,'0')}',
+    );
+    bool printAllParts = allPolygons.length > 1;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) => AlertDialog(
+          backgroundColor: AppTheme.bgCard,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.print_rounded, color: AppTheme.greenAccent, size: 22),
+              SizedBox(width: 8),
+              Text('Print Options', style: TextStyle(color: AppTheme.textPrimary, fontSize: 16)),
+            ],
+          ),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Report title
+                  TextField(
+                    controller: titleCtrl,
+                    style: const TextStyle(color: AppTheme.textPrimary),
+                    decoration: InputDecoration(
+                      labelText: 'Report Title',
+                      hintText: 'Title printed on the PDF',
+                      prefixIcon: const Icon(Icons.title_rounded, size: 18),
+                      filled: true, fillColor: AppTheme.bgSurface,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10),
+                          borderSide: const BorderSide(color: AppTheme.borderColor)),
+                      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10),
+                          borderSide: const BorderSide(color: AppTheme.borderColor)),
+                      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10),
+                          borderSide: const BorderSide(color: AppTheme.greenPrimary, width: 2)),
+                      labelStyle: const TextStyle(color: AppTheme.textSecondary),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  // Organization name (optional — leave blank to hide)
+                  TextField(
+                    controller: orgCtrl,
+                    style: const TextStyle(color: AppTheme.textPrimary),
+                    decoration: InputDecoration(
+                      labelText: 'Organization Name (optional)',
+                      hintText: 'Leave blank to hide from header',
+                      prefixIcon: const Icon(Icons.business_rounded, size: 18),
+                      filled: true, fillColor: AppTheme.bgSurface,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10),
+                          borderSide: const BorderSide(color: AppTheme.borderColor)),
+                      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10),
+                          borderSide: const BorderSide(color: AppTheme.borderColor)),
+                      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10),
+                          borderSide: const BorderSide(color: AppTheme.greenPrimary, width: 2)),
+                      labelStyle: const TextStyle(color: AppTheme.textSecondary),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  // Date/time — editable
+                  TextField(
+                    controller: dateCtrl,
+                    style: const TextStyle(color: AppTheme.textPrimary),
+                    decoration: InputDecoration(
+                      labelText: 'Date & Time',
+                      prefixIcon: const Icon(Icons.calendar_today_rounded, size: 18),
+                      filled: true, fillColor: AppTheme.bgSurface,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10),
+                          borderSide: const BorderSide(color: AppTheme.borderColor)),
+                      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10),
+                          borderSide: const BorderSide(color: AppTheme.borderColor)),
+                      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10),
+                          borderSide: const BorderSide(color: AppTheme.greenPrimary, width: 2)),
+                      labelStyle: const TextStyle(color: AppTheme.textSecondary),
+                    ),
+                  ),
+                  // Multi-part toggle (only shown when multiple polygons exist)
+                  if (allPolygons.length > 1) ...[
+                    const SizedBox(height: 10),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: AppTheme.bgSurface,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: AppTheme.borderColor),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.layers_rounded, color: AppTheme.greenAccent, size: 18),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Print all ${allPolygons.length} parts on same page',
+                              style: const TextStyle(color: AppTheme.textPrimary, fontSize: 13),
+                            ),
+                          ),
+                          Switch(
+                            value: printAllParts,
+                            activeColor: AppTheme.greenPrimary,
+                            onChanged: (v) => setLocal(() => printAllParts = v),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            ElevatedButton.icon(
+              onPressed: () => Navigator.pop(ctx, true),
+              icon: const Icon(Icons.print_rounded, size: 16),
+              label: const Text('Generate PDF'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
     try {
       _showSnackBar('Generating PDF...');
-      final Uint8List? mapShot = await _screenshotController.capture();
-      final pts = waypoints
-          .map((w) => {'lat': w['lat'] as double, 'lng': w['lng'] as double})
-          .toList();
-      final shape = _mapController.selectedShape ??
-          _mapController.drawnShapes
-              .where((s) => s.type == DrawMode.polygon)
-              .lastOrNull;
-      final area =
-          shape?.areaHectares ?? GeoCalculator.calculateAreaHectares(pts);
-      final perimeter = shape?.perimeterMeters ??
-          GeoCalculator.calculatePerimeterMeters(pts);
+
+      // Build parts list
+      final List<PolygonPart> parts;
+      if (printAllParts && allPolygons.length > 1) {
+        parts = allPolygons.map((shape) => PolygonPart(
+          name: shape.name,
+          points: shape.points.map((p) => {'lat': p.latitude, 'lng': p.longitude}).toList(),
+          areaHectares: shape.areaHectares,
+          perimeterMeters: shape.perimeterMeters,
+        )).toList();
+      } else {
+        final pts = waypoints
+            .map((w) => {'lat': w['lat'] as double, 'lng': w['lng'] as double})
+            .toList();
+        final shape = _mapController.selectedShape ??
+            _mapController.drawnShapes.where((s) => s.type == DrawMode.polygon).lastOrNull;
+        parts = [
+          PolygonPart(
+            name: name,
+            points: pts,
+            areaHectares: shape?.areaHectares ?? GeoCalculator.calculateAreaHectares(pts),
+            perimeterMeters: shape?.perimeterMeters ?? GeoCalculator.calculatePerimeterMeters(pts),
+          ),
+        ];
+      }
+
       final path = await PdfGenerator.generatePolygonPdf(
-        polygonName: name,
-        points: pts,
-        areaHectares: area,
-        perimeterMeters: perimeter,
-        color: '#2EA043',
-        mapScreenshot: mapShot,
+        parts: parts,
+        reportTitle: titleCtrl.text.trim().isEmpty ? name : titleCtrl.text.trim(),
+        orgName: orgCtrl.text.trim(),
+        customDate: dateCtrl.text.trim().isEmpty ? null : dateCtrl.text.trim(),
       );
       final pdfBytes = await File(path).readAsBytes();
       await Printing.layoutPdf(onLayout: (_) => pdfBytes);
@@ -570,30 +719,126 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
+  // ── KML Export (all parts combined) ──────────────────────────────────────
+
   Future<void> _exportKml(
       List<Map<String, dynamic>> waypoints, String name) async {
     try {
-      final pts = waypoints
-          .map((w) => {'lat': w['lat'] as double, 'lng': w['lng'] as double})
+      // Check if there are multiple polygon parts to combine
+      final allPolygons = _mapController.drawnShapes
+          .where((s) => s.type == DrawMode.polygon)
           .toList();
-      final kml = _buildFullKml(name, pts, waypoints);
 
-      // On Android/iOS use path_provider + share_plus (FilePicker.saveFile needs bytes)
+      final String kml;
+      final String exportName;
+
+      if (allPolygons.length > 1) {
+        // Ask user: export current only, or all parts
+        final choice = await showDialog<String>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: AppTheme.bgCard,
+            title: const Text('KML Export', style: TextStyle(color: AppTheme.textPrimary)),
+            content: Text(
+              '${allPolygons.length} polygon parts found.\nExport all parts in one KML file?',
+              style: const TextStyle(color: AppTheme.textSecondary),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, 'current'),
+                child: const Text('Current Only'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(ctx, 'all'),
+                child: const Text('All Parts'),
+              ),
+            ],
+          ),
+        );
+        if (choice == null || !mounted) return;
+        if (choice == 'all') {
+          kml = _buildMultiPartKml(allPolygons);
+          exportName = '$name (All Parts)';
+        } else {
+          final pts = waypoints.map((w) => {'lat': w['lat'] as double, 'lng': w['lng'] as double}).toList();
+          kml = _buildFullKml(name, pts, waypoints);
+          exportName = name;
+        }
+      } else {
+        final pts = waypoints.map((w) => {'lat': w['lat'] as double, 'lng': w['lng'] as double}).toList();
+        kml = _buildFullKml(name, pts, waypoints);
+        exportName = name;
+      }
+
       final dir = await getApplicationDocumentsDirectory();
-      final safeName = name.replaceAll(RegExp(r'[^\w\s-]'), '_');
+      final safeName = exportName.replaceAll(RegExp(r'[^\w\s-]'), '_');
       final file = File('${dir.path}/$safeName.kml');
       await file.writeAsString(kml);
 
       await Share.shareXFiles(
         [XFile(file.path, mimeType: 'application/vnd.google-earth.kml+xml')],
-        subject: '$name - KML File',
-        text: 'KML file for polygon: $name',
+        subject: '$exportName - KML File',
+        text: 'KML file: $exportName',
       );
 
       if (mounted) _showSnackBar('KML ready — choose where to save/share');
     } catch (e) {
       if (mounted) _showSnackBar('KML export failed: $e', isError: true);
     }
+  }
+
+  /// Build a single KML combining multiple polygon parts
+  String _buildMultiPartKml(List<DrawnShape> shapes) {
+    final styleColors = ['ff2EA043', 'ff1565C0', 'ffC62828', 'ffE65100', 'ff6A1B9A'];
+    final placemarks = <String>[];
+
+    for (int pi = 0; pi < shapes.length; pi++) {
+      final shape = shapes[pi];
+      if (shape.points.isEmpty) continue;
+      final colorHex = styleColors[pi % styleColors.length];
+      final coords = [
+        ...shape.points.map((p) => '${p.longitude},${p.latitude},0'),
+        '${shape.points.first.longitude},${shape.points.first.latitude},0',
+      ].join('\n              ');
+
+      placemarks.add('''    <Style id="style$pi">
+      <LineStyle><color>$colorHex</color><width>3</width></LineStyle>
+      <PolyStyle><color>30${colorHex.substring(2)}</color></PolyStyle>
+    </Style>
+    <Placemark>
+      <name>${shape.name}</name>
+      <styleUrl>#style$pi</styleUrl>
+      <Polygon>
+        <outerBoundaryIs><LinearRing>
+          <coordinates>$coords</coordinates>
+        </LinearRing></outerBoundaryIs>
+      </Polygon>
+    </Placemark>''');
+
+      // Waypoint placemarks for each vertex
+      for (int i = 0; i < shape.points.length; i++) {
+        final p = shape.points[i];
+        final label = (i + 1).toString().padLeft(3, '0');
+        placemarks.add('''    <Placemark>
+      <name>$label</name>
+      <description>${shape.name} · Lat: ${p.latitude.toStringAsFixed(6)}, Lng: ${p.longitude.toStringAsFixed(6)}</description>
+      <Style>
+        <IconStyle><color>ff000000</color><scale>0.6</scale>
+          <Icon><href>http://maps.google.com/mapfiles/kml/shapes/placemark_square.png</href></Icon>
+        </IconStyle>
+      </Style>
+      <Point><coordinates>${p.longitude},${p.latitude},0</coordinates></Point>
+    </Placemark>''');
+      }
+    }
+
+    return '''<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>Multi-Part Survey</name>
+${placemarks.join('\n')}
+  </Document>
+</kml>''';
   }
 
   String _buildFullKml(

@@ -9,131 +9,108 @@ import 'geo_calculator.dart';
 import '../database/db_helper.dart';
 import '../models/print_history_model.dart';
 
-class PdfGenerator {
-  static const String _orgName = 'kashi GeoField Pro';
+/// Represents one polygon part for multi-part printing
+class PolygonPart {
+  final String name;
+  final List<Map<String, double>> points;
+  final double areaHectares;
+  final double perimeterMeters;
 
-  /// Generate a professional PDF for a polygon.
-  /// The PDF includes:
-  ///  - Page 1: Header, title banner, stats table, polygon diagram (no map bg), full coordinate table
-  ///  - Continues on page 2 if coordinate list is long
+  const PolygonPart({
+    required this.name,
+    required this.points,
+    required this.areaHectares,
+    required this.perimeterMeters,
+  });
+}
+
+class PdfGenerator {
+  // ── Public API ──────────────────────────────────────────────────────────────
+
+  /// Generate a PDF for a single polygon (or multiple parts on one page).
+  ///
+  /// [parts]         – List of polygon parts (Part 1, Part 2…). If a single
+  ///                   polygon, pass a list with one item.
+  /// [reportTitle]   – Editable page heading (replaces polygon name in banner).
+  /// [orgName]       – Organization name shown in header. Pass '' to hide.
+  /// [customDate]    – Override the printed date/time string. If null, uses now.
   static Future<String> generatePolygonPdf({
-    required String polygonName,
-    required List<Map<String, double>> points,
-    required double areaHectares,
-    required double perimeterMeters,
-    required String color,
-    Uint8List? mapScreenshot,
-    String? customTitle,
-    String? notes,
+    required List<PolygonPart> parts,
+    String reportTitle = '',
+    String orgName = '',
+    String? customDate,
     String pageSize = 'A4',
     String orientation = 'portrait',
-    String orgName = _orgName,
   }) async {
+    assert(parts.isNotEmpty, 'At least one PolygonPart required');
     final pdf = pw.Document();
     final fmt = _getPageFormat(pageSize, orientation);
-    final now = DateTime.now();
-    final dateStr = _fmtDate(now);
-    final title = customTitle ?? polygonName;
+    final dateStr = customDate ?? _fmtNow();
 
-    // ── Page 1: header + diagram + stats + coords ────────────────────────────
+    // ── Totals ─────────────────────────────────────────────────────────────
+    final totalArea = parts.fold(0.0, (s, p) => s + p.areaHectares);
+    final totalPerimeter =
+        parts.fold(0.0, (s, p) => s + p.perimeterMeters);
+    final totalPoints = parts.fold(0, (s, p) => s + p.points.length);
+    final displayTitle =
+        reportTitle.isNotEmpty ? reportTitle : parts.first.name;
+
     pdf.addPage(
       pw.MultiPage(
         pageFormat: fmt,
-        margin: const pw.EdgeInsets.all(28),
-        header: (ctx) => _buildHeader(orgName, dateStr, ctx),
+        margin: const pw.EdgeInsets.fromLTRB(30, 24, 30, 24),
+        header: (ctx) =>
+            _buildHeader(orgName, dateStr, ctx),
         footer: (ctx) => _buildFooter(ctx),
         build: (ctx) => [
-          pw.SizedBox(height: 8),
+          pw.SizedBox(height: 6),
 
-          // ── Title banner ──────────────────────────────────────────────────
-          pw.Container(
-            width: double.infinity,
-            padding: const pw.EdgeInsets.symmetric(vertical: 10, horizontal: 14),
-            decoration: const pw.BoxDecoration(
-              color: PdfColors.green800,
-              borderRadius: pw.BorderRadius.all(pw.Radius.circular(6)),
-            ),
-            child: pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
-              children: [
-                pw.Text(
-                  title,
-                  style: pw.TextStyle(
-                    color: PdfColors.white,
-                    fontSize: 18,
-                    fontWeight: pw.FontWeight.bold,
-                  ),
-                ),
-                if (title != polygonName)
-                  pw.Text(
-                    polygonName,
-                    style: const pw.TextStyle(
-                      color: PdfColors.greenAccent100,
-                      fontSize: 11,
-                    ),
-                  ),
-              ],
-            ),
-          ),
+          // ── Title banner (editable) ───────────────────────────────────────
+          _titleBanner(displayTitle),
           pw.SizedBox(height: 12),
 
-          // ── Two-column: stats + polygon diagram ───────────────────────────
+          // ── Summary stats ─────────────────────────────────────────────────
           pw.Row(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
-              // Stats table (left)
+              // Stats table (left column)
               pw.Expanded(
                 flex: 3,
-                child: _buildDetailsTable(
-                  polygonName: polygonName,
-                  areaHectares: areaHectares,
-                  perimeterMeters: perimeterMeters,
-                  points: points,
+                child: _buildSummaryTable(
+                  parts: parts,
+                  totalArea: totalArea,
+                  totalPerimeter: totalPerimeter,
+                  totalPoints: totalPoints,
                   dateStr: dateStr,
+                  singlePart: parts.length == 1,
                 ),
               ),
-              pw.SizedBox(width: 12),
-              // Polygon diagram (right) — clean white, NO map background
+              pw.SizedBox(width: 14),
+              // Polygon diagram(s) — right column, NO fill, bold border
               pw.Expanded(
                 flex: 4,
-                child: _buildPolygonDiagram(points, fmt),
+                child: parts.length == 1
+                    ? _buildSingleDiagram(parts.first, fmt)
+                    : _buildMultiDiagram(parts, fmt),
               ),
             ],
           ),
           pw.SizedBox(height: 14),
 
-          // ── Notes ─────────────────────────────────────────────────────────
-          if (notes != null && notes.isNotEmpty) ...[
-            pw.Container(
-              padding: const pw.EdgeInsets.all(8),
-              decoration: const pw.BoxDecoration(
-                color: PdfColors.grey100,
-                borderRadius: pw.BorderRadius.all(pw.Radius.circular(4)),
-              ),
-              child: pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Text('Notes:',
-                      style: pw.TextStyle(
-                          fontWeight: pw.FontWeight.bold, fontSize: 11)),
-                  pw.SizedBox(height: 4),
-                  pw.Text(notes,
-                      style: const pw.TextStyle(
-                          fontSize: 10, color: PdfColors.grey700)),
-                ],
-              ),
-            ),
-            pw.SizedBox(height: 14),
+          // ── Per-part coordinate tables ────────────────────────────────────
+          for (int pi = 0; pi < parts.length; pi++) ...[
+            if (parts.length > 1)
+              _partHeader('Part ${pi + 1} — ${parts[pi].name}',
+                  parts[pi].points.length),
+            _buildCoordinatesTable(parts[pi].points, partIndex: pi),
+            pw.SizedBox(height: 10),
           ],
-
-          // ── Full waypoint coordinate table (all points, no truncation) ────
-          _buildCoordinatesSection(points),
         ],
       ),
     );
 
-    final path = await _savePdf(pdf, polygonName);
-    await _savePrintHistory(polygonName, 'Polygon', path);
+    final path = await _savePdf(pdf, displayTitle);
+    await _savePrintHistory(displayTitle, 'Polygon', path);
     return path;
   }
 
@@ -145,44 +122,33 @@ class PdfGenerator {
     required List<Map<String, double>> points,
     required double areaHectares,
     Uint8List? mapScreenshot,
+    String reportTitle = '',
+    String orgName = '',
+    String? customDate,
     String pageSize = 'A4',
     String orientation = 'portrait',
-    String orgName = _orgName,
   }) async {
     final pdf = pw.Document();
     final fmt = _getPageFormat(pageSize, orientation);
-    final now = DateTime.now();
-    final dateStr = _fmtDate(now);
+    final dateStr = customDate ?? _fmtNow();
+    final displayTitle = reportTitle.isNotEmpty ? reportTitle : villageName;
+
+    final part = PolygonPart(
+      name: villageName,
+      points: points,
+      areaHectares: areaHectares,
+      perimeterMeters: GeoCalculator.calculatePerimeterMeters(points),
+    );
 
     pdf.addPage(
       pw.MultiPage(
         pageFormat: fmt,
-        margin: const pw.EdgeInsets.all(28),
+        margin: const pw.EdgeInsets.fromLTRB(30, 24, 30, 24),
         header: (ctx) => _buildHeader(orgName, dateStr, ctx),
         footer: (ctx) => _buildFooter(ctx),
         build: (ctx) => [
-          pw.SizedBox(height: 8),
-          pw.Container(
-            width: double.infinity,
-            padding: const pw.EdgeInsets.all(12),
-            decoration: const pw.BoxDecoration(
-              color: PdfColors.blue800,
-              borderRadius: pw.BorderRadius.all(pw.Radius.circular(6)),
-            ),
-            child: pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
-              children: [
-                pw.Text('Village Boundary Map',
-                    style: pw.TextStyle(
-                        color: PdfColors.white,
-                        fontSize: 18,
-                        fontWeight: pw.FontWeight.bold)),
-                pw.Text(villageName,
-                    style: const pw.TextStyle(
-                        color: PdfColors.lightBlue100, fontSize: 14)),
-              ],
-            ),
-          ),
+          pw.SizedBox(height: 6),
+          _titleBanner(displayTitle),
           pw.SizedBox(height: 12),
           pw.Row(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -190,14 +156,15 @@ class PdfGenerator {
               pw.Expanded(
                 flex: 3,
                 child: pw.Table(
-                  border:
-                      pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
+                  border: pw.TableBorder.all(
+                      color: PdfColors.grey300, width: 0.5),
                   children: [
                     _tableRow('Village Name', villageName),
                     _tableRow(
                         'District', district.isEmpty ? 'N/A' : district),
                     _tableRow('State', state.isEmpty ? 'N/A' : state),
-                    _tableRow('Area', GeoCalculator.formatArea(areaHectares)),
+                    _tableRow(
+                        'Area', GeoCalculator.formatArea(areaHectares)),
                     _tableRow(
                       'Perimeter',
                       GeoCalculator.formatPerimeter(
@@ -208,15 +175,14 @@ class PdfGenerator {
                   ],
                 ),
               ),
-              pw.SizedBox(width: 12),
+              pw.SizedBox(width: 14),
               pw.Expanded(
-                flex: 4,
-                child: _buildPolygonDiagram(points, fmt),
-              ),
+                  flex: 4,
+                  child: _buildSingleDiagram(part, fmt)),
             ],
           ),
           pw.SizedBox(height: 14),
-          _buildCoordinatesSection(points),
+          _buildCoordinatesTable(points),
         ],
       ),
     );
@@ -226,131 +192,169 @@ class PdfGenerator {
     return path;
   }
 
-  // ─────────────────── HELPERS ─────────────────────────────────────────────
+  // ─────────────────── BUILDERS ──────────────────────────────────────────────
 
-  static String _fmtDate(DateTime dt) =>
-      '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}  '
-      '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
-
-  static pw.Widget _buildHeader(
-      String orgName, String dateStr, pw.Context ctx) {
-    return pw.Container(
-      padding: const pw.EdgeInsets.fromLTRB(14, 10, 14, 10),
-      margin: const pw.EdgeInsets.only(bottom: 4),
-      decoration: const pw.BoxDecoration(
-        color: PdfColors.grey900,
-        borderRadius: pw.BorderRadius.all(pw.Radius.circular(5)),
-      ),
-      child: pw.Row(
-        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-        children: [
-          pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.Text(orgName,
-                  style: pw.TextStyle(
-                      color: PdfColors.green400,
-                      fontSize: 16,
-                      fontWeight: pw.FontWeight.bold)),
-              pw.Text('GeoField Pro — Professional Field Mapping',
-                  style: const pw.TextStyle(
-                      color: PdfColors.grey400, fontSize: 9)),
-            ],
+  static pw.Widget _titleBanner(String title) => pw.Container(
+        width: double.infinity,
+        padding: const pw.EdgeInsets.symmetric(vertical: 10, horizontal: 14),
+        decoration: const pw.BoxDecoration(
+          color: PdfColors.green800,
+          borderRadius: pw.BorderRadius.all(pw.Radius.circular(5)),
+        ),
+        child: pw.Text(
+          title,
+          style: pw.TextStyle(
+            color: PdfColors.white,
+            fontSize: 18,
+            fontWeight: pw.FontWeight.bold,
           ),
-          pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.end,
-            children: [
-              pw.Text('Generated: $dateStr',
-                  style: const pw.TextStyle(
-                      color: PdfColors.grey500, fontSize: 9)),
-              pw.Text('Page ${ctx.pageNumber} of ${ctx.pagesCount}',
-                  style: const pw.TextStyle(
-                      color: PdfColors.grey500, fontSize: 9)),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
+        ),
+      );
 
-  static pw.Widget _buildFooter(pw.Context ctx) {
-    return pw.Container(
-      padding: const pw.EdgeInsets.symmetric(vertical: 6),
-      decoration: const pw.BoxDecoration(
-        border:
-            pw.Border(top: pw.BorderSide(color: PdfColors.grey300, width: 0.5)),
-      ),
-      child: pw.Row(
-        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-        children: [
-          pw.Text('Generated by kashi GeoField Pro',
-              style:
-                  const pw.TextStyle(color: PdfColors.grey500, fontSize: 8)),
-          pw.Text('Page ${ctx.pageNumber} of ${ctx.pagesCount}',
-              style:
-                  const pw.TextStyle(color: PdfColors.grey500, fontSize: 8)),
-        ],
-      ),
-    );
-  }
+  static pw.Widget _partHeader(String title, int ptCount) => pw.Container(
+        margin: const pw.EdgeInsets.only(bottom: 4),
+        padding: const pw.EdgeInsets.symmetric(vertical: 5, horizontal: 10),
+        decoration: const pw.BoxDecoration(
+          color: PdfColors.grey800,
+          borderRadius: pw.BorderRadius.all(pw.Radius.circular(4)),
+        ),
+        child: pw.Row(
+          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+          children: [
+            pw.Text(title,
+                style: pw.TextStyle(
+                    color: PdfColors.white,
+                    fontWeight: pw.FontWeight.bold,
+                    fontSize: 11)),
+            pw.Text('$ptCount points',
+                style: const pw.TextStyle(
+                    color: PdfColors.grey400, fontSize: 9)),
+          ],
+        ),
+      );
 
-  static pw.Widget _buildDetailsTable({
-    required String polygonName,
-    required double areaHectares,
-    required double perimeterMeters,
-    required List<Map<String, double>> points,
+  static pw.Widget _buildSummaryTable({
+    required List<PolygonPart> parts,
+    required double totalArea,
+    required double totalPerimeter,
+    required int totalPoints,
     required String dateStr,
+    required bool singlePart,
   }) {
-    final areaAcres = GeoCalculator.hectaresToAcres(areaHectares);
-    final areaSqM = areaHectares * 10000;
+    final rows = <pw.TableRow>[];
+
+    if (singlePart) {
+      final p = parts.first;
+      rows.addAll([
+        _tableRow('Polygon Name', p.name),
+        _tableRow('Area (Hectares)',
+            '${p.areaHectares.toStringAsFixed(4)} ha'),
+        _tableRow('Area (Acres)',
+            '${GeoCalculator.hectaresToAcres(p.areaHectares).toStringAsFixed(4)} ac'),
+        _tableRow('Area (Sq. Meters)',
+            '${(p.areaHectares * 10000).toStringAsFixed(2)} m²'),
+        _tableRow('Perimeter',
+            GeoCalculator.formatPerimeter(p.perimeterMeters)),
+        _tableRow('Total Waypoints', '${p.points.length}'),
+        _tableRow('Date Created', dateStr),
+      ]);
+    } else {
+      // Multi-part summary
+      rows.addAll([
+        _tableRow('Total Parts', '${parts.length}'),
+        _tableRow('Total Area (Hectares)',
+            '${totalArea.toStringAsFixed(4)} ha'),
+        _tableRow('Total Area (Acres)',
+            '${GeoCalculator.hectaresToAcres(totalArea).toStringAsFixed(4)} ac'),
+        _tableRow('Total Area (Sq. Meters)',
+            '${(totalArea * 10000).toStringAsFixed(2)} m²'),
+        _tableRow('Total Perimeter',
+            GeoCalculator.formatPerimeter(totalPerimeter)),
+        _tableRow('Total Waypoints', '$totalPoints'),
+        _tableRow('Date Created', dateStr),
+      ]);
+      // Per-part mini rows
+      for (int i = 0; i < parts.length; i++) {
+        final p = parts[i];
+        rows.add(_tableRowTinted(
+          'Part ${i + 1}',
+          '${p.areaHectares.toStringAsFixed(2)} ha  ·  ${p.points.length} pts',
+          tint: i % 2 == 0 ? PdfColors.grey100 : PdfColors.white,
+        ));
+      }
+    }
+
     return pw.Table(
       border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
-      children: [
-        _tableRow('Polygon Name', polygonName),
-        _tableRow(
-            'Area (Hectares)', '${areaHectares.toStringAsFixed(4)} ha'),
-        _tableRow(
-            'Area (Acres)', '${areaAcres.toStringAsFixed(4)} ac'),
-        _tableRow(
-            'Area (Sq. Meters)', '${areaSqM.toStringAsFixed(2)} m²'),
-        _tableRow(
-            'Perimeter', GeoCalculator.formatPerimeter(perimeterMeters)),
-        _tableRow('Total Waypoints', '${points.length}'),
-        _tableRow('Date Created', dateStr),
-      ],
+      children: rows,
     );
   }
 
-  /// Draws a clean polygon diagram on white background — NO map tiles.
-  /// Polygon is bold with numbered vertex labels.
-  static pw.Widget _buildPolygonDiagram(
-      List<Map<String, double>> points, PdfPageFormat fmt) {
-    if (points.isEmpty) return pw.SizedBox();
+  /// Polygon diagram for a single part — NO fill, bold black border.
+  /// Looks like screenshot 2 (physical print style).
+  static pw.Widget _buildSingleDiagram(PolygonPart part, PdfPageFormat fmt) {
+    const boxW = 185.0;
+    const boxH = 165.0;
+    return _polygonDiagramCanvas(
+      allParts: [part],
+      boxW: boxW,
+      boxH: boxH,
+      showPartLabels: false,
+    );
+  }
 
-    const boxW = 180.0;
-    const boxH = 160.0;
-    const padding = 22.0;
+  /// Combined diagram with all parts on one canvas.
+  static pw.Widget _buildMultiDiagram(
+      List<PolygonPart> parts, PdfPageFormat fmt) {
+    const boxW = 185.0;
+    const boxH = 165.0;
+    return _polygonDiagramCanvas(
+      allParts: parts,
+      boxW: boxW,
+      boxH: boxH,
+      showPartLabels: true,
+    );
+  }
 
-    // Compute bounding box
-    final lats = points.map((p) => p['lat']!).toList();
-    final lngs = points.map((p) => p['lng']!).toList();
+  /// Core polygon canvas — draws all parts on white background, NO fill.
+  static pw.Widget _polygonDiagramCanvas({
+    required List<PolygonPart> allParts,
+    required double boxW,
+    required double boxH,
+    required bool showPartLabels,
+  }) {
+    const pad = 24.0;
+
+    // Global bounding box across all parts
+    final allPts = allParts.expand((p) => p.points).toList();
+    if (allPts.isEmpty) return pw.SizedBox(width: boxW, height: boxH);
+
+    final lats = allPts.map((p) => p['lat']!).toList();
+    final lngs = allPts.map((p) => p['lng']!).toList();
     final minLat = lats.reduce(min);
     final maxLat = lats.reduce(max);
     final minLng = lngs.reduce(min);
     final maxLng = lngs.reduce(max);
 
-    final latRange = (maxLat - minLat).abs();
-    final lngRange = (maxLng - minLng).abs();
-    final scaleX = latRange < 0.000001 ? 1.0 : (boxW - padding * 2) / lngRange;
-    final scaleY = lngRange < 0.000001 ? 1.0 : (boxH - padding * 2) / latRange;
+    final latRange = max((maxLat - minLat).abs(), 0.000001);
+    final lngRange = max((maxLng - minLng).abs(), 0.000001);
+    final scaleX = (boxW - pad * 2) / lngRange;
+    final scaleY = (boxH - pad * 2) / latRange;
     final scale = min(scaleX, scaleY);
 
-    // Normalize points
-    List<PdfPoint> pts = points.map((p) {
-      final x = padding + (p['lng']! - minLng) * scale;
-      final y = padding + (maxLat - p['lat']!) * scale;
-      return PdfPoint(x, y);
-    }).toList();
+    PdfPoint toCanvas(Map<String, double> p) => PdfPoint(
+          pad + (p['lng']! - minLng) * scale,
+          pad + (maxLat - p['lat']!) * scale,
+        );
+
+    // Part colors for multi-part mode
+    final partColors = [
+      PdfColors.black,
+      PdfColors.blue900,
+      PdfColors.red900,
+      PdfColors.orange900,
+      PdfColors.purple900,
+    ];
 
     return pw.Container(
       width: boxW,
@@ -363,101 +367,114 @@ class PdfGenerator {
       child: pw.CustomPaint(
         size: PdfPoint(boxW, boxH),
         painter: (canvas, size) {
-          if (pts.length < 2) return;
-
-          // Grid lines (subtle)
+          // Subtle grid
           canvas.setStrokeColor(PdfColors.grey200);
-          canvas.setLineWidth(0.3);
-          for (int i = 1; i < 4; i++) {
-            canvas.drawLine(
-                boxW * i / 4, 0, boxW * i / 4, boxH);
-            canvas.drawLine(
-                0, boxH * i / 4, boxW, boxH * i / 4);
+          canvas.setLineWidth(0.25);
+          for (int i = 1; i < 5; i++) {
+            canvas.drawLine(boxW * i / 5, 0, boxW * i / 5, boxH);
+            canvas.drawLine(0, boxH * i / 5, boxW, boxH * i / 5);
           }
           canvas.strokePath();
 
-          // Polygon fill
-          canvas.setFillColor(const PdfColor(0.18, 0.63, 0.26, 0.15));
-          canvas.moveTo(pts[0].x, pts[0].y);
-          for (int i = 1; i < pts.length; i++) {
-            canvas.lineTo(pts[i].x, pts[i].y);
-          }
-          canvas.closePath();
-          canvas.fillPath();
+          // Draw each part
+          for (int pi = 0; pi < allParts.length; pi++) {
+            final part = allParts[pi];
+            if (part.points.length < 2) continue;
+            final pts = part.points.map(toCanvas).toList();
+            final lineColor = allParts.length > 1
+                ? partColors[pi % partColors.length]
+                : PdfColors.black;
 
-          // Polygon border — BOLD
-          canvas.setStrokeColor(const PdfColor(0.0, 0.5, 0.2));
-          canvas.setLineWidth(2.5);
-          canvas.moveTo(pts[0].x, pts[0].y);
-          for (int i = 1; i < pts.length; i++) {
-            canvas.lineTo(pts[i].x, pts[i].y);
-          }
-          canvas.closePath();
-          canvas.strokePath();
+            // Polygon outline — bold, NO fill (white interior = clean)
+            canvas.setStrokeColor(lineColor);
+            canvas.setLineWidth(2.0);
+            canvas.moveTo(pts[0].x, pts[0].y);
+            for (int i = 1; i < pts.length; i++) {
+              canvas.lineTo(pts[i].x, pts[i].y);
+            }
+            canvas.closePath();
+            canvas.strokePath(); // stroke only — NO fill
 
-          // Vertex dots
-          for (int i = 0; i < pts.length; i++) {
-            final p = pts[i];
+            // Vertex labels — square box style (matching physical print)
+            for (int i = 0; i < pts.length; i++) {
+              final p = pts[i];
+              const bw = 14.0;
+              const bh = 9.0;
 
-            // Yellow dot with black border
-            canvas.setFillColor(PdfColors.yellow);
-            canvas.setStrokeColor(PdfColors.black);
-            canvas.setLineWidth(0.6);
-            canvas.drawEllipse(p.x, p.y, 4, 4);
-            canvas.fillAndStrokePath();
+              // Small white box with black border
+              canvas.setFillColor(PdfColors.white);
+              canvas.setStrokeColor(lineColor);
+              canvas.setLineWidth(0.8);
+              canvas.drawRect(p.x - bw / 2, p.y - bh / 2, bw, bh);
+              canvas.fillAndStrokePath();
+
+              // Dot at vertex
+              canvas.setFillColor(lineColor);
+              canvas.drawEllipse(p.x, p.y + bh / 2 + 2.5, 1.5, 1.5);
+              canvas.fillPath();
+            }
+
+            // Part label in corner — set color for potential future use
+            if (showPartLabels && pts.isNotEmpty) {
+              canvas.setFillColor(lineColor);
+            }
           }
         },
       ),
     );
   }
 
-  /// Full coordinate table — ALL waypoints, no truncation.
-  /// Uses multi-page support via pw.MultiPage.
-  static pw.Widget _buildCoordinatesSection(
-      List<Map<String, double>> points) {
+  /// Full numbered coordinate table — ALL points, no truncation.
+  static pw.Widget _buildCoordinatesTable(List<Map<String, double>> points,
+      {int partIndex = 0}) {
     final headerRow = pw.TableRow(
       decoration: const pw.BoxDecoration(color: PdfColors.green800),
       children: [
-        _coordHeader('#'),
-        _coordHeader('WPT'),
-        _coordHeader('Latitude (N)'),
-        _coordHeader('Longitude (E)'),
-        _coordHeader('DMS Lat'),
-        _coordHeader('DMS Lng'),
+        _ch('#'),
+        _ch('WPT'),
+        _ch('Latitude (N)'),
+        _ch('Longitude (E)'),
+        _ch('DMS Latitude'),
+        _ch('DMS Longitude'),
       ],
     );
 
     final dataRows = <pw.TableRow>[];
     for (int i = 0; i < points.length; i++) {
       final p = points[i];
-      final wptLabel = (i + 1).toString().padLeft(3, '0');
+      final wpt = (i + 1).toString().padLeft(3, '0');
       final isEven = i % 2 == 0;
       final lat = p['lat']!;
       final lng = p['lng']!;
+
       dataRows.add(pw.TableRow(
         decoration: pw.BoxDecoration(
           color: isEven ? PdfColors.grey50 : PdfColors.white,
         ),
         children: [
-          _coordCell('${i + 1}', bold: false),
-          _coordCellWidget(
-            pw.Container(
-              padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+          _cd('${i + 1}'),
+          pw.Padding(
+            padding:
+                const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+            child: pw.Container(
+              padding:
+                  const pw.EdgeInsets.symmetric(horizontal: 3, vertical: 1),
               decoration: const pw.BoxDecoration(
                 color: PdfColors.yellow,
-                borderRadius: pw.BorderRadius.all(pw.Radius.circular(2)),
+                borderRadius:
+                    pw.BorderRadius.all(pw.Radius.circular(2)),
               ),
-              child: pw.Text(wptLabel,
+              child: pw.Text(wpt,
                   style: pw.TextStyle(
-                      fontSize: 8,
+                      fontSize: 7.5,
                       fontWeight: pw.FontWeight.bold,
                       color: PdfColors.black)),
             ),
           ),
-          _coordCell(lat.toStringAsFixed(6)),
-          _coordCell(lng.toStringAsFixed(6)),
-          _coordCell(_decToDms(lat, isLat: true), size: 7.5),
-          _coordCell(_decToDms(lng, isLat: false), size: 7.5),
+          _cd(lat.toStringAsFixed(6)),
+          _cd(lng.toStringAsFixed(6)),
+          _cd(_dms(lat, isLat: true), size: 7.5),
+          _cd(_dms(lng, isLat: false), size: 7.5),
         ],
       ));
     }
@@ -469,32 +486,35 @@ class PdfGenerator {
           children: [
             pw.Container(
               width: 3,
-              height: 14,
+              height: 13,
               margin: const pw.EdgeInsets.only(right: 6),
               decoration: const pw.BoxDecoration(
-                  color: PdfColors.green700,
-                  borderRadius:
-                      pw.BorderRadius.all(pw.Radius.circular(2))),
+                color: PdfColors.green700,
+                borderRadius:
+                    pw.BorderRadius.all(pw.Radius.circular(2)),
+              ),
             ),
             pw.Text(
               'Waypoint Coordinate List  (${points.length} points)',
               style: pw.TextStyle(
-                  fontWeight: pw.FontWeight.bold,
-                  fontSize: 12,
-                  color: PdfColors.grey800),
+                fontWeight: pw.FontWeight.bold,
+                fontSize: 11,
+                color: PdfColors.grey800,
+              ),
             ),
           ],
         ),
-        pw.SizedBox(height: 6),
+        pw.SizedBox(height: 5),
         pw.Table(
-          border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.4),
-          columnWidths: {
-            0: const pw.FixedColumnWidth(20),
-            1: const pw.FixedColumnWidth(32),
-            2: const pw.FlexColumnWidth(1.2),
-            3: const pw.FlexColumnWidth(1.2),
-            4: const pw.FlexColumnWidth(1.5),
-            5: const pw.FlexColumnWidth(1.5),
+          border:
+              pw.TableBorder.all(color: PdfColors.grey300, width: 0.4),
+          columnWidths: const {
+            0: pw.FixedColumnWidth(18),
+            1: pw.FixedColumnWidth(30),
+            2: pw.FlexColumnWidth(1.2),
+            3: pw.FlexColumnWidth(1.2),
+            4: pw.FlexColumnWidth(1.6),
+            5: pw.FlexColumnWidth(1.6),
           },
           children: [headerRow, ...dataRows],
         ),
@@ -502,34 +522,134 @@ class PdfGenerator {
     );
   }
 
-  static pw.Widget _coordHeader(String text) => pw.Padding(
+  // ─────────────────── PRIVATE HELPERS ───────────────────────────────────────
+
+  static pw.Widget _buildHeader(
+      String orgName, String dateStr, pw.Context ctx) {
+    // If orgName is empty, show minimal header
+    final showOrg = orgName.trim().isNotEmpty;
+    return pw.Container(
+      padding: const pw.EdgeInsets.fromLTRB(14, 8, 14, 8),
+      margin: const pw.EdgeInsets.only(bottom: 4),
+      decoration: const pw.BoxDecoration(
+        color: PdfColors.grey900,
+        borderRadius: pw.BorderRadius.all(pw.Radius.circular(5)),
+      ),
+      child: pw.Row(
+        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+        children: [
+          pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              if (showOrg)
+                pw.Text(orgName,
+                    style: pw.TextStyle(
+                        color: PdfColors.green400,
+                        fontSize: 15,
+                        fontWeight: pw.FontWeight.bold))
+              else
+                pw.SizedBox(height: 0),
+              pw.Text('GeoField Pro — Professional Field Mapping',
+                  style: const pw.TextStyle(
+                      color: PdfColors.grey400, fontSize: 9)),
+            ],
+          ),
+          pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.end,
+            children: [
+              pw.Text('Generated: $dateStr',
+                  style: const pw.TextStyle(
+                      color: PdfColors.grey400, fontSize: 9)),
+              pw.Text('Page ${ctx.pageNumber} of ${ctx.pagesCount}',
+                  style: const pw.TextStyle(
+                      color: PdfColors.grey500, fontSize: 9)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  static pw.Widget _buildFooter(pw.Context ctx) => pw.Container(
+        padding: const pw.EdgeInsets.symmetric(vertical: 5),
+        decoration: const pw.BoxDecoration(
+          border: pw.Border(
+              top: pw.BorderSide(color: PdfColors.grey300, width: 0.5)),
+        ),
+        child: pw.Row(
+          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+          children: [
+            pw.Text('GeoField Pro — Field Mapping Report',
+                style: const pw.TextStyle(
+                    color: PdfColors.grey500, fontSize: 8)),
+            pw.Text('Page ${ctx.pageNumber} of ${ctx.pagesCount}',
+                style: const pw.TextStyle(
+                    color: PdfColors.grey500, fontSize: 8)),
+          ],
+        ),
+      );
+
+  static pw.Widget _ch(String t) => pw.Padding(
         padding: const pw.EdgeInsets.symmetric(horizontal: 5, vertical: 4),
-        child: pw.Text(text,
+        child: pw.Text(t,
             style: pw.TextStyle(
                 color: PdfColors.white,
                 fontWeight: pw.FontWeight.bold,
                 fontSize: 8)),
       );
 
-  static pw.Widget _coordCell(String text,
-      {bool bold = false, double size = 8}) =>
-      pw.Padding(
+  static pw.Widget _cd(String t, {double size = 8}) => pw.Padding(
         padding: const pw.EdgeInsets.symmetric(horizontal: 5, vertical: 3),
-        child: pw.Text(text,
-            style: pw.TextStyle(
-                fontSize: size,
-                color: PdfColors.grey900,
-                fontWeight:
-                    bold ? pw.FontWeight.bold : pw.FontWeight.normal)),
+        child: pw.Text(t,
+            style:
+                pw.TextStyle(fontSize: size, color: PdfColors.grey900)),
       );
 
-  static pw.Widget _coordCellWidget(pw.Widget child) => pw.Padding(
-        padding: const pw.EdgeInsets.symmetric(horizontal: 5, vertical: 3),
-        child: child,
+  static pw.TableRow _tableRow(String label, String value) =>
+      pw.TableRow(children: [
+        pw.Padding(
+          padding:
+              const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+          child: pw.Text(label,
+              style: pw.TextStyle(
+                  fontWeight: pw.FontWeight.bold,
+                  fontSize: 10,
+                  color: PdfColors.grey800)),
+        ),
+        pw.Padding(
+          padding:
+              const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+          child: pw.Text(value,
+              style: const pw.TextStyle(
+                  fontSize: 10, color: PdfColors.grey900)),
+        ),
+      ]);
+
+  static pw.TableRow _tableRowTinted(
+          String label, String value, {required PdfColor tint}) =>
+      pw.TableRow(
+        decoration: pw.BoxDecoration(color: tint),
+        children: [
+          pw.Padding(
+            padding:
+                const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            child: pw.Text(label,
+                style: pw.TextStyle(
+                    fontWeight: pw.FontWeight.bold,
+                    fontSize: 9.5,
+                    color: PdfColors.grey700)),
+          ),
+          pw.Padding(
+            padding:
+                const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            child: pw.Text(value,
+                style: const pw.TextStyle(
+                    fontSize: 9.5, color: PdfColors.grey900)),
+          ),
+        ],
       );
 
-  /// Convert decimal degrees to DMS string
-  static String _decToDms(double decimal, {required bool isLat}) {
+  static String _dms(double decimal, {required bool isLat}) {
     final dir = isLat
         ? (decimal >= 0 ? 'N' : 'S')
         : (decimal >= 0 ? 'E' : 'W');
@@ -541,50 +661,36 @@ class PdfGenerator {
     return "$dir $deg° ${min}' ${sec.toStringAsFixed(1)}\"";
   }
 
-  static pw.TableRow _tableRow(String label, String value) {
-    return pw.TableRow(children: [
-      pw.Padding(
-        padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-        child: pw.Text(label,
-            style: pw.TextStyle(
-                fontWeight: pw.FontWeight.bold,
-                fontSize: 10,
-                color: PdfColors.grey800)),
-      ),
-      pw.Padding(
-        padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-        child: pw.Text(value,
-            style: const pw.TextStyle(
-                fontSize: 10, color: PdfColors.grey900)),
-      ),
-    ]);
+  static String _fmtNow() {
+    final now = DateTime.now();
+    return '${now.day.toString().padLeft(2, '0')}/'
+        '${now.month.toString().padLeft(2, '0')}/'
+        '${now.year}  '
+        '${now.hour.toString().padLeft(2, '0')}:'
+        '${now.minute.toString().padLeft(2, '0')}';
   }
 
   static PdfPageFormat _getPageFormat(String pageSize, String orientation) {
-    PdfPageFormat format;
+    PdfPageFormat fmt;
     switch (pageSize.toUpperCase()) {
       case 'A3':
-        format = PdfPageFormat.a3;
+        fmt = PdfPageFormat.a3;
         break;
       case 'LETTER':
-        format = PdfPageFormat.letter;
+        fmt = PdfPageFormat.letter;
         break;
       default:
-        format = PdfPageFormat.a4;
+        fmt = PdfPageFormat.a4;
     }
-    if (orientation.toLowerCase() == 'landscape') {
-      format = format.landscape;
-    }
-    return format;
+    return orientation.toLowerCase() == 'landscape' ? fmt.landscape : fmt;
   }
 
   static Future<String> _savePdf(pw.Document pdf, String name) async {
     final dir = await getApplicationDocumentsDirectory();
-    final safeFilename = name.replaceAll(RegExp(r'[^\w\s-]'), '_');
-    final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final path = '${dir.path}/pdf_${safeFilename}_$timestamp.pdf';
-    final file = File(path);
-    await file.writeAsBytes(await pdf.save());
+    final safe = name.replaceAll(RegExp(r'[^\w\s-]'), '_');
+    final ts = DateTime.now().millisecondsSinceEpoch;
+    final path = '${dir.path}/pdf_${safe}_$ts.pdf';
+    await File(path).writeAsBytes(await pdf.save());
     return path;
   }
 
@@ -598,7 +704,6 @@ class PdfGenerator {
     ));
   }
 
-  /// Share a PDF file using share_plus
   static Future<void> sharePdf(String pdfPath, String subject) async {
     await Share.shareXFiles(
       [XFile(pdfPath, mimeType: 'application/pdf')],
