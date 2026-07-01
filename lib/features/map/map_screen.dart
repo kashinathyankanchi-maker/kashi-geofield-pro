@@ -7,7 +7,8 @@ import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:screenshot/screenshot.dart';
-import 'package:file_picker/file_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:printing/printing.dart';
 import '../../shared/theme.dart';
 import '../../core/database/db_helper.dart';
@@ -46,6 +47,8 @@ class _MapScreenState extends State<MapScreen> {
     super.initState();
     _flutterMapController = fmap.MapController();
     _loadData();
+    // Auto-navigate to current location on startup
+    WidgetsBinding.instance.addPostFrameCallback((_) => _goToCurrentLocation());
   }
 
   Future<void> _loadData() async {
@@ -139,6 +142,112 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
+  // ── Polygon title + part dialog ──────────────────────────────────────────
+  Future<Map<String, dynamic>?> _showPolygonTitleDialog() async {
+    final titleCtrl = TextEditingController(
+        text: 'Survey ${_mapController.drawnShapes.where((s) => s.type == DrawMode.polygon).length + 1}');
+    String selectedPart = 'None';
+    final parts = ['None', 'Part 1', 'Part 2', 'Part 3', 'Part 4', 'Part 5'];
+
+    return showDialog<Map<String, dynamic>>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) => AlertDialog(
+          backgroundColor: AppTheme.bgCard,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.pentagon_rounded, color: AppTheme.greenAccent, size: 22),
+              SizedBox(width: 8),
+              Text('Polygon Details', style: TextStyle(color: AppTheme.textPrimary, fontSize: 16)),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Title field
+              TextField(
+                controller: titleCtrl,
+                style: const TextStyle(color: AppTheme.textPrimary),
+                decoration: InputDecoration(
+                  labelText: 'Map Title',
+                  hintText: 'e.g. Survey Field A',
+                  prefixIcon: const Icon(Icons.title_rounded, size: 18),
+                  filled: true,
+                  fillColor: AppTheme.bgSurface,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: AppTheme.borderColor),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: AppTheme.borderColor),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: AppTheme.greenPrimary, width: 2),
+                  ),
+                  labelStyle: const TextStyle(color: AppTheme.textSecondary),
+                ),
+              ),
+              const SizedBox(height: 14),
+              // Part selector
+              DropdownButtonFormField<String>(
+                value: selectedPart,
+                dropdownColor: AppTheme.bgCard,
+                style: const TextStyle(color: AppTheme.textPrimary),
+                decoration: InputDecoration(
+                  labelText: 'Polygon Part',
+                  prefixIcon: const Icon(Icons.layers_rounded, size: 18),
+                  filled: true,
+                  fillColor: AppTheme.bgSurface,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: AppTheme.borderColor),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: AppTheme.borderColor),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: AppTheme.greenPrimary, width: 2),
+                  ),
+                  labelStyle: const TextStyle(color: AppTheme.textSecondary),
+                ),
+                items: parts.map((p) => DropdownMenuItem(
+                  value: p,
+                  child: Text(p),
+                )).toList(),
+                onChanged: (v) => setLocal(() => selectedPart = v ?? 'None'),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton.icon(
+              onPressed: () {
+                final title = titleCtrl.text.trim().isEmpty
+                    ? 'Polygon'
+                    : titleCtrl.text.trim();
+                final fullName = selectedPart == 'None'
+                    ? title
+                    : '$title - $selectedPart';
+                Navigator.pop(ctx, {'name': fullName, 'part': selectedPart});
+              },
+              icon: const Icon(Icons.check_rounded, size: 16),
+              label: const Text('Save Polygon'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _showShapeDetail() {
     final shape = _mapController.selectedShape;
     if (shape == null) return;
@@ -182,9 +291,9 @@ class _MapScreenState extends State<MapScreen> {
         _mapController.drawMode == DrawMode.polygon) {
       polygons.add(fmap.Polygon(
         points: _mapController.currentPoints,
-        color: AppTheme.greenPrimary.withValues(alpha: 0.12),
+        color: AppTheme.greenPrimary.withValues(alpha: 0.15),
         borderColor: AppTheme.greenAccent,
-        borderStrokeWidth: 2,
+        borderStrokeWidth: 4.0,
         isDotted: true,
       ));
     }
@@ -195,9 +304,9 @@ class _MapScreenState extends State<MapScreen> {
           final isSelected = _mapController.selectedShape?.id == shape.id;
           polygons.add(fmap.Polygon(
             points: shape.points,
-            color: shape.color.withValues(alpha: isSelected ? 0.35 : 0.18),
+            color: shape.color.withValues(alpha: isSelected ? 0.35 : 0.22),
             borderColor: isSelected ? Colors.white : shape.color,
-            borderStrokeWidth: isSelected ? 3.5 : 2.5,
+            borderStrokeWidth: isSelected ? 5.0 : 4.0,
           ));
         }
       }
@@ -468,16 +577,20 @@ class _MapScreenState extends State<MapScreen> {
           .map((w) => {'lat': w['lat'] as double, 'lng': w['lng'] as double})
           .toList();
       final kml = _buildFullKml(name, pts, waypoints);
-      final String? outputPath = await FilePicker.platform.saveFile(
-        dialogTitle: 'Save KML File',
-        fileName: '$name.kml',
-        type: FileType.custom,
-        allowedExtensions: ['kml'],
+
+      // On Android/iOS use path_provider + share_plus (FilePicker.saveFile needs bytes)
+      final dir = await getApplicationDocumentsDirectory();
+      final safeName = name.replaceAll(RegExp(r'[^\w\s-]'), '_');
+      final file = File('${dir.path}/$safeName.kml');
+      await file.writeAsString(kml);
+
+      await Share.shareXFiles(
+        [XFile(file.path, mimeType: 'application/vnd.google-earth.kml+xml')],
+        subject: '$name - KML File',
+        text: 'KML file for polygon: $name',
       );
-      if (outputPath != null) {
-        await File(outputPath).writeAsString(kml);
-        if (mounted) _showSnackBar('KML saved successfully');
-      }
+
+      if (mounted) _showSnackBar('KML ready — choose where to save/share');
     } catch (e) {
       if (mounted) _showSnackBar('KML export failed: $e', isError: true);
     }
@@ -546,7 +659,14 @@ $wpPlacemarks
         return Scaffold(
           backgroundColor: AppTheme.bgPrimary,
           // Fixed bottom toolbar — always visible
-          bottomNavigationBar: DrawToolbar(controller: _mapController),
+          bottomNavigationBar: DrawToolbar(
+            controller: _mapController,
+            onPolygonClose: () async {
+              final result = await _showPolygonTitleDialog();
+              if (result == null) return null; // cancelled
+              return result['name'] as String;
+            },
+          ),
           body: Stack(
             children: [
               // ── Map (full screen) ───────────────────────────────────────────

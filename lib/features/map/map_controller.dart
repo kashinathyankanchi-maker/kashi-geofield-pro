@@ -110,17 +110,17 @@ class MapController extends ChangeNotifier {
   }
 
   /// Close the current polygon if drawing polygon mode
-  void closePolygon(BuildContext context) {
+  void closePolygon(BuildContext context, {String? name}) {
     if (_drawMode != DrawMode.polygon || _currentPoints.length < 3) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Need at least 3 points to close polygon')),
       );
       return;
     }
-    _finalizePolygon(context);
+    _finalizePolygon(name: name);
   }
 
-  void _finalizePolygon(BuildContext context) {
+  void _finalizePolygon({String? name}) {
     final pts = List<LatLng>.from(_currentPoints);
     final pointMaps = pts
         .map((p) => {'lat': p.latitude, 'lng': p.longitude})
@@ -131,7 +131,7 @@ class MapController extends ChangeNotifier {
 
     final shape = DrawnShape(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
-      name: 'Polygon ${_drawnShapes.length + 1}',
+      name: name ?? 'Polygon ${_drawnShapes.length + 1}',
       type: DrawMode.polygon,
       points: pts,
       areaHectares: area,

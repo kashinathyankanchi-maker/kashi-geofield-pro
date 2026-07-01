@@ -2,11 +2,21 @@ import 'package:flutter/material.dart';
 import '../../../shared/theme.dart';
 import '../map_controller.dart';
 
+/// Callback type: shows title dialog and returns the name chosen, or null to cancel.
+typedef PolygonNameCallback = Future<String?> Function();
+
 /// Fixed horizontal bottom toolbar — always visible, never dragged off screen.
 class DrawToolbar extends StatelessWidget {
   final MapController controller;
 
-  const DrawToolbar({super.key, required this.controller});
+  /// Called when the user presses ✓ on a polygon — should show the title dialog.
+  final PolygonNameCallback? onPolygonClose;
+
+  const DrawToolbar({
+    super.key,
+    required this.controller,
+    this.onPolygonClose,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -16,14 +26,17 @@ class DrawToolbar extends StatelessWidget {
         final isDrawingPolygon = controller.drawMode == DrawMode.polygon;
         final isDrawingPath = controller.drawMode == DrawMode.path;
         final isDrawingMarker = controller.drawMode == DrawMode.marker;
-        final canClose = isDrawingPolygon && controller.currentPoints.length >= 3;
-        final canSavePath = isDrawingPath && controller.currentPoints.length >= 2;
+        final canClose =
+            isDrawingPolygon && controller.currentPoints.length >= 3;
+        final canSavePath =
+            isDrawingPath && controller.currentPoints.length >= 2;
 
         return Container(
-          height: 60,
+          height: 64,
           decoration: BoxDecoration(
             color: AppTheme.bgCard,
-            border: Border(top: BorderSide(color: AppTheme.borderColor, width: 1)),
+            border: Border(
+                top: BorderSide(color: AppTheme.borderColor, width: 1)),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.4),
@@ -34,40 +47,53 @@ class DrawToolbar extends StatelessWidget {
           ),
           child: Row(
             children: [
-              // Draw Polygon
+              // ── Draw Polygon ───────────────────────────────────────────────
               _ToolBtn(
-                icon: Icons.pentagon_outlined,
+                icon: Icons.pentagon_rounded,
                 label: 'Polygon',
                 isActive: isDrawingPolygon,
                 activeColor: AppTheme.greenPrimary,
-                onTap: () => controller.drawMode == DrawMode.polygon
-                    ? controller.setDrawMode(DrawMode.none)
-                    : controller.setDrawMode(DrawMode.polygon),
+                onTap: () {
+                  if (controller.drawMode == DrawMode.polygon) {
+                    controller.setDrawMode(DrawMode.none);
+                  } else {
+                    controller.setDrawMode(DrawMode.polygon);
+                  }
+                },
               ),
-              // Draw Path
+              // ── Draw Path ──────────────────────────────────────────────────
               _ToolBtn(
-                icon: Icons.polyline_outlined,
+                icon: Icons.polyline_rounded,
                 label: 'Path',
                 isActive: isDrawingPath,
                 activeColor: AppTheme.infoColor,
-                onTap: () => controller.drawMode == DrawMode.path
-                    ? controller.setDrawMode(DrawMode.none)
-                    : controller.setDrawMode(DrawMode.path),
+                onTap: () {
+                  if (controller.drawMode == DrawMode.path) {
+                    controller.setDrawMode(DrawMode.none);
+                  } else {
+                    controller.setDrawMode(DrawMode.path);
+                  }
+                },
               ),
-              // Place Marker
+              // ── Place Marker ────────────────────────────────────────────────
               _ToolBtn(
-                icon: Icons.place_outlined,
+                icon: Icons.place_rounded,
                 label: 'Marker',
                 isActive: isDrawingMarker,
                 activeColor: AppTheme.errorColor,
-                onTap: () => controller.drawMode == DrawMode.marker
-                    ? controller.setDrawMode(DrawMode.none)
-                    : controller.setDrawMode(DrawMode.marker),
+                onTap: () {
+                  if (controller.drawMode == DrawMode.marker) {
+                    controller.setDrawMode(DrawMode.none);
+                  } else {
+                    controller.setDrawMode(DrawMode.marker);
+                  }
+                },
               ),
 
-              Container(width: 1, height: 36, color: AppTheme.borderColor),
+              Container(
+                  width: 1, height: 36, color: AppTheme.borderColor),
 
-              // Undo
+              // ── Undo ───────────────────────────────────────────────────────
               _ToolBtn(
                 icon: Icons.undo_rounded,
                 label: 'Undo',
@@ -75,7 +101,7 @@ class DrawToolbar extends StatelessWidget {
                 activeColor: AppTheme.textSecondary,
                 onTap: controller.canUndo ? controller.undo : null,
               ),
-              // Redo
+              // ── Redo ───────────────────────────────────────────────────────
               _ToolBtn(
                 icon: Icons.redo_rounded,
                 label: 'Redo',
@@ -84,23 +110,36 @@ class DrawToolbar extends StatelessWidget {
                 onTap: controller.canRedo ? controller.redo : null,
               ),
 
-              // Show Close/Save only when relevant
+              // ── Close / Save (only shown when relevant) ────────────────────
               if (canClose || canSavePath) ...[
-                Container(width: 1, height: 36, color: AppTheme.borderColor),
+                Container(
+                    width: 1, height: 36, color: AppTheme.borderColor),
                 _ToolBtn(
                   icon: Icons.check_circle_rounded,
                   label: canClose ? 'Close' : 'Save',
                   isActive: true,
                   activeColor: AppTheme.greenAccent,
-                  onTap: canClose
-                      ? () => controller.closePolygon(context)
-                      : controller.finalizePath,
+                  onTap: () async {
+                    if (canClose) {
+                      // Capture context before async gap
+                      final ctx = context;
+                      String? name;
+                      if (onPolygonClose != null) {
+                        name = await onPolygonClose!();
+                        if (name == null) return; // user cancelled
+                      }
+                      // ignore: use_build_context_synchronously
+                      controller.closePolygon(ctx, name: name);
+                    } else {
+                      controller.finalizePath();
+                    }
+                  },
                 ),
               ],
 
               const Spacer(),
 
-              // Cancel drawing
+              // ── Cancel ────────────────────────────────────────────────────
               if (controller.drawMode != DrawMode.none)
                 _ToolBtn(
                   icon: Icons.close_rounded,
@@ -141,7 +180,7 @@ class _ToolBtn extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(8),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
