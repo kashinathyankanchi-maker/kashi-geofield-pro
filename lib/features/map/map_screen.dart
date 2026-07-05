@@ -12,6 +12,8 @@ import 'package:screenshot/screenshot.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:printing/printing.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:image/image.dart' as img;
 import '../../shared/theme.dart';
 import '../../core/database/db_helper.dart';
 import '../../core/models/kml_file_model.dart';
@@ -50,6 +52,9 @@ class _MapScreenState extends State<MapScreen> {
   LatLng? _currentPosition;
   StreamSubscription<Position>? _positionStream;
 
+  // Tapped coordinate (for collecting lat/lng from map)
+  LatLng? _tappedPosition;
+
   @override
   void initState() {
     super.initState();
@@ -63,7 +68,6 @@ class _MapScreenState extends State<MapScreen> {
       _startLocationStream();
     });
   }
-
 
   /// Start continuous GPS position stream for the blue dot + live tracking
   void _startLocationStream() async {
@@ -93,11 +97,23 @@ class _MapScreenState extends State<MapScreen> {
     final db = DbHelper();
     final villages = await db.getAllVillages();
     final polygons = await db.getAllPolygons();
+    // Load saved KML files and show on map
+    final kmlFiles = await db.getAllKmlFiles();
+    final allShapes = <KmlShape>[];
+    for (final kf in kmlFiles) {
+      try {
+        final shapes = await KmlEngine.parseFile(kf.filepath);
+        allShapes.addAll(shapes);
+      } catch (_) {}
+    }
     if (mounted) {
       setState(() {
         _villages = villages;
         _savedPolygons = polygons;
       });
+      if (allShapes.isNotEmpty) {
+        _mapController.loadKmlShapes(allShapes);
+      }
     }
   }
 
@@ -176,14 +192,40 @@ class _MapScreenState extends State<MapScreen> {
       }
     } else {
       _mapController.clearSelection();
-      setState(() {});
+      setState(() => _tappedPosition = null);
     }
+  }
+
+  /// Long-press on map → collect coordinates at that point
+  void _onMapLongPress(fmap.TapPosition tapPos, LatLng latLng) {
+    setState(() => _tappedPosition = latLng);
+    // Show a snackbar with copy option
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'N ${latLng.latitude.toStringAsFixed(6)}  E ${latLng.longitude.toStringAsFixed(6)}',
+          style: const TextStyle(fontFamily: 'monospace'),
+        ),
+        backgroundColor: AppTheme.bgCard,
+        behavior: SnackBarBehavior.floating,
+        action: SnackBarAction(
+          label: 'Add Marker',
+          textColor: AppTheme.greenAccent,
+          onPressed: () {
+            _mapController.addPoint(latLng);
+            setState(() => _tappedPosition = null);
+          },
+        ),
+        duration: const Duration(seconds: 6),
+      ),
+    );
   }
 
   // ── Polygon title + part dialog ──────────────────────────────────────────
   Future<Map<String, dynamic>?> _showPolygonTitleDialog() async {
     final titleCtrl = TextEditingController(
-        text: 'Survey ${_mapController.drawnShapes.where((s) => s.type == DrawMode.polygon).length + 1}');
+        text:
+            'Survey ${_mapController.drawnShapes.where((s) => s.type == DrawMode.polygon).length + 1}');
     String selectedPart = 'None';
     final parts = ['None', 'Part 1', 'Part 2', 'Part 3', 'Part 4', 'Part 5'];
 
@@ -193,12 +235,15 @@ class _MapScreenState extends State<MapScreen> {
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setLocal) => AlertDialog(
           backgroundColor: AppTheme.bgCard,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: const Row(
             children: [
-              Icon(Icons.pentagon_rounded, color: AppTheme.greenAccent, size: 22),
+              Icon(Icons.pentagon_rounded,
+                  color: AppTheme.greenAccent, size: 22),
               SizedBox(width: 8),
-              Text('Polygon Details', style: TextStyle(color: AppTheme.textPrimary, fontSize: 16)),
+              Text('Polygon Details',
+                  style: TextStyle(color: AppTheme.textPrimary, fontSize: 16)),
             ],
           ),
           content: Column(
@@ -224,7 +269,8 @@ class _MapScreenState extends State<MapScreen> {
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: AppTheme.greenPrimary, width: 2),
+                    borderSide: const BorderSide(
+                        color: AppTheme.greenPrimary, width: 2),
                   ),
                   labelStyle: const TextStyle(color: AppTheme.textSecondary),
                 ),
@@ -250,14 +296,17 @@ class _MapScreenState extends State<MapScreen> {
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: AppTheme.greenPrimary, width: 2),
+                    borderSide: const BorderSide(
+                        color: AppTheme.greenPrimary, width: 2),
                   ),
                   labelStyle: const TextStyle(color: AppTheme.textSecondary),
                 ),
-                items: parts.map((p) => DropdownMenuItem(
-                  value: p,
-                  child: Text(p),
-                )).toList(),
+                items: parts
+                    .map((p) => DropdownMenuItem(
+                          value: p,
+                          child: Text(p),
+                        ))
+                    .toList(),
                 onChanged: (v) => setLocal(() => selectedPart = v ?? 'None'),
               ),
             ],
@@ -272,9 +321,8 @@ class _MapScreenState extends State<MapScreen> {
                 final title = titleCtrl.text.trim().isEmpty
                     ? 'Polygon'
                     : titleCtrl.text.trim();
-                final fullName = selectedPart == 'None'
-                    ? title
-                    : '$title - $selectedPart';
+                final fullName =
+                    selectedPart == 'None' ? title : '$title - $selectedPart';
                 Navigator.pop(ctx, {'name': fullName, 'part': selectedPart});
               },
               icon: const Icon(Icons.check_rounded, size: 16),
@@ -453,7 +501,8 @@ class _MapScreenState extends State<MapScreen> {
         width: 54,
         height: 46,
         alignment: Alignment.bottomCenter,
-        child: _WaypointPin(label: label, color: AppTheme.greenAccent, isActive: true),
+        child: _WaypointPin(
+            label: label, color: AppTheme.greenAccent, isActive: true),
       ));
     }
 
@@ -501,7 +550,8 @@ class _MapScreenState extends State<MapScreen> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
                       color: AppTheme.bgCard,
                       borderRadius: BorderRadius.circular(4),
@@ -523,8 +573,7 @@ class _MapScreenState extends State<MapScreen> {
       for (final kmlShape in _mapController.kmlShapes) {
         if (kmlShape.type == 'marker' && kmlShape.coordinates.isNotEmpty) {
           markers.add(fmap.Marker(
-            point: LatLng(
-                kmlShape.coordinates.first['lat']!,
+            point: LatLng(kmlShape.coordinates.first['lat']!,
                 kmlShape.coordinates.first['lng']!),
             width: 30,
             height: 30,
@@ -565,7 +614,8 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   String _getActiveShapeName() {
-    if (_mapController.drawMode == DrawMode.polygon) return 'Drawing Polygon...';
+    if (_mapController.drawMode == DrawMode.polygon)
+      return 'Drawing Polygon...';
     if (_mapController.selectedShape != null) {
       return _mapController.selectedShape!.name;
     }
@@ -627,7 +677,8 @@ class _MapScreenState extends State<MapScreen> {
       }
 
       if (mounted) {
-        _showSnackBar('Imported ${shapes.length} shape(s) from ${pickedFile.name}');
+        _showSnackBar(
+            'Imported ${shapes.length} shape(s) from ${pickedFile.name}');
       }
     } catch (e) {
       if (mounted) _showSnackBar('Import failed: $e', isError: true);
@@ -669,11 +720,13 @@ class _MapScreenState extends State<MapScreen> {
       await Share.shareXFiles(
         [XFile(file.path, mimeType: 'application/vnd.google-earth.kml+xml')],
         subject: '${shape.name} — GPS Track KML',
-        text: 'GPS Track: ${GeoCalculator.formatPerimeter(shape.perimeterMeters)}',
+        text:
+            'GPS Track: ${GeoCalculator.formatPerimeter(shape.perimeterMeters)}',
       );
 
       if (mounted) {
-        _showSnackBar('GPS track saved & shared (${GeoCalculator.formatPerimeter(shape.perimeterMeters)})');
+        _showSnackBar(
+            'GPS track saved & shared (${GeoCalculator.formatPerimeter(shape.perimeterMeters)})');
       }
     } catch (e) {
       if (mounted) _showSnackBar('KML export failed: $e', isError: true);
@@ -708,22 +761,29 @@ class _MapScreenState extends State<MapScreen> {
 
           return AlertDialog(
             backgroundColor: AppTheme.bgCard,
-            insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 24),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+            insetPadding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 24),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
             title: Row(
               children: [
-                const Icon(Icons.edit_location_alt_rounded, color: AppTheme.greenAccent, size: 22),
+                const Icon(Icons.edit_location_alt_rounded,
+                    color: AppTheme.greenAccent, size: 22),
                 const SizedBox(width: 8),
                 const Expanded(
                   child: Text('Manual Coordinates',
-                      style: TextStyle(color: AppTheme.textPrimary, fontSize: 15)),
+                      style:
+                          TextStyle(color: AppTheme.textPrimary, fontSize: 15)),
                 ),
                 // Close as polygon / path toggle
                 Row(
                   children: [
-                    Text('Polygon', style: TextStyle(
-                        color: asClosed ? AppTheme.greenAccent : AppTheme.textMuted,
-                        fontSize: 11)),
+                    Text('Polygon',
+                        style: TextStyle(
+                            color: asClosed
+                                ? AppTheme.greenAccent
+                                : AppTheme.textMuted,
+                            fontSize: 11)),
                     Switch(
                       value: asClosed,
                       activeColor: AppTheme.greenPrimary,
@@ -741,8 +801,10 @@ class _MapScreenState extends State<MapScreen> {
                   // Name field
                   TextField(
                     controller: nameCtrl,
-                    style: const TextStyle(color: AppTheme.textPrimary, fontSize: 13),
-                    decoration: _inputDeco('Polygon / Path Name', Icons.label_rounded),
+                    style: const TextStyle(
+                        color: AppTheme.textPrimary, fontSize: 13),
+                    decoration:
+                        _inputDeco('Polygon / Path Name', Icons.label_rounded),
                   ),
                   const SizedBox(height: 10),
                   // Coordinate entry row
@@ -753,8 +815,10 @@ class _MapScreenState extends State<MapScreen> {
                           controller: latCtrl,
                           keyboardType: const TextInputType.numberWithOptions(
                               decimal: true, signed: true),
-                          style: const TextStyle(color: AppTheme.textPrimary, fontSize: 13),
-                          decoration: _inputDeco('Latitude', Icons.north_rounded),
+                          style: const TextStyle(
+                              color: AppTheme.textPrimary, fontSize: 13),
+                          decoration:
+                              _inputDeco('Latitude', Icons.north_rounded),
                           onSubmitted: (_) => addPoint(),
                         ),
                       ),
@@ -764,8 +828,10 @@ class _MapScreenState extends State<MapScreen> {
                           controller: lngCtrl,
                           keyboardType: const TextInputType.numberWithOptions(
                               decimal: true, signed: true),
-                          style: const TextStyle(color: AppTheme.textPrimary, fontSize: 13),
-                          decoration: _inputDeco('Longitude', Icons.east_rounded),
+                          style: const TextStyle(
+                              color: AppTheme.textPrimary, fontSize: 13),
+                          decoration:
+                              _inputDeco('Longitude', Icons.east_rounded),
                           onSubmitted: (_) => addPoint(),
                         ),
                       ),
@@ -778,7 +844,8 @@ class _MapScreenState extends State<MapScreen> {
                             color: AppTheme.greenPrimary,
                             borderRadius: BorderRadius.circular(10),
                           ),
-                          child: const Icon(Icons.add_rounded, color: Colors.white, size: 20),
+                          child: const Icon(Icons.add_rounded,
+                              color: Colors.white, size: 20),
                         ),
                       ),
                     ],
@@ -796,13 +863,15 @@ class _MapScreenState extends State<MapScreen> {
                       child: ListView.separated(
                         shrinkWrap: true,
                         itemCount: coords.length,
-                        separatorBuilder: (_, __) => const Divider(height: 1, color: AppTheme.borderColor),
+                        separatorBuilder: (_, __) => const Divider(
+                            height: 1, color: AppTheme.borderColor),
                         itemBuilder: (_, i) {
                           final pt = coords[i];
                           return ListTile(
                             dense: true,
                             leading: Container(
-                              width: 26, height: 26,
+                              width: 26,
+                              height: 26,
                               decoration: BoxDecoration(
                                 color: AppTheme.greenPrimary,
                                 borderRadius: BorderRadius.circular(5),
@@ -811,21 +880,27 @@ class _MapScreenState extends State<MapScreen> {
                                 child: Text(
                                   (i + 1).toString().padLeft(2, '0'),
                                   style: const TextStyle(
-                                      color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
+                                      color: Colors.white,
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.bold),
                                 ),
                               ),
                             ),
                             title: Text(
                               'N ${pt['lat']!.toStringAsFixed(6)}',
-                              style: const TextStyle(color: AppTheme.textPrimary, fontSize: 12),
+                              style: const TextStyle(
+                                  color: AppTheme.textPrimary, fontSize: 12),
                             ),
                             subtitle: Text(
                               'E ${pt['lng']!.toStringAsFixed(6)}',
-                              style: const TextStyle(color: AppTheme.textSecondary, fontSize: 11),
+                              style: const TextStyle(
+                                  color: AppTheme.textSecondary, fontSize: 11),
                             ),
                             trailing: IconButton(
-                              icon: const Icon(Icons.delete_outline, color: Colors.red, size: 18),
-                              onPressed: () => setLocal(() => coords.removeAt(i)),
+                              icon: const Icon(Icons.delete_outline,
+                                  color: Colors.red, size: 18),
+                              onPressed: () =>
+                                  setLocal(() => coords.removeAt(i)),
                             ),
                           );
                         },
@@ -834,17 +909,20 @@ class _MapScreenState extends State<MapScreen> {
                     const SizedBox(height: 6),
                     Row(
                       children: [
-                        const Icon(Icons.info_outline, color: AppTheme.textMuted, size: 14),
+                        const Icon(Icons.info_outline,
+                            color: AppTheme.textMuted, size: 14),
                         const SizedBox(width: 4),
                         Text('${coords.length} point(s) entered',
-                            style: const TextStyle(color: AppTheme.textMuted, fontSize: 11)),
+                            style: const TextStyle(
+                                color: AppTheme.textMuted, fontSize: 11)),
                       ],
                     ),
                   ] else
                     const Padding(
                       padding: EdgeInsets.symmetric(vertical: 12),
                       child: Text('Enter lat/lng and tap + to add points',
-                          style: TextStyle(color: AppTheme.textMuted, fontSize: 12)),
+                          style: TextStyle(
+                              color: AppTheme.textMuted, fontSize: 12)),
                     ),
                 ],
               ),
@@ -859,7 +937,8 @@ class _MapScreenState extends State<MapScreen> {
                 ElevatedButton.icon(
                   onPressed: () {
                     Navigator.pop(ctx);
-                    _createShapeFromCoords(coords, nameCtrl.text.trim(), asClosed);
+                    _createShapeFromCoords(
+                        coords, nameCtrl.text.trim(), asClosed);
                   },
                   icon: const Icon(Icons.map_rounded, size: 16),
                   label: const Text('Add to Map'),
@@ -869,11 +948,13 @@ class _MapScreenState extends State<MapScreen> {
                 ElevatedButton.icon(
                   onPressed: () {
                     Navigator.pop(ctx);
-                    _createShapeFromCoords(coords, nameCtrl.text.trim(), asClosed,
+                    _createShapeFromCoords(
+                        coords, nameCtrl.text.trim(), asClosed,
                         exportKml: true);
                   },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: AppTheme.greenPrimary.withValues(alpha: 0.85),
+                    backgroundColor:
+                        AppTheme.greenPrimary.withValues(alpha: 0.85),
                   ),
                   icon: const Icon(Icons.save_alt_rounded, size: 16),
                   label: const Text('Add + KML'),
@@ -890,8 +971,10 @@ class _MapScreenState extends State<MapScreen> {
         prefixIcon: Icon(icon, size: 16, color: AppTheme.textMuted),
         filled: true,
         fillColor: AppTheme.bgSurface,
-        labelStyle: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        labelStyle:
+            const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
         border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(10),
             borderSide: const BorderSide(color: AppTheme.borderColor)),
@@ -900,7 +983,8 @@ class _MapScreenState extends State<MapScreen> {
             borderSide: const BorderSide(color: AppTheme.borderColor)),
         focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(10),
-            borderSide: const BorderSide(color: AppTheme.greenPrimary, width: 2)),
+            borderSide:
+                const BorderSide(color: AppTheme.greenPrimary, width: 2)),
       );
 
   /// Create a DrawnShape from manually entered coordinates
@@ -944,9 +1028,7 @@ class _MapScreenState extends State<MapScreen> {
   Future<void> _exportManualKml(
       DrawnShape shape, List<Map<String, double>> coords, bool asClosed) async {
     try {
-      final pts = coords
-          .map((c) => '${c['lng']},${c['lat']},0')
-          .toList();
+      final pts = coords.map((c) => '${c['lng']},${c['lat']},0').toList();
       // Close polygon by repeating first point
       if (asClosed && pts.isNotEmpty) pts.add(pts.first);
       final coordStr = pts.join('\n          ');
@@ -1015,8 +1097,9 @@ $wpPlacemarks
     final orgCtrl = TextEditingController(text: '');
     final now = DateTime.now();
     final dateCtrl = TextEditingController(
-      text: '${now.day.toString().padLeft(2,'0')}/${now.month.toString().padLeft(2,'0')}/${now.year}  '
-            '${now.hour.toString().padLeft(2,'0')}:${now.minute.toString().padLeft(2,'0')}',
+      text:
+          '${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year}  '
+          '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}',
     );
     bool printAllParts = allPolygons.length > 1;
 
@@ -1025,12 +1108,14 @@ $wpPlacemarks
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setLocal) => AlertDialog(
           backgroundColor: AppTheme.bgCard,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: const Row(
             children: [
               Icon(Icons.print_rounded, color: AppTheme.greenAccent, size: 22),
               SizedBox(width: 8),
-              Text('Print Options', style: TextStyle(color: AppTheme.textPrimary, fontSize: 16)),
+              Text('Print Options',
+                  style: TextStyle(color: AppTheme.textPrimary, fontSize: 16)),
             ],
           ),
           content: SizedBox(
@@ -1047,14 +1132,22 @@ $wpPlacemarks
                       labelText: 'Report Title',
                       hintText: 'Title printed on the PDF',
                       prefixIcon: const Icon(Icons.title_rounded, size: 18),
-                      filled: true, fillColor: AppTheme.bgSurface,
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10),
-                          borderSide: const BorderSide(color: AppTheme.borderColor)),
-                      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10),
-                          borderSide: const BorderSide(color: AppTheme.borderColor)),
-                      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10),
-                          borderSide: const BorderSide(color: AppTheme.greenPrimary, width: 2)),
-                      labelStyle: const TextStyle(color: AppTheme.textSecondary),
+                      filled: true,
+                      fillColor: AppTheme.bgSurface,
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide:
+                              const BorderSide(color: AppTheme.borderColor)),
+                      enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide:
+                              const BorderSide(color: AppTheme.borderColor)),
+                      focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: const BorderSide(
+                              color: AppTheme.greenPrimary, width: 2)),
+                      labelStyle:
+                          const TextStyle(color: AppTheme.textSecondary),
                     ),
                   ),
                   const SizedBox(height: 10),
@@ -1066,14 +1159,22 @@ $wpPlacemarks
                       labelText: 'Organization Name (optional)',
                       hintText: 'Leave blank to hide from header',
                       prefixIcon: const Icon(Icons.business_rounded, size: 18),
-                      filled: true, fillColor: AppTheme.bgSurface,
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10),
-                          borderSide: const BorderSide(color: AppTheme.borderColor)),
-                      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10),
-                          borderSide: const BorderSide(color: AppTheme.borderColor)),
-                      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10),
-                          borderSide: const BorderSide(color: AppTheme.greenPrimary, width: 2)),
-                      labelStyle: const TextStyle(color: AppTheme.textSecondary),
+                      filled: true,
+                      fillColor: AppTheme.bgSurface,
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide:
+                              const BorderSide(color: AppTheme.borderColor)),
+                      enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide:
+                              const BorderSide(color: AppTheme.borderColor)),
+                      focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: const BorderSide(
+                              color: AppTheme.greenPrimary, width: 2)),
+                      labelStyle:
+                          const TextStyle(color: AppTheme.textSecondary),
                     ),
                   ),
                   const SizedBox(height: 10),
@@ -1083,22 +1184,32 @@ $wpPlacemarks
                     style: const TextStyle(color: AppTheme.textPrimary),
                     decoration: InputDecoration(
                       labelText: 'Date & Time',
-                      prefixIcon: const Icon(Icons.calendar_today_rounded, size: 18),
-                      filled: true, fillColor: AppTheme.bgSurface,
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10),
-                          borderSide: const BorderSide(color: AppTheme.borderColor)),
-                      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10),
-                          borderSide: const BorderSide(color: AppTheme.borderColor)),
-                      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10),
-                          borderSide: const BorderSide(color: AppTheme.greenPrimary, width: 2)),
-                      labelStyle: const TextStyle(color: AppTheme.textSecondary),
+                      prefixIcon:
+                          const Icon(Icons.calendar_today_rounded, size: 18),
+                      filled: true,
+                      fillColor: AppTheme.bgSurface,
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide:
+                              const BorderSide(color: AppTheme.borderColor)),
+                      enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide:
+                              const BorderSide(color: AppTheme.borderColor)),
+                      focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: const BorderSide(
+                              color: AppTheme.greenPrimary, width: 2)),
+                      labelStyle:
+                          const TextStyle(color: AppTheme.textSecondary),
                     ),
                   ),
                   // Multi-part toggle (only shown when multiple polygons exist)
                   if (allPolygons.length > 1) ...[
                     const SizedBox(height: 10),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 6),
                       decoration: BoxDecoration(
                         color: AppTheme.bgSurface,
                         borderRadius: BorderRadius.circular(10),
@@ -1106,12 +1217,14 @@ $wpPlacemarks
                       ),
                       child: Row(
                         children: [
-                          const Icon(Icons.layers_rounded, color: AppTheme.greenAccent, size: 18),
+                          const Icon(Icons.layers_rounded,
+                              color: AppTheme.greenAccent, size: 18),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
                               'Print all ${allPolygons.length} parts on same page',
-                              style: const TextStyle(color: AppTheme.textPrimary, fontSize: 13),
+                              style: const TextStyle(
+                                  color: AppTheme.textPrimary, fontSize: 13),
                             ),
                           ),
                           Switch(
@@ -1128,7 +1241,9 @@ $wpPlacemarks
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel')),
             ElevatedButton.icon(
               onPressed: () => Navigator.pop(ctx, true),
               icon: const Icon(Icons.print_rounded, size: 16),
@@ -1147,31 +1262,40 @@ $wpPlacemarks
       // Build parts list
       final List<PolygonPart> parts;
       if (printAllParts && allPolygons.length > 1) {
-        parts = allPolygons.map((shape) => PolygonPart(
-          name: shape.name,
-          points: shape.points.map((p) => {'lat': p.latitude, 'lng': p.longitude}).toList(),
-          areaHectares: shape.areaHectares,
-          perimeterMeters: shape.perimeterMeters,
-        )).toList();
+        parts = allPolygons
+            .map((shape) => PolygonPart(
+                  name: shape.name,
+                  points: shape.points
+                      .map((p) => {'lat': p.latitude, 'lng': p.longitude})
+                      .toList(),
+                  areaHectares: shape.areaHectares,
+                  perimeterMeters: shape.perimeterMeters,
+                ))
+            .toList();
       } else {
         final pts = waypoints
             .map((w) => {'lat': w['lat'] as double, 'lng': w['lng'] as double})
             .toList();
         final shape = _mapController.selectedShape ??
-            _mapController.drawnShapes.where((s) => s.type == DrawMode.polygon).lastOrNull;
+            _mapController.drawnShapes
+                .where((s) => s.type == DrawMode.polygon)
+                .lastOrNull;
         parts = [
           PolygonPart(
             name: name,
             points: pts,
-            areaHectares: shape?.areaHectares ?? GeoCalculator.calculateAreaHectares(pts),
-            perimeterMeters: shape?.perimeterMeters ?? GeoCalculator.calculatePerimeterMeters(pts),
+            areaHectares:
+                shape?.areaHectares ?? GeoCalculator.calculateAreaHectares(pts),
+            perimeterMeters: shape?.perimeterMeters ??
+                GeoCalculator.calculatePerimeterMeters(pts),
           ),
         ];
       }
 
       final path = await PdfGenerator.generatePolygonPdf(
         parts: parts,
-        reportTitle: titleCtrl.text.trim().isEmpty ? name : titleCtrl.text.trim(),
+        reportTitle:
+            titleCtrl.text.trim().isEmpty ? name : titleCtrl.text.trim(),
         orgName: orgCtrl.text.trim(),
         customDate: dateCtrl.text.trim().isEmpty ? null : dateCtrl.text.trim(),
       );
@@ -1201,7 +1325,8 @@ $wpPlacemarks
           context: context,
           builder: (ctx) => AlertDialog(
             backgroundColor: AppTheme.bgCard,
-            title: const Text('KML Export', style: TextStyle(color: AppTheme.textPrimary)),
+            title: const Text('KML Export',
+                style: TextStyle(color: AppTheme.textPrimary)),
             content: Text(
               '${allPolygons.length} polygon parts found.\nExport all parts in one KML file?',
               style: const TextStyle(color: AppTheme.textSecondary),
@@ -1223,12 +1348,17 @@ $wpPlacemarks
           kml = _buildMultiPartKml(allPolygons);
           exportName = '$name (All Parts)';
         } else {
-          final pts = waypoints.map((w) => {'lat': w['lat'] as double, 'lng': w['lng'] as double}).toList();
+          final pts = waypoints
+              .map(
+                  (w) => {'lat': w['lat'] as double, 'lng': w['lng'] as double})
+              .toList();
           kml = _buildFullKml(name, pts, waypoints);
           exportName = name;
         }
       } else {
-        final pts = waypoints.map((w) => {'lat': w['lat'] as double, 'lng': w['lng'] as double}).toList();
+        final pts = waypoints
+            .map((w) => {'lat': w['lat'] as double, 'lng': w['lng'] as double})
+            .toList();
         kml = _buildFullKml(name, pts, waypoints);
         exportName = name;
       }
@@ -1252,7 +1382,13 @@ $wpPlacemarks
 
   /// Build a single KML combining multiple polygon parts
   String _buildMultiPartKml(List<DrawnShape> shapes) {
-    final styleColors = ['ff2EA043', 'ff1565C0', 'ffC62828', 'ffE65100', 'ff6A1B9A'];
+    final styleColors = [
+      'ff2EA043',
+      'ff1565C0',
+      'ffC62828',
+      'ffE65100',
+      'ff6A1B9A'
+    ];
     final placemarks = <String>[];
 
     for (int pi = 0; pi < shapes.length; pi++) {
@@ -1387,6 +1523,7 @@ $wpPlacemarks
                       initialCenter: const LatLng(26.9124, 75.7873),
                       initialZoom: 13,
                       onTap: _onMapTap,
+                      onLongPress: _onMapLongPress,
                       interactionOptions: const fmap.InteractionOptions(
                         flags: fmap.InteractiveFlag.all,
                       ),
@@ -1397,8 +1534,8 @@ $wpPlacemarks
                             // Google Maps satellite — recent imagery
                             ? 'https://mt0.google.com/vt/lyrs=s&x={x}&y={y}&z={z}'
                             : _mapController.mapStyle == 'Hybrid'
-                            ? 'https://mt0.google.com/vt/lyrs=y&x={x}&y={y}&z={z}'
-                            : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                                ? 'https://mt0.google.com/vt/lyrs=y&x={x}&y={y}&z={z}'
+                                : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                         userAgentPackageName: 'com.kashi.kashi_geofield_pro',
                         maxZoom: 20,
                         maxNativeZoom: 20,
@@ -1428,7 +1565,8 @@ $wpPlacemarks
                               child: Container(
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
-                                  color: const Color(0xFF1565C0).withValues(alpha: 0.25),
+                                  color: const Color(0xFF1565C0)
+                                      .withValues(alpha: 0.25),
                                   border: Border.all(
                                     color: Colors.white,
                                     width: 2.5,
@@ -1463,12 +1601,10 @@ $wpPlacemarks
                   child: _WaypointPanel(
                     waypoints: waypoints,
                     shapeName: shapeName,
-                    onClose: () =>
-                        setState(() => _showWaypointPanel = false),
+                    onClose: () => setState(() => _showWaypointPanel = false),
                     onWaypointTap: (wp) {
                       _flutterMapController.move(
-                        LatLng(
-                            wp['lat'] as double, wp['lng'] as double),
+                        LatLng(wp['lat'] as double, wp['lng'] as double),
                         17,
                       );
                     },
@@ -1501,7 +1637,6 @@ $wpPlacemarks
                   ),
                 ),
 
-
               // ── Top: Search bar + action buttons ────────────────────────────
               SafeArea(
                 child: Column(
@@ -1522,8 +1657,8 @@ $wpPlacemarks
                             icon: Icons.format_list_numbered_rounded,
                             tooltip: 'Waypoints',
                             isActive: _showWaypointPanel,
-                            onTap: () => setState(() =>
-                                _showWaypointPanel = !_showWaypointPanel),
+                            onTap: () => setState(
+                                () => _showWaypointPanel = !_showWaypointPanel),
                           ),
                           const SizedBox(width: 8),
                           // Search field
@@ -1554,6 +1689,14 @@ $wpPlacemarks
                             tooltip: 'Shapes',
                             isActive: false,
                             onTap: _showShapesList,
+                          ),
+                          const SizedBox(width: 6),
+                          // Camera button
+                          _RoundBtn(
+                            icon: Icons.camera_alt_rounded,
+                            tooltip: 'Capture Photo + GPS Tag',
+                            isActive: false,
+                            onTap: _openCameraScreen,
                           ),
                         ],
                       ),
@@ -1643,7 +1786,8 @@ $wpPlacemarks
                           _mapController.resumeTracking();
                         } else {
                           _mapController.startTracking();
-                          _showSnackBar('GPS tracking started — walk to record path');
+                          _showSnackBar(
+                              'GPS tracking started — walk to record path');
                         }
                       },
                     ),
@@ -1673,8 +1817,7 @@ $wpPlacemarks
                   top: 80,
                   child: LayerPanel(
                     controller: _mapController,
-                    onClose: () =>
-                        setState(() => _showLayerPanel = false),
+                    onClose: () => setState(() => _showLayerPanel = false),
                   ),
                 ),
 
@@ -1686,8 +1829,30 @@ $wpPlacemarks
                   right: 12,
                   child: GestureDetector(
                     onTap: _showShapeDetail,
-                    child: _ShapeInfoBar(
-                        shape: _mapController.selectedShape!),
+                    child: _ShapeInfoBar(shape: _mapController.selectedShape!),
+                  ),
+                ),
+
+              // ── GPS coordinate overlay (bottom-left corner) ──────────────────
+              if (_currentPosition != null)
+                Positioned(
+                  left: 12,
+                  bottom: _mapController.selectedShape != null ? 68 : 12,
+                  child: _GpsCoordChip(position: _currentPosition!),
+                ),
+
+              // ── Tapped coordinate marker ──────────────────────────────────────
+              if (_tappedPosition != null)
+                Positioned(
+                  bottom: _mapController.selectedShape != null ? 68 : 12,
+                  right: 60,
+                  child: _TappedCoordCard(
+                    position: _tappedPosition!,
+                    onClose: () => setState(() => _tappedPosition = null),
+                    onAddMarker: () {
+                      _mapController.addPoint(_tappedPosition!);
+                      setState(() => _tappedPosition = null);
+                    },
                   ),
                 ),
 
@@ -1726,6 +1891,92 @@ $wpPlacemarks
         },
       ),
     );
+  }
+
+  Future<void> _openCameraScreen() async {
+    final locationNameCtrl = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.bgCard,
+        title: const Text('Location Name (Optional)',
+            style: TextStyle(color: AppTheme.textPrimary, fontSize: 16)),
+        content: TextField(
+          controller: locationNameCtrl,
+          style: const TextStyle(color: AppTheme.textPrimary),
+          decoration: const InputDecoration(
+            hintText: 'Enter name for watermark',
+            hintStyle: TextStyle(color: AppTheme.textMuted),
+            enabledBorder: UnderlineInputBorder(
+                borderSide: BorderSide(color: AppTheme.borderColor)),
+            focusedBorder: UnderlineInputBorder(
+                borderSide: BorderSide(color: AppTheme.greenPrimary)),
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('Skip')),
+          ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, locationNameCtrl.text.trim()),
+              child: const Text('Capture')),
+        ],
+      ),
+    );
+
+    if (name == null && !mounted) return; // cancelled
+
+    try {
+      final picker = ImagePicker();
+      final XFile? photo = await picker.pickImage(source: ImageSource.camera);
+      if (photo == null) return;
+
+      _showSnackBar('Processing image...');
+
+      // Load image
+      final bytes = await photo.readAsBytes();
+      final image = img.decodeImage(bytes);
+      if (image == null) throw Exception('Failed to decode image');
+
+      // Get location
+      String locationStr = 'Location unavailable';
+      if (_currentPosition != null) {
+        locationStr =
+            'Lat: ${_currentPosition!.latitude.toStringAsFixed(6)}\nLng: ${_currentPosition!.longitude.toStringAsFixed(6)}';
+      }
+
+      final dateStr = DateTime.now().toString().substring(0, 16);
+      final watermarkText =
+          '${name != null && name.isNotEmpty ? "$name\n" : ""}$locationStr\n$dateStr';
+
+      // Draw watermark
+      img.drawString(
+        image,
+        watermarkText,
+        font: img.arial48,
+        x: 20,
+        y: image.height - 150,
+        color: img.ColorRgb8(255, 255, 255),
+      );
+
+      // Save watermarked image
+      final watermarkedBytes = img.encodeJpg(image);
+      final dir = await getApplicationDocumentsDirectory();
+      final filePath =
+          '${dir.path}/watermarked_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final file = File(filePath);
+      await file.writeAsBytes(watermarkedBytes);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).clearSnackBars();
+        _showSnackBar('Photo saved with GPS watermark');
+      }
+
+      // Share it
+      await Share.shareXFiles([XFile(filePath)],
+          text: 'Captured with Kashi GeoField Pro');
+    } catch (e) {
+      _showSnackBar('Error: $e', isError: true);
+    }
   }
 
   @override
@@ -1829,9 +2080,7 @@ class _RoundBtn extends StatelessWidget {
             color: isActive ? AppTheme.greenPrimary : AppTheme.bgCard,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-                color: isActive
-                    ? AppTheme.greenPrimary
-                    : AppTheme.borderColor),
+                color: isActive ? AppTheme.greenPrimary : AppTheme.borderColor),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.3),
@@ -1880,7 +2129,9 @@ class _MapFab extends StatelessWidget {
             color: AppTheme.bgCard,
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
-              color: color != null ? color!.withValues(alpha: 0.6) : AppTheme.borderColor,
+              color: color != null
+                  ? color!.withValues(alpha: 0.6)
+                  : AppTheme.borderColor,
             ),
             boxShadow: [
               BoxShadow(
@@ -1947,12 +2198,10 @@ class _SearchBar extends StatelessWidget {
           Expanded(
             child: TextField(
               controller: controller,
-              style: const TextStyle(
-                  color: AppTheme.textPrimary, fontSize: 13),
+              style: const TextStyle(color: AppTheme.textPrimary, fontSize: 13),
               decoration: const InputDecoration(
                 hintText: 'Search village, city...',
-                hintStyle: TextStyle(
-                    color: AppTheme.textMuted, fontSize: 13),
+                hintStyle: TextStyle(color: AppTheme.textMuted, fontSize: 13),
                 border: InputBorder.none,
                 filled: false,
                 contentPadding: EdgeInsets.zero,
@@ -1967,8 +2216,7 @@ class _SearchBar extends StatelessWidget {
                 width: 16,
                 height: 16,
                 child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: AppTheme.greenAccent),
+                    strokeWidth: 2, color: AppTheme.greenAccent),
               ),
             )
           else if (controller.text.isNotEmpty)
@@ -2031,8 +2279,7 @@ class _DrawingBanner extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Icon(Icons.touch_app_rounded,
-              color: Colors.white, size: 16),
+          const Icon(Icons.touch_app_rounded, color: Colors.white, size: 16),
           const SizedBox(width: 8),
           Expanded(
             child: Text(hint,
@@ -2056,8 +2303,7 @@ class _ShapeInfoBar extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppTheme.bgCard,
         borderRadius: BorderRadius.circular(14),
-        border:
-            Border.all(color: shape.color.withValues(alpha: 0.5)),
+        border: Border.all(color: shape.color.withValues(alpha: 0.5)),
         boxShadow: [
           BoxShadow(
             color: shape.color.withValues(alpha: 0.18),
@@ -2070,8 +2316,8 @@ class _ShapeInfoBar extends StatelessWidget {
           Container(
             width: 10,
             height: 10,
-            decoration: BoxDecoration(
-                color: shape.color, shape: BoxShape.circle),
+            decoration:
+                BoxDecoration(color: shape.color, shape: BoxShape.circle),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -2128,12 +2374,10 @@ class _WaypointPanel extends StatelessWidget {
           children: [
             // Header
             Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               decoration: BoxDecoration(
                 color: AppTheme.bgSurface,
-                border: Border(
-                    bottom: BorderSide(color: AppTheme.borderColor)),
+                border: Border(bottom: BorderSide(color: AppTheme.borderColor)),
               ),
               child: Row(
                 children: [
@@ -2213,8 +2457,7 @@ class _WaypointPanel extends StatelessWidget {
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
                 color: AppTheme.bgSurface,
-                border:
-                    Border(top: BorderSide(color: AppTheme.borderColor)),
+                border: Border(top: BorderSide(color: AppTheme.borderColor)),
               ),
               child: Column(
                 children: [
@@ -2276,16 +2519,13 @@ class _EmptyWaypointState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.pentagon_outlined,
-                color: AppTheme.textMuted, size: 40),
+            Icon(Icons.pentagon_outlined, color: AppTheme.textMuted, size: 40),
             SizedBox(height: 12),
             Text(
               'Tap Polygon in toolbar\nthen tap on the map\nto add waypoints',
               textAlign: TextAlign.center,
               style: TextStyle(
-                  color: AppTheme.textMuted,
-                  fontSize: 11,
-                  height: 1.5),
+                  color: AppTheme.textMuted, fontSize: 11, height: 1.5),
             ),
           ],
         ),
@@ -2319,8 +2559,8 @@ class _WaypointRow extends StatelessWidget {
               ? Colors.transparent
               : const Color(0xFF0D1B2A).withValues(alpha: 0.6),
           border: Border(
-            bottom: BorderSide(
-                color: AppTheme.borderColor.withValues(alpha: 0.35)),
+            bottom:
+                BorderSide(color: AppTheme.borderColor.withValues(alpha: 0.35)),
           ),
         ),
         child: Row(
@@ -2397,9 +2637,7 @@ class _ActionBtn extends StatelessWidget {
         duration: const Duration(milliseconds: 150),
         padding: const EdgeInsets.symmetric(vertical: 9),
         decoration: BoxDecoration(
-          color: enabled
-              ? color.withValues(alpha: 0.12)
-              : Colors.transparent,
+          color: enabled ? color.withValues(alpha: 0.12) : Colors.transparent,
           borderRadius: BorderRadius.circular(9),
           border: Border.all(
               color: enabled
@@ -2480,8 +2718,7 @@ class _ShapesListSheet extends StatelessWidget {
                         fontWeight: FontWeight.w500)),
                 SizedBox(height: 4),
                 Text('Use the bottom toolbar to draw polygons',
-                    style: TextStyle(
-                        color: AppTheme.textMuted, fontSize: 12)),
+                    style: TextStyle(color: AppTheme.textMuted, fontSize: 12)),
               ],
             ),
           )
@@ -2498,8 +2735,8 @@ class _ShapesListSheet extends StatelessWidget {
                 final s = shapes[i];
                 return ListTile(
                   onTap: () => onShapeTap(s),
-                  contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 12, vertical: 4),
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                   tileColor: AppTheme.bgSurface,
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10)),
@@ -2560,8 +2797,8 @@ class _OfflineOverlay extends StatelessWidget {
               const SizedBox(height: 16),
               Container(
                 margin: const EdgeInsets.symmetric(horizontal: 24),
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 16, vertical: 10),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                 decoration: BoxDecoration(
                   color: AppTheme.bgCard,
                   borderRadius: BorderRadius.circular(20),
@@ -2587,8 +2824,7 @@ class _OfflineOverlay extends StatelessWidget {
                   width: MediaQuery.of(context).size.width * 0.75,
                   height: MediaQuery.of(context).size.width * 0.75,
                   decoration: BoxDecoration(
-                    border: Border.all(
-                        color: AppTheme.greenAccent, width: 2.5),
+                    border: Border.all(color: AppTheme.greenAccent, width: 2.5),
                     borderRadius: BorderRadius.circular(16),
                   ),
                 ),
@@ -2598,10 +2834,9 @@ class _OfflineOverlay extends StatelessWidget {
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
                   color: AppTheme.bgCard,
-                  borderRadius: const BorderRadius.vertical(
-                      top: Radius.circular(20)),
-                  border: Border(
-                      top: BorderSide(color: AppTheme.borderColor)),
+                  borderRadius:
+                      const BorderRadius.vertical(top: Radius.circular(20)),
+                  border: Border(top: BorderSide(color: AppTheme.borderColor)),
                 ),
                 child: Row(
                   children: [
@@ -2661,9 +2896,7 @@ class _GpsTrackingPanel extends StatelessWidget {
         color: AppTheme.bgCard,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: controller.isTracking
-              ? const Color(0xFFFF6F00)
-              : Colors.amber,
+          color: controller.isTracking ? const Color(0xFFFF6F00) : Colors.amber,
           width: 1.5,
         ),
         boxShadow: [
@@ -2758,6 +2991,144 @@ class _GpsTrackingPanel extends StatelessWidget {
                 size: 18,
               ),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GpsCoordChip extends StatelessWidget {
+  final LatLng position;
+
+  const _GpsCoordChip({required this.position});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppTheme.bgCard.withValues(alpha: 0.9),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppTheme.borderColor),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.2),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.gps_fixed_rounded,
+                  size: 12, color: AppTheme.greenAccent),
+              const SizedBox(width: 4),
+              Text(
+                'Lat: ${position.latitude.toStringAsFixed(6)}',
+                style: const TextStyle(
+                    color: AppTheme.textPrimary,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'monospace'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.explore_outlined,
+                  size: 12, color: AppTheme.textSecondary),
+              const SizedBox(width: 4),
+              Text(
+                'Lng: ${position.longitude.toStringAsFixed(6)}',
+                style: const TextStyle(
+                    color: AppTheme.textPrimary,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'monospace'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TappedCoordCard extends StatelessWidget {
+  final LatLng position;
+  final VoidCallback onClose;
+  final VoidCallback onAddMarker;
+
+  const _TappedCoordCard({
+    required this.position,
+    required this.onClose,
+    required this.onAddMarker,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: AppTheme.bgCard,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.greenAccent),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.3),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Selected Point',
+                  style: TextStyle(color: AppTheme.textMuted, fontSize: 10)),
+              Text(
+                '${position.latitude.toStringAsFixed(6)}, ${position.longitude.toStringAsFixed(6)}',
+                style: const TextStyle(
+                    color: AppTheme.textPrimary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'monospace'),
+              ),
+            ],
+          ),
+          const SizedBox(width: 12),
+          GestureDetector(
+            onTap: onAddMarker,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppTheme.greenPrimary,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: const Text('Add Point',
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold)),
+            ),
+          ),
+          const SizedBox(width: 8),
+          GestureDetector(
+            onTap: onClose,
+            child: const Icon(Icons.close_rounded,
+                color: AppTheme.textMuted, size: 18),
           ),
         ],
       ),

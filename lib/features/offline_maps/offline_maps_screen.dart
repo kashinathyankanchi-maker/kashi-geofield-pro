@@ -1,7 +1,11 @@
-import 'dart:math';
-import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+import 'dart:io';
+import 'dart:math';
+import 'dart:typed_data';
+import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../shared/theme.dart';
 
 // ---------------------------------------------------------------------------
@@ -18,6 +22,8 @@ class OfflineRegion {
   final int minZoom;
   final int maxZoom;
   final DateTime createdAt;
+  final int downloadedTiles;
+  final int totalTiles;
 
   OfflineRegion({
     required this.id,
@@ -29,25 +35,47 @@ class OfflineRegion {
     required this.minZoom,
     required this.maxZoom,
     required this.createdAt,
+    this.downloadedTiles = 0,
+    this.totalTiles = 0,
   });
 
-  /// Approximate tile count using the simplified area formula:
-  ///   tiles(z) = (2^z)^2 * latRange * lngRange / (360 * 180) / 4
-  int get estimatedTileCount {
-    final double latRange = (maxLat - minLat).abs();
-    final double lngRange = (maxLng - minLng).abs();
-    int total = 0;
-    for (int z = minZoom; z <= maxZoom; z++) {
-      final double tilesAtZ =
-          pow(2, z).toDouble() * pow(2, z).toDouble() * latRange * lngRange /
-              (360.0 * 180.0) /
-              4.0;
-      total += tilesAtZ.ceil();
+  bool get isComplete => downloadedTiles >= totalTiles && totalTiles > 0;
+  double get progress => totalTiles == 0 ? 0 : downloadedTiles / totalTiles;
+
+  /// Calculate all tile XYZ coords in bounding box for a zoom level
+  static List<List<int>> tilesForBbox(
+      double minLat, double maxLat, double minLng, double maxLng, int z) {
+    final tiles = <List<int>>[];
+    final xMin = _lngToX(minLng, z);
+    final xMax = _lngToX(maxLng, z);
+    final yMin = _latToY(maxLat, z); // y is inverted
+    final yMax = _latToY(minLat, z);
+    for (int x = xMin; x <= xMax; x++) {
+      for (int y = yMin; y <= yMax; y++) {
+        tiles.add([z, x, y]);
+      }
     }
-    return total;
+    return tiles;
   }
 
-  /// Rough storage estimate: ~15 KB per tile on average.
+  static int _lngToX(double lng, int z) =>
+      ((lng + 180) / 360 * pow(2, z)).floor();
+
+  static int _latToY(double lat, int z) {
+    final latRad = lat * pi / 180;
+    return ((1 - log(tan(latRad) + 1 / cos(latRad)) / pi) / 2 * pow(2, z))
+        .floor();
+  }
+
+  List<List<int>> get allTiles {
+    final all = <List<int>>[];
+    for (int z = minZoom; z <= maxZoom; z++) {
+      all.addAll(tilesForBbox(minLat, maxLat, minLng, maxLng, z));
+    }
+    return all;
+  }
+
+  int get estimatedTileCount => allTiles.length;
   double get estimatedMB => estimatedTileCount * 15 / 1024;
 
   Map<String, dynamic> toJson() => {
@@ -60,6 +88,8 @@ class OfflineRegion {
         'minZoom': minZoom,
         'maxZoom': maxZoom,
         'createdAt': createdAt.toIso8601String(),
+        'downloadedTiles': downloadedTiles,
+        'totalTiles': totalTiles,
       };
 
   factory OfflineRegion.fromJson(Map<String, dynamic> json) => OfflineRegion(
@@ -72,53 +102,161 @@ class OfflineRegion {
         minZoom: json['minZoom'] as int,
         maxZoom: json['maxZoom'] as int,
         createdAt: DateTime.parse(json['createdAt'] as String),
+        downloadedTiles: (json['downloadedTiles'] as num?)?.toInt() ?? 0,
+        totalTiles: (json['totalTiles'] as num?)?.toInt() ?? 0,
+      );
+
+  OfflineRegion copyWith({int? downloadedTiles, int? totalTiles}) =>
+      OfflineRegion(
+        id: id, name: name,
+        minLat: minLat, maxLat: maxLat,
+        minLng: minLng, maxLng: maxLng,
+        minZoom: minZoom, maxZoom: maxZoom,
+        createdAt: createdAt,
+        downloadedTiles: downloadedTiles ?? this.downloadedTiles,
+        totalTiles: totalTiles ?? this.totalTiles,
       );
 }
 
 // ---------------------------------------------------------------------------
-// Screen
+// Tile Downloader
+// ---------------------------------------------------------------------------
+
+class TileDownloader {
+  static const String _tileBaseUrl = 'https://tile.openstreetmap.org';
+  static const String _satBaseUrl = 'https://mt0.google.com/vt/lyrs=s';
+
+  static Future<String> _tileDir() async {
+    final dir = await getApplicationDocumentsDirectory();
+    return '${dir.path}/offline_tiles';
+  }
+
+  static String tilePath(int z, int x, int y) =>
+      ''; // resolved asynchronously
+
+  static Future<String> _tilePath(int z, int x, int y,
+      {bool satellite = false}) async {
+    final base = await _tileDir();
+    final sub = satellite ? 'sat' : 'osm';
+    return '$base/$sub/$z/$x/$y.png';
+  }
+
+  static Future<bool> tileExists(int z, int x, int y,
+      {bool satellite = false}) async {
+    final path = await _tilePath(z, x, y, satellite: satellite);
+    return File(path).exists();
+  }
+
+  /// Download a single tile and cache it. Returns true on success.
+  static Future<bool> downloadTile(int z, int x, int y,
+      {bool satellite = false}) async {
+    try {
+      final path = await _tilePath(z, x, y, satellite: satellite);
+      final file = File(path);
+      if (await file.exists()) return true; // already cached
+
+      await file.parent.create(recursive: true);
+
+      final url = satellite
+          ? '$_satBaseUrl&x=$x&y=$y&z=$z'
+          : '$_tileBaseUrl/$z/$x/$y.png';
+
+      final resp = await http.get(Uri.parse(url),
+          headers: {'User-Agent': 'KashiGeoFieldPro/1.0'});
+
+      if (resp.statusCode == 200 && resp.bodyBytes.isNotEmpty) {
+        await file.writeAsBytes(resp.bodyBytes);
+        return true;
+      }
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Get cached tile bytes, or null if not cached.
+  static Future<Uint8List?> getCachedTile(int z, int x, int y,
+      {bool satellite = false}) async {
+    try {
+      final path = await _tilePath(z, x, y, satellite: satellite);
+      final f = File(path);
+      if (await f.exists()) return await f.readAsBytes();
+    } catch (_) {}
+    return null;
+  }
+
+  /// Delete all cached tiles for a region (by removing all tiles in bbox)
+  static Future<void> deleteTiles(OfflineRegion region,
+      {bool satellite = false}) async {
+    final base = await _tileDir();
+    final sub = satellite ? 'sat' : 'osm';
+    for (final tile in region.allTiles) {
+      final path = '$base/$sub/${tile[0]}/${tile[1]}/${tile[2]}.png';
+      final f = File(path);
+      if (await f.exists()) await f.delete();
+    }
+  }
+
+  /// Get total size of all cached tiles in MB
+  static Future<double> getCacheSizeMB() async {
+    try {
+      final dir = Directory(await _tileDir());
+      if (!await dir.exists()) return 0.0;
+      int bytes = 0;
+      await for (final entity in dir.list(recursive: true)) {
+        if (entity is File) {
+          bytes += await entity.length();
+        }
+      }
+      return bytes / 1024 / 1024;
+    } catch (_) {
+      return 0.0;
+    }
+  }
+
+  static Future<void> clearAllCache() async {
+    try {
+      final dir = Directory(await _tileDir());
+      if (await dir.exists()) await dir.delete(recursive: true);
+    } catch (_) {}
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Offline Maps Screen
 // ---------------------------------------------------------------------------
 
 class OfflineMapsScreen extends StatefulWidget {
-  final Map<String, double>? initialBounds;
-
-  const OfflineMapsScreen({super.key, this.initialBounds});
+  const OfflineMapsScreen({super.key});
 
   @override
   State<OfflineMapsScreen> createState() => _OfflineMapsScreenState();
 }
 
 class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
-  static const String _prefKey = 'offline_regions';
+  List<OfflineRegion> _regions = [];
+  bool _isDownloading = false;
+  String? _downloadingId;
+  int _downloadProgress = 0;
+  int _downloadTotal = 0;
+  bool _cancelDownload = false;
+  double _cacheSizeMB = 0;
+  bool _satellite = true;
 
-  // -- form controllers --
-  final _formKey = GlobalKey<FormState>();
-  final _nameCtrl = TextEditingController();
+  // Form controllers
+  final _nameCtrl = TextEditingController(text: 'My Region');
   final _minLatCtrl = TextEditingController();
   final _maxLatCtrl = TextEditingController();
   final _minLngCtrl = TextEditingController();
   final _maxLngCtrl = TextEditingController();
-
-  double _minZoom = 10;
-  double _maxZoom = 14;
-
-  // -- state --
-  List<OfflineRegion> _regions = [];
-  bool _loading = true;
-  bool _downloading = false;
-  double _downloadProgress = 0.0;
-  bool _clearingCache = false;
+  int _minZoom = 10;
+  int _maxZoom = 15;
 
   @override
   void initState() {
     super.initState();
-    if (widget.initialBounds != null) {
-      _minLatCtrl.text = widget.initialBounds!['minLat']!.toStringAsFixed(4);
-      _maxLatCtrl.text = widget.initialBounds!['maxLat']!.toStringAsFixed(4);
-      _minLngCtrl.text = widget.initialBounds!['minLng']!.toStringAsFixed(4);
-      _maxLngCtrl.text = widget.initialBounds!['maxLng']!.toStringAsFixed(4);
-    }
     _loadRegions();
+    _refreshCacheSize();
   }
 
   @override
@@ -131,758 +269,738 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
     super.dispose();
   }
 
-  // -- persistence --
-
   Future<void> _loadRegions() async {
     final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_prefKey);
-    if (raw != null) {
-      final List<dynamic> decoded = jsonDecode(raw) as List<dynamic>;
+    final raw = prefs.getStringList('offline_regions') ?? [];
+    if (mounted) {
       setState(() {
-        _regions = decoded
-            .map((e) => OfflineRegion.fromJson(e as Map<String, dynamic>))
+        _regions = raw
+            .map((s) => OfflineRegion.fromJson(jsonDecode(s)))
             .toList();
       });
     }
-    setState(() => _loading = false);
   }
 
   Future<void> _saveRegions() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      _prefKey,
-      jsonEncode(_regions.map((r) => r.toJson()).toList()),
-    );
+    await prefs.setStringList(
+        'offline_regions', _regions.map((r) => jsonEncode(r.toJson())).toList());
   }
 
-  Future<void> _deleteRegion(String id) async {
-    setState(() => _regions.removeWhere((r) => r.id == id));
-    await _saveRegions();
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Region removed.')),
+  Future<void> _refreshCacheSize() async {
+    final mb = await TileDownloader.getCacheSizeMB();
+    if (mounted) setState(() => _cacheSizeMB = mb);
+  }
+
+  // ── Download region ─────────────────────────────────────────────────────────
+
+  Future<void> _downloadRegion(OfflineRegion region) async {
+    final tiles = region.allTiles;
+    if (tiles.isEmpty) {
+      _showSnack('No tiles in this range');
+      return;
+    }
+
+    // Warn if > 500 tiles
+    if (tiles.length > 500) {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: AppTheme.bgCard,
+          title: const Text('Large Download',
+              style: TextStyle(color: AppTheme.textPrimary)),
+          content: Text(
+            '${tiles.length} tiles (~${region.estimatedMB.toStringAsFixed(1)} MB).\n'
+            'This may take several minutes and uses mobile data.\nContinue?',
+            style: const TextStyle(color: AppTheme.textSecondary),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel')),
+            ElevatedButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Download')),
+          ],
+        ),
       );
+      if (ok != true) return;
+    }
+
+    setState(() {
+      _isDownloading = true;
+      _downloadingId = region.id;
+      _downloadProgress = 0;
+      _downloadTotal = tiles.length;
+      _cancelDownload = false;
+    });
+
+    int done = 0;
+    int failed = 0;
+
+    for (final tile in tiles) {
+      if (_cancelDownload) break;
+      final success = await TileDownloader.downloadTile(
+          tile[0], tile[1], tile[2],
+          satellite: _satellite);
+      if (success) {
+        done++;
+      } else {
+        failed++;
+      }
+      if (mounted) {
+        setState(() => _downloadProgress = done);
+        // Update region progress
+        final idx = _regions.indexWhere((r) => r.id == region.id);
+        if (idx >= 0) {
+          _regions[idx] = _regions[idx]
+              .copyWith(downloadedTiles: done, totalTiles: tiles.length);
+        }
+      }
+      // Small delay to avoid rate limiting
+      await Future.delayed(const Duration(milliseconds: 20));
+    }
+
+    // Save final state
+    final idx = _regions.indexWhere((r) => r.id == region.id);
+    if (idx >= 0) {
+      _regions[idx] = _regions[idx]
+          .copyWith(downloadedTiles: done, totalTiles: tiles.length);
+    }
+    await _saveRegions();
+    await _refreshCacheSize();
+
+    if (mounted) {
+      setState(() {
+        _isDownloading = false;
+        _downloadingId = null;
+      });
+      _showSnack(_cancelDownload
+          ? 'Download cancelled ($done tiles saved)'
+          : 'Download complete! $done tiles (${failed > 0 ? "$failed failed" : "all ok"})');
     }
   }
 
-  // -- cache clear --
+  Future<void> _addRegion() async {
+    final minLat = double.tryParse(_minLatCtrl.text.trim());
+    final maxLat = double.tryParse(_maxLatCtrl.text.trim());
+    final minLng = double.tryParse(_minLngCtrl.text.trim());
+    final maxLng = double.tryParse(_maxLngCtrl.text.trim());
+    final name = _nameCtrl.text.trim();
 
-  Future<void> _clearTileCache() async {
-    final confirmed = await showDialog<bool>(
+    if (minLat == null || maxLat == null || minLng == null || maxLng == null) {
+      _showSnack('Please fill all coordinate fields', isError: true);
+      return;
+    }
+    if (minLat >= maxLat || minLng >= maxLng) {
+      _showSnack('Min must be less than Max', isError: true);
+      return;
+    }
+
+    final region = OfflineRegion(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      name: name.isEmpty ? 'Region ${_regions.length + 1}' : name,
+      minLat: minLat,
+      maxLat: maxLat,
+      minLng: minLng,
+      maxLng: maxLng,
+      minZoom: _minZoom,
+      maxZoom: _maxZoom,
+      createdAt: DateTime.now(),
+    );
+
+    setState(() => _regions.add(region));
+    await _saveRegions();
+    _showSnack('Region added: ${region.estimatedTileCount} tiles (~${region.estimatedMB.toStringAsFixed(1)} MB)');
+
+    // Start download immediately
+    await _downloadRegion(region);
+  }
+
+  Future<void> _deleteRegion(OfflineRegion region) async {
+    final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Clear Tile Cache'),
-        content: const Text(
-          'This will remove all automatically cached map tiles from your device. '
-          'Manually saved regions will not be affected.\n\nContinue?',
-        ),
+        backgroundColor: AppTheme.bgCard,
+        title: const Text('Delete Region',
+            style: TextStyle(color: AppTheme.textPrimary)),
+        content: Text('Delete "${region.name}" and its cached tiles?',
+            style: const TextStyle(color: AppTheme.textSecondary)),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.errorColor),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Clear'),
+            child: const Text('Delete'),
           ),
         ],
       ),
     );
-    if (confirmed != true) return;
-
-    setState(() => _clearingCache = true);
-    // Simulate clearing – actual clearing depends on the tile plugin used.
-    await Future.delayed(const Duration(milliseconds: 800));
-    setState(() => _clearingCache = false);
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Tile cache cleared successfully.')),
-      );
-    }
-  }
-
-  // -- download (simulated) --
-
-  Future<void> _startDownload() async {
-    if (!_formKey.currentState!.validate()) return;
-
-    final region = OfflineRegion(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      name: _nameCtrl.text.trim(),
-      minLat: double.parse(_minLatCtrl.text.trim()),
-      maxLat: double.parse(_maxLatCtrl.text.trim()),
-      minLng: double.parse(_minLngCtrl.text.trim()),
-      maxLng: double.parse(_maxLngCtrl.text.trim()),
-      minZoom: _minZoom.round(),
-      maxZoom: _maxZoom.round(),
-      createdAt: DateTime.now(),
-    );
-
-    setState(() {
-      _downloading = true;
-      _downloadProgress = 0.0;
-    });
-
-    // Simulate download in steps
-    const int steps = 20;
-    for (int i = 1; i <= steps; i++) {
-      await Future.delayed(const Duration(milliseconds: 120));
-      if (!mounted) return;
-      setState(() => _downloadProgress = i / steps);
-    }
-
-    setState(() {
-      _regions.insert(0, region);
-      _downloading = false;
-      _downloadProgress = 0.0;
-    });
-
+    if (ok != true) return;
+    await TileDownloader.deleteTiles(region, satellite: _satellite);
+    setState(() => _regions.removeWhere((r) => r.id == region.id));
     await _saveRegions();
+    await _refreshCacheSize();
+    _showSnack('Region deleted');
+  }
 
-    _nameCtrl.clear();
-    _minLatCtrl.clear();
-    _maxLatCtrl.clear();
-    _minLngCtrl.clear();
-    _maxLngCtrl.clear();
-    setState(() {
-      _minZoom = 10;
-      _maxZoom = 14;
-    });
+  void _showSnack(String msg, {bool isError = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg),
+      backgroundColor: isError ? Colors.red : AppTheme.greenPrimary,
+      behavior: SnackBarBehavior.floating,
+    ));
+  }
 
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-              'Region "${region.name}" saved (~${region.estimatedTileCount} tiles).'),
-          backgroundColor: AppTheme.greenPrimary,
-        ),
+  InputDecoration _inputDeco(String label, IconData icon) => InputDecoration(
+        labelText: label,
+        prefixIcon: Icon(icon, size: 16, color: AppTheme.textMuted),
+        filled: true,
+        fillColor: AppTheme.bgSurface,
+        labelStyle:
+            const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: const BorderSide(color: AppTheme.borderColor)),
+        enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: const BorderSide(color: AppTheme.borderColor)),
+        focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide:
+                const BorderSide(color: AppTheme.greenPrimary, width: 2)),
       );
-    }
-  }
-
-  // -- computed --
-
-  double get _totalStorageMB =>
-      _regions.fold(0.0, (sum, r) => sum + r.estimatedMB);
-
-  // -- validators --
-
-  String? _validateDouble(String? v, String label,
-      {double? min, double? max}) {
-    if (v == null || v.trim().isEmpty) return '$label is required';
-    final d = double.tryParse(v.trim());
-    if (d == null) return 'Enter a valid number';
-    if (min != null && d < min) return '$label must be >= $min';
-    if (max != null && d > max) return '$label must be <= $max';
-    return null;
-  }
-
-  // -- build --
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppTheme.bgPrimary,
       appBar: AppBar(
-        title: const Text('Offline Maps'),
-        elevation: 2,
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                _buildInfoBanner(),
-                const SizedBox(height: 16),
-                _buildCacheManagementCard(),
-                const SizedBox(height: 16),
-                _buildDownloadSection(),
-                const SizedBox(height: 16),
-                _buildRegionsList(),
-                const SizedBox(height: 32),
-              ],
-            ),
-    );
-  }
-
-  // -- sub-widgets --
-
-  Widget _buildInfoBanner() {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppTheme.primaryColor.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppTheme.primaryColor.withOpacity(0.4)),
-      ),
-      padding: const EdgeInsets.all(14),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(Icons.info_outline, color: AppTheme.primaryColor, size: 22),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              'Map tiles are cached automatically as you browse the map. '
-              'Use the Download Region tool below to pre-save region metadata '
-              'for quick access. Actual tile storage depends on your map plugin '
-              'configuration and device storage.',
-              style: AppTheme.bodySmall.copyWith(
-                color: AppTheme.primaryColor,
-                height: 1.5,
-              ),
-            ),
+        backgroundColor: AppTheme.bgCard,
+        title: const Text('Offline Maps',
+            style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.delete_sweep_rounded, color: Colors.red),
+            tooltip: 'Clear All Cache',
+            onPressed: _isDownloading
+                ? null
+                : () async {
+                    final ok = await showDialog<bool>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        backgroundColor: AppTheme.bgCard,
+                        title: const Text('Clear Cache',
+                            style: TextStyle(color: AppTheme.textPrimary)),
+                        content: const Text('Delete all downloaded tiles?',
+                            style: TextStyle(color: AppTheme.textSecondary)),
+                        actions: [
+                          TextButton(
+                              onPressed: () => Navigator.pop(ctx, false),
+                              child: const Text('Cancel')),
+                          ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.red),
+                            onPressed: () => Navigator.pop(ctx, true),
+                            child: const Text('Clear'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (ok == true) {
+                      await TileDownloader.clearAllCache();
+                      await _refreshCacheSize();
+                      _showSnack('Cache cleared');
+                    }
+                  },
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildCacheManagementCard() {
-    return _SectionCard(
-      title: 'Cache Management',
-      icon: Icons.storage_rounded,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Auto-cached tiles',
-                    style: AppTheme.bodyMedium
-                        .copyWith(fontWeight: FontWeight.w600),
+      body: ListView(
+        padding: const EdgeInsets.all(12),
+        children: [
+          // ── Cache info card ─────────────────────────────────────────────────
+          _SectionCard(
+            icon: Icons.storage_rounded,
+            title: 'Cache Storage',
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${_cacheSizeMB.toStringAsFixed(1)} MB used',
+                        style: const TextStyle(
+                            color: AppTheme.textPrimary,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16),
+                      ),
+                      const Text('Downloaded map tiles',
+                          style: TextStyle(
+                              color: AppTheme.textSecondary, fontSize: 12)),
+                    ],
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Tiles browsed online are cached on-device for offline viewing.',
-                    style: AppTheme.bodySmall
-                        .copyWith(color: AppTheme.textSecondary),
+                ),
+                // Tile type toggle
+                Container(
+                  decoration: BoxDecoration(
+                    color: AppTheme.bgSurface,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: AppTheme.borderColor),
                   ),
-                ],
-              ),
+                  child: Row(
+                    children: [
+                      _TileToggle(
+                          label: 'Street',
+                          active: !_satellite,
+                          onTap: () => setState(() => _satellite = false)),
+                      _TileToggle(
+                          label: 'Satellite',
+                          active: _satellite,
+                          onTap: () => setState(() => _satellite = true)),
+                    ],
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(width: 12),
-            _clearingCache
-                ? const SizedBox(
-                    width: 36,
-                    height: 36,
-                    child: CircularProgressIndicator(strokeWidth: 2.5),
-                  )
-                : OutlinedButton.icon(
-                    onPressed: _clearTileCache,
-                    icon: const Icon(Icons.delete_sweep_rounded, size: 18),
-                    label: const Text('Clear Cache'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppTheme.errorColor,
-                      side: BorderSide(color: AppTheme.errorColor),
-                    ),
-                  ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildDownloadSection() {
-    return _SectionCard(
-      title: 'Download Region',
-      icon: Icons.download_for_offline_rounded,
-      children: [
-        // Warning note
-        Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: Colors.amber.shade50,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.amber.shade300),
           ),
-          child: Row(
-            children: [
-              Icon(Icons.warning_amber_rounded,
-                  color: Colors.amber.shade700, size: 18),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Note: This saves region metadata only. '
-                  'Full tile downloading requires native map plugin support. '
-                  'Tiles will be loaded from cache as you browse the saved area.',
-                  style: AppTheme.bodySmall
-                      .copyWith(color: Colors.amber.shade800),
+          const SizedBox(height: 12),
+
+          // ── Download Region form ────────────────────────────────────────────
+          _SectionCard(
+            icon: Icons.download_rounded,
+            title: 'Download New Region',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextField(
+                  controller: _nameCtrl,
+                  style: const TextStyle(color: AppTheme.textPrimary),
+                  decoration: _inputDeco('Region Name', Icons.label_rounded),
                 ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 16),
-
-        Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Region name
-              TextFormField(
-                controller: _nameCtrl,
-                decoration: AppTheme.inputDecoration(
-                  'Region Name',
-                  hint: 'e.g. Varanasi City Center',
-                  prefixIcon: Icons.label_outline,
-                ),
-                textCapitalization: TextCapitalization.words,
-                validator: (v) => (v == null || v.trim().isEmpty)
-                    ? 'Name is required'
-                    : null,
-              ),
-              const SizedBox(height: 14),
-
-              Text(
-                'Bounding Box',
-                style: AppTheme.bodyMedium
-                    .copyWith(fontWeight: FontWeight.w600),
-              ),
-              const SizedBox(height: 8),
-
-              // Lat row
-              Row(
-                children: [
-                  Expanded(
-                    child: TextFormField(
-                      controller: _minLatCtrl,
-                      decoration: AppTheme.inputDecoration(
-                        'Min Latitude',
-                        hint: '25.0',
-                        prefixIcon: Icons.south,
-                      ),
-                      keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true, signed: true),
-                      validator: (v) =>
-                          _validateDouble(v, 'Min Lat', min: -90, max: 90),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: TextFormField(
-                      controller: _maxLatCtrl,
-                      decoration: AppTheme.inputDecoration(
-                        'Max Latitude',
-                        hint: '26.0',
-                        prefixIcon: Icons.north,
-                      ),
-                      keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true, signed: true),
-                      validator: (v) {
-                        final err =
-                            _validateDouble(v, 'Max Lat', min: -90, max: 90);
-                        if (err != null) return err;
-                        final minVal =
-                            double.tryParse(_minLatCtrl.text.trim()) ?? 0;
-                        final maxVal =
-                            double.tryParse(v!.trim()) ?? 0;
-                        if (maxVal <= minVal) return 'Must be > Min Lat';
-                        return null;
-                      },
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-
-              // Lng row
-              Row(
-                children: [
-                  Expanded(
-                    child: TextFormField(
-                      controller: _minLngCtrl,
-                      decoration: AppTheme.inputDecoration(
-                        'Min Longitude',
-                        hint: '82.0',
-                        prefixIcon: Icons.west,
-                      ),
-                      keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true, signed: true),
-                      validator: (v) => _validateDouble(v, 'Min Lng',
-                          min: -180, max: 180),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: TextFormField(
-                      controller: _maxLngCtrl,
-                      decoration: AppTheme.inputDecoration(
-                        'Max Longitude',
-                        hint: '83.5',
-                        prefixIcon: Icons.east,
-                      ),
-                      keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true, signed: true),
-                      validator: (v) {
-                        final err = _validateDouble(v, 'Max Lng',
-                            min: -180, max: 180);
-                        if (err != null) return err;
-                        final minVal =
-                            double.tryParse(_minLngCtrl.text.trim()) ?? 0;
-                        final maxVal =
-                            double.tryParse(v!.trim()) ?? 0;
-                        if (maxVal <= minVal) return 'Must be > Min Lng';
-                        return null;
-                      },
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-
-              // Zoom range
-              Text(
-                'Zoom Range  z${_minZoom.round()} – z${_maxZoom.round()}',
-                style: AppTheme.bodyMedium
-                    .copyWith(fontWeight: FontWeight.w600),
-              ),
-              const SizedBox(height: 4),
-              RangeSlider(
-                values: RangeValues(_minZoom, _maxZoom),
-                min: 10,
-                max: 16,
-                divisions: 6,
-                activeColor: AppTheme.primaryColor,
-                labels: RangeLabels(
-                  _minZoom.round().toString(),
-                  _maxZoom.round().toString(),
-                ),
-                onChanged: (RangeValues values) {
-                  setState(() {
-                    _minZoom = values.start;
-                    _maxZoom = values.end;
-                  });
-                },
-              ),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text('z10',
-                      style: AppTheme.bodySmall
-                          .copyWith(color: AppTheme.textSecondary)),
-                  Text('z16',
-                      style: AppTheme.bodySmall
-                          .copyWith(color: AppTheme.textSecondary)),
-                ],
-              ),
-              const SizedBox(height: 16),
-
-              // Progress or button
-              if (_downloading) ...[
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                const SizedBox(height: 8),
+                const Text('Bounding Box (decimal degrees)',
+                    style: TextStyle(
+                        color: AppTheme.textMuted,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600)),
+                const SizedBox(height: 6),
+                Row(
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'Saving region metadata…',
-                          style: AppTheme.bodySmall
-                              .copyWith(color: AppTheme.textSecondary),
-                        ),
-                        Text(
-                          '${(_downloadProgress * 100).toStringAsFixed(0)}%',
-                          style: AppTheme.bodySmall.copyWith(
-                            color: AppTheme.primaryColor,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
+                    Expanded(
+                      child: TextField(
+                        controller: _minLatCtrl,
+                        keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true, signed: true),
+                        style: const TextStyle(
+                            color: AppTheme.textPrimary, fontSize: 13),
+                        decoration:
+                            _inputDeco('Min Lat ↓', Icons.south_rounded),
+                      ),
                     ),
-                    const SizedBox(height: 6),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: LinearProgressIndicator(
-                        value: _downloadProgress,
-                        minHeight: 10,
-                        backgroundColor:
-                            AppTheme.primaryColor.withOpacity(0.15),
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                            AppTheme.primaryColor),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: TextField(
+                        controller: _maxLatCtrl,
+                        keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true, signed: true),
+                        style: const TextStyle(
+                            color: AppTheme.textPrimary, fontSize: 13),
+                        decoration:
+                            _inputDeco('Max Lat ↑', Icons.north_rounded),
                       ),
                     ),
                   ],
                 ),
-              ] else ...[
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: _startDownload,
-                    icon: const Icon(Icons.download_rounded),
-                    label: const Text('Save Region'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppTheme.primaryColor,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _minLngCtrl,
+                        keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true, signed: true),
+                        style: const TextStyle(
+                            color: AppTheme.textPrimary, fontSize: 13),
+                        decoration:
+                            _inputDeco('Min Lng ←', Icons.west_rounded),
                       ),
                     ),
-                  ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: TextField(
+                        controller: _maxLngCtrl,
+                        keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true, signed: true),
+                        style: const TextStyle(
+                            color: AppTheme.textPrimary, fontSize: 13),
+                        decoration:
+                            _inputDeco('Max Lng →', Icons.east_rounded),
+                      ),
+                    ),
+                  ],
                 ),
+                const SizedBox(height: 12),
+                // Zoom range
+                Row(
+                  children: [
+                    const Text('Zoom:',
+                        style: TextStyle(
+                            color: AppTheme.textSecondary, fontSize: 12)),
+                    const SizedBox(width: 8),
+                    _ZoomChip(
+                        zoom: _minZoom,
+                        label: 'Min',
+                        onDec: _minZoom > 5
+                            ? () => setState(() => _minZoom--)
+                            : null,
+                        onInc: _minZoom < _maxZoom
+                            ? () => setState(() => _minZoom++)
+                            : null),
+                    const SizedBox(width: 8),
+                    const Text('→',
+                        style: TextStyle(color: AppTheme.textMuted)),
+                    const SizedBox(width: 8),
+                    _ZoomChip(
+                        zoom: _maxZoom,
+                        label: 'Max',
+                        onDec: _maxZoom > _minZoom
+                            ? () => setState(() => _maxZoom--)
+                            : null,
+                        onInc: _maxZoom < 18
+                            ? () => setState(() => _maxZoom++)
+                            : null),
+                    const Spacer(),
+                    Text(
+                      '~${_estimateTiles()} tiles',
+                      style: const TextStyle(
+                          color: AppTheme.textMuted, fontSize: 11),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                // Download button
+                if (_isDownloading && _downloadingId == null)
+                  const LinearProgressIndicator()
+                else
+                  ElevatedButton.icon(
+                    onPressed: _isDownloading ? null : _addRegion,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.greenPrimary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                    ),
+                    icon: const Icon(Icons.download_rounded, size: 20),
+                    label: const Text('Download Region',
+                        style: TextStyle(fontWeight: FontWeight.bold)),
+                  ),
               ],
-            ],
+            ),
           ),
-        ),
-      ],
-    );
-  }
+          const SizedBox(height: 12),
 
-  Widget _buildRegionsList() {
-    return _SectionCard(
-      title: 'Saved Regions (${_regions.length})',
-      icon: Icons.map_outlined,
-      trailing: _regions.isNotEmpty
-          ? Text(
-              'Est. ${_totalStorageMB.toStringAsFixed(1)} MB total',
-              style: AppTheme.bodySmall.copyWith(
-                color: AppTheme.primaryColor,
-                fontWeight: FontWeight.w600,
-              ),
-            )
-          : null,
-      children: _regions.isEmpty
-          ? [
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 24),
-                child: Center(
-                  child: Column(
-                    children: [
-                      Icon(
-                        Icons.cloud_off_rounded,
-                        size: 48,
-                        color: AppTheme.textSecondary.withOpacity(0.4),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'No saved regions yet.\nUse the form above to save a region.',
-                        textAlign: TextAlign.center,
-                        style: AppTheme.bodySmall
-                            .copyWith(color: AppTheme.textSecondary),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ]
-          : _regions
-              .map(
-                (region) => _RegionCard(
+          // ── Downloaded regions ─────────────────────────────────────────────
+          if (_regions.isNotEmpty) ...[
+            const Padding(
+              padding: EdgeInsets.only(left: 4, bottom: 8),
+              child: Text('Downloaded Regions',
+                  style: TextStyle(
+                      color: AppTheme.textSecondary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.5)),
+            ),
+            ..._regions.map((region) => _RegionCard(
                   region: region,
-                  onDelete: () => _deleteRegion(region.id),
+                  isDownloading: _isDownloading && _downloadingId == region.id,
+                  downloadProgress: _downloadProgress,
+                  downloadTotal: _downloadTotal,
+                  onDownload: () => _downloadRegion(region),
+                  onDelete: () => _deleteRegion(region),
+                  onCancel: () => setState(() => _cancelDownload = true),
+                )),
+          ] else
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Column(
+                  children: [
+                    Icon(Icons.map_outlined,
+                        color: AppTheme.textMuted, size: 52),
+                    const SizedBox(height: 12),
+                    const Text('No offline regions yet',
+                        style: TextStyle(
+                            color: AppTheme.textSecondary, fontSize: 15)),
+                    const SizedBox(height: 4),
+                    const Text('Add a bounding box above to download tiles',
+                        style:
+                            TextStyle(color: AppTheme.textMuted, fontSize: 12),
+                        textAlign: TextAlign.center),
+                  ],
                 ),
-              )
-              .toList(),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Region Card widget
-// ---------------------------------------------------------------------------
-
-class _RegionCard extends StatelessWidget {
-  final OfflineRegion region;
-  final VoidCallback onDelete;
-
-  const _RegionCard({required this.region, required this.onDelete});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.grey.shade200),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: AppTheme.primaryColor.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(Icons.map_rounded,
-                  color: AppTheme.primaryColor, size: 22),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    region.name,
-                    style: AppTheme.bodyMedium
-                        .copyWith(fontWeight: FontWeight.w700),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 4),
-                  _InfoRow(
-                    label: 'Bounds',
-                    value:
-                        '${region.minLat.toStringAsFixed(3)}, '
-                        '${region.minLng.toStringAsFixed(3)}  →  '
-                        '${region.maxLat.toStringAsFixed(3)}, '
-                        '${region.maxLng.toStringAsFixed(3)}',
-                  ),
-                  _InfoRow(
-                    label: 'Zoom',
-                    value: 'z${region.minZoom} – z${region.maxZoom}',
-                  ),
-                  _InfoRow(
-                    label: 'Tiles',
-                    value:
-                        '~${region.estimatedTileCount}  '
-                        '(approx ${region.estimatedMB.toStringAsFixed(1)} MB)',
-                  ),
-                  _InfoRow(
-                    label: 'Saved',
-                    value: _formatDate(region.createdAt),
-                  ),
-                ],
               ),
             ),
-            IconButton(
-              icon: Icon(Icons.delete_outline,
-                  color: AppTheme.errorColor),
-              tooltip: 'Remove region',
-              onPressed: onDelete,
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  String _formatDate(DateTime dt) =>
-      '${dt.day.toString().padLeft(2, '0')}/'
-      '${dt.month.toString().padLeft(2, '0')}/'
-      '${dt.year}  '
-      '${dt.hour.toString().padLeft(2, '0')}:'
-      '${dt.minute.toString().padLeft(2, '0')}';
-}
-
-class _InfoRow extends StatelessWidget {
-  final String label;
-  final String value;
-
-  const _InfoRow({required this.label, required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 2),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 46,
-            child: Text(
-              label,
-              style: AppTheme.bodySmall.copyWith(
-                color: AppTheme.textSecondary,
-                fontSize: 11,
-              ),
-            ),
-          ),
-          const SizedBox(width: 4),
-          Expanded(
-            child: Text(value,
-                style: AppTheme.bodySmall.copyWith(fontSize: 11)),
-          ),
         ],
       ),
     );
   }
+
+  int _estimateTiles() {
+    final minLat = double.tryParse(_minLatCtrl.text) ?? 0;
+    final maxLat = double.tryParse(_maxLatCtrl.text) ?? 0;
+    final minLng = double.tryParse(_minLngCtrl.text) ?? 0;
+    final maxLng = double.tryParse(_maxLngCtrl.text) ?? 0;
+    if (minLat >= maxLat || minLng >= maxLng) return 0;
+    final r = OfflineRegion(
+      id: '', name: '', minLat: minLat, maxLat: maxLat,
+      minLng: minLng, maxLng: maxLng,
+      minZoom: _minZoom, maxZoom: _maxZoom,
+      createdAt: DateTime.now(),
+    );
+    return r.estimatedTileCount;
+  }
 }
 
 // ---------------------------------------------------------------------------
-// Section Card helper widget
+// Helper Widgets
 // ---------------------------------------------------------------------------
 
 class _SectionCard extends StatelessWidget {
-  final String title;
   final IconData icon;
-  final List<Widget> children;
-  final Widget? trailing;
-
-  const _SectionCard({
-    required this.title,
-    required this.icon,
-    required this.children,
-    this.trailing,
-  });
+  final String title;
+  final Widget child;
+  const _SectionCard(
+      {required this.icon, required this.title, required this.child});
 
   @override
   Widget build(BuildContext context) {
     return Container(
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.06),
-            blurRadius: 8,
-            offset: const Offset(0, 3),
-          ),
-        ],
+        color: AppTheme.bgCard,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.borderColor),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header
-          Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              color: AppTheme.primaryColor.withOpacity(0.06),
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(14)),
-            ),
-            child: Row(
-              children: [
-                Icon(icon, size: 20, color: AppTheme.primaryColor),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    title,
-                    style: AppTheme.bodyMedium.copyWith(
-                      fontWeight: FontWeight.w700,
-                      color: AppTheme.primaryColor,
-                    ),
+          Row(
+            children: [
+              Icon(icon, color: AppTheme.greenAccent, size: 18),
+              const SizedBox(width: 8),
+              Text(title,
+                  style: const TextStyle(
+                      color: AppTheme.greenAccent,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14)),
+            ],
+          ),
+          const SizedBox(height: 12),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+class _TileToggle extends StatelessWidget {
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+  const _TileToggle(
+      {required this.label, required this.active, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: active ? AppTheme.greenPrimary : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(label,
+            style: TextStyle(
+                color: active ? Colors.white : AppTheme.textMuted,
+                fontSize: 11,
+                fontWeight: FontWeight.w600)),
+      ),
+    );
+  }
+}
+
+class _ZoomChip extends StatelessWidget {
+  final int zoom;
+  final String label;
+  final VoidCallback? onDec;
+  final VoidCallback? onInc;
+  const _ZoomChip(
+      {required this.zoom,
+      required this.label,
+      required this.onDec,
+      required this.onInc});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppTheme.bgSurface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppTheme.borderColor),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+              icon: const Icon(Icons.remove, size: 14),
+              onPressed: onDec,
+              color: AppTheme.textSecondary,
+              padding: const EdgeInsets.all(4),
+              constraints: const BoxConstraints()),
+          Text('$label z$zoom',
+              style: const TextStyle(
+                  color: AppTheme.textPrimary, fontSize: 12)),
+          IconButton(
+              icon: const Icon(Icons.add, size: 14),
+              onPressed: onInc,
+              color: AppTheme.textSecondary,
+              padding: const EdgeInsets.all(4),
+              constraints: const BoxConstraints()),
+        ],
+      ),
+    );
+  }
+}
+
+class _RegionCard extends StatelessWidget {
+  final OfflineRegion region;
+  final bool isDownloading;
+  final int downloadProgress;
+  final int downloadTotal;
+  final VoidCallback onDownload;
+  final VoidCallback onDelete;
+  final VoidCallback onCancel;
+
+  const _RegionCard({
+    required this.region,
+    required this.isDownloading,
+    required this.downloadProgress,
+    required this.downloadTotal,
+    required this.onDownload,
+    required this.onDelete,
+    required this.onCancel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final prog = isDownloading && downloadTotal > 0
+        ? downloadProgress / downloadTotal
+        : region.progress;
+    final progressPct = (prog * 100).round();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppTheme.bgCard,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isDownloading
+              ? AppTheme.greenPrimary
+              : (region.isComplete
+                  ? AppTheme.greenAccent.withValues(alpha: 0.4)
+                  : AppTheme.borderColor),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                region.isComplete
+                    ? Icons.check_circle_rounded
+                    : Icons.download_rounded,
+                color: region.isComplete
+                    ? AppTheme.greenAccent
+                    : AppTheme.textMuted,
+                size: 18,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(region.name,
+                    style: const TextStyle(
+                        color: AppTheme.textPrimary,
+                        fontWeight: FontWeight.bold)),
+              ),
+              if (!isDownloading) ...[
+                if (!region.isComplete)
+                  IconButton(
+                    icon: const Icon(Icons.download_rounded,
+                        color: AppTheme.greenAccent, size: 18),
+                    onPressed: onDownload,
+                    tooltip: 'Download',
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
                   ),
+                const SizedBox(width: 8),
+                IconButton(
+                  icon: const Icon(Icons.delete_outline_rounded,
+                      color: Colors.red, size: 18),
+                  onPressed: onDelete,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
                 ),
-                if (trailing != null) trailing!,
-              ],
+              ] else
+                TextButton(
+                  onPressed: onCancel,
+                  child: const Text('Cancel',
+                      style: TextStyle(color: Colors.red, fontSize: 12)),
+                ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Zoom z${region.minZoom}–z${region.maxZoom}  ·  '
+            '${region.estimatedTileCount} tiles  ·  '
+            '~${region.estimatedMB.toStringAsFixed(1)} MB',
+            style: const TextStyle(color: AppTheme.textMuted, fontSize: 11),
+          ),
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: prog,
+              backgroundColor: AppTheme.bgSurface,
+              valueColor: AlwaysStoppedAnimation<Color>(
+                region.isComplete ? AppTheme.greenAccent : AppTheme.greenPrimary,
+              ),
+              minHeight: 6,
             ),
           ),
-          // Body
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: children,
+          const SizedBox(height: 4),
+          Text(
+            isDownloading
+                ? 'Downloading… $downloadProgress / $downloadTotal tiles'
+                : region.isComplete
+                    ? '✓ Complete — ${region.downloadedTiles} tiles cached'
+                    : '$progressPct% — tap ↓ to resume',
+            style: TextStyle(
+              color: isDownloading
+                  ? AppTheme.greenPrimary
+                  : (region.isComplete
+                      ? AppTheme.greenAccent
+                      : AppTheme.textMuted),
+              fontSize: 11,
             ),
           ),
         ],
