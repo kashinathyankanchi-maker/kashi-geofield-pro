@@ -12,8 +12,11 @@ import 'package:screenshot/screenshot.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:printing/printing.dart';
+import 'dart:ui' as ui;
 import 'package:image_picker/image_picker.dart';
 import 'package:image/image.dart' as img;
+import 'package:gal/gal.dart';
+import 'package:exif/exif.dart';
 import '../../shared/theme.dart';
 import '../../core/database/db_helper.dart';
 import '../../core/models/kml_file_model.dart';
@@ -27,6 +30,7 @@ import 'widgets/draw_toolbar.dart';
 import 'widgets/layer_panel.dart';
 import 'widgets/shape_detail_sheet.dart';
 import '../offline_maps/offline_maps_screen.dart';
+import 'offline_tile_provider.dart';
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -54,6 +58,8 @@ class _MapScreenState extends State<MapScreen> {
 
   // Tapped coordinate (for collecting lat/lng from map)
   LatLng? _tappedPosition;
+
+  String? _appDocDir;
 
   @override
   void initState() {
@@ -94,6 +100,7 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   Future<void> _loadData() async {
+    final docDir = await getApplicationDocumentsDirectory();
     final db = DbHelper();
     final villages = await db.getAllVillages();
     final polygons = await db.getAllPolygons();
@@ -101,13 +108,16 @@ class _MapScreenState extends State<MapScreen> {
     final kmlFiles = await db.getAllKmlFiles();
     final allShapes = <KmlShape>[];
     for (final kf in kmlFiles) {
+      if (!kf.isVisible) continue;
       try {
         final shapes = await KmlEngine.parseFile(kf.filepath);
-        allShapes.addAll(shapes);
+        final coloredShapes = shapes.map((s) => s.copyWith(color: kf.layerColor)).toList();
+        allShapes.addAll(coloredShapes);
       } catch (_) {}
     }
     if (mounted) {
       setState(() {
+        _appDocDir = docDir.path;
         _villages = villages;
         _savedPolygons = polygons;
       });
@@ -424,10 +434,11 @@ class _MapScreenState extends State<MapScreen> {
           final pts = kmlShape.coordinates
               .map((c) => LatLng(c['lat']!, c['lng']!))
               .toList();
+          final cColor = Color(int.parse(kmlShape.color.replaceAll('#', '0xFF')));
           polygons.add(fmap.Polygon(
             points: pts,
-            color: const Color(0xFFD29922).withValues(alpha: 0.18),
-            borderColor: const Color(0xFFD29922),
+            color: cColor.withValues(alpha: 0.18),
+            borderColor: cColor,
             borderStrokeWidth: 2,
           ));
         }
@@ -475,12 +486,13 @@ class _MapScreenState extends State<MapScreen> {
     if (_mapController.showKmlLayer) {
       for (final kmlShape in _mapController.kmlShapes) {
         if (kmlShape.type == 'path' && kmlShape.coordinates.isNotEmpty) {
+          final cColor = Color(int.parse(kmlShape.color.replaceAll('#', '0xFF')));
           lines.add(fmap.Polyline(
             points: kmlShape.coordinates
                 .map((c) => LatLng(c['lat']!, c['lng']!))
                 .toList(),
-            color: const Color(0xFFD29922),
-            strokeWidth: 2,
+            color: cColor,
+            strokeWidth: 3,
           ));
         }
       }
@@ -572,12 +584,13 @@ class _MapScreenState extends State<MapScreen> {
     if (_mapController.showKmlLayer) {
       for (final kmlShape in _mapController.kmlShapes) {
         if (kmlShape.type == 'marker' && kmlShape.coordinates.isNotEmpty) {
+          final cColor = Color(int.parse(kmlShape.color.replaceAll('#', '0xFF')));
           markers.add(fmap.Marker(
             point: LatLng(kmlShape.coordinates.first['lat']!,
                 kmlShape.coordinates.first['lng']!),
             width: 30,
             height: 30,
-            child: const Icon(Icons.room, color: Color(0xFFD29922), size: 30),
+            child: Icon(Icons.room, color: cColor, size: 30),
           ));
         }
       }
@@ -1510,6 +1523,7 @@ $wpPlacemarks
               if (result == null) return null; // cancelled
               return result['name'] as String;
             },
+            onExtractPhotos: _extractPhotosToMap,
           ),
           body: Stack(
             children: [
@@ -1529,17 +1543,21 @@ $wpPlacemarks
                       ),
                     ),
                     children: [
-                      fmap.TileLayer(
-                        urlTemplate: _mapController.mapStyle == 'Satellite'
-                            // Google Maps satellite — recent imagery
-                            ? 'https://mt0.google.com/vt/lyrs=s&x={x}&y={y}&z={z}'
-                            : _mapController.mapStyle == 'Hybrid'
-                                ? 'https://mt0.google.com/vt/lyrs=y&x={x}&y={y}&z={z}'
-                                : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                        userAgentPackageName: 'com.kashi.kashi_geofield_pro',
-                        maxZoom: 20,
-                        maxNativeZoom: 20,
-                      ),
+                      if (_appDocDir != null)
+                        fmap.TileLayer(
+                          urlTemplate: _mapController.mapStyle == 'Satellite'
+                              ? 'https://mt0.google.com/vt/lyrs=s&x={x}&y={y}&z={z}'
+                              : _mapController.mapStyle == 'Hybrid'
+                                  ? 'https://mt0.google.com/vt/lyrs=y&x={x}&y={y}&z={z}'
+                                  : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                          userAgentPackageName: 'com.kashi.kashi_geofield_pro',
+                          maxZoom: 20,
+                          maxNativeZoom: 20,
+                          tileProvider: OfflineTileProvider(
+                            baseDir: _appDocDir!,
+                            isSatellite: _mapController.mapStyle == 'Satellite' || _mapController.mapStyle == 'Hybrid',
+                          ),
+                        ),
                       fmap.PolygonLayer(polygons: _buildPolygons()),
                       fmap.PolylineLayer(polylines: _buildPolylines()),
                       // ── Live tracking path ─────────────────────────────────
@@ -1948,27 +1966,56 @@ $wpPlacemarks
       final watermarkText =
           '${name != null && name.isNotEmpty ? "$name\n" : ""}$locationStr\n$dateStr';
 
-      // Draw watermark
-      img.drawString(
-        image,
-        watermarkText,
-        font: img.arial48,
-        x: 20,
-        y: image.height - 150,
-        color: img.ColorRgb8(255, 255, 255),
+      // Draw watermark using dart:ui
+      final ui.Image bgImage = await decodeImageFromList(bytes);
+      final recorder = ui.PictureRecorder();
+      final canvas = Canvas(recorder);
+      
+      canvas.drawImage(bgImage, Offset.zero, Paint());
+
+      // Calculate proportional font size (3% of image height)
+      final double fontSize = bgImage.height * 0.03;
+      final textStyle = TextStyle(
+        color: Colors.white,
+        fontSize: fontSize,
+        fontWeight: FontWeight.bold,
+        shadows: [
+          Shadow(offset: const Offset(2, 2), blurRadius: 4.0, color: Colors.black.withOpacity(0.8)),
+          Shadow(offset: const Offset(-2, -2), blurRadius: 4.0, color: Colors.black.withOpacity(0.8)),
+          Shadow(offset: const Offset(2, -2), blurRadius: 4.0, color: Colors.black.withOpacity(0.8)),
+          Shadow(offset: const Offset(-2, 2), blurRadius: 4.0, color: Colors.black.withOpacity(0.8)),
+        ],
       );
 
-      // Save watermarked image
-      final watermarkedBytes = img.encodeJpg(image);
-      final dir = await getApplicationDocumentsDirectory();
+      final textSpan = TextSpan(text: watermarkText, style: textStyle);
+      final textPainter = TextPainter(
+        text: textSpan,
+        textDirection: TextDirection.ltr,
+      );
+      textPainter.layout(maxWidth: bgImage.width.toDouble() - 40);
+
+      // Draw text at bottom left
+      final dx = 20.0;
+      final dy = bgImage.height.toDouble() - textPainter.height - 20.0;
+      textPainter.paint(canvas, Offset(dx, dy));
+
+      final picture = recorder.endRecording();
+      final finalUiImage = await picture.toImage(bgImage.width, bgImage.height);
+      final byteData = await finalUiImage.toByteData(format: ui.ImageByteFormat.png);
+      final watermarkedBytes = byteData!.buffer.asUint8List();
+
+      final dir = await getTemporaryDirectory();
       final filePath =
-          '${dir.path}/watermarked_${DateTime.now().millisecondsSinceEpoch}.jpg';
+          '${dir.path}/watermarked_${DateTime.now().millisecondsSinceEpoch}.png';
       final file = File(filePath);
       await file.writeAsBytes(watermarkedBytes);
 
+      // Save watermarked image to gallery using Gal
+      await Gal.putImage(filePath, album: 'KashiGeoFieldPro');
+
       if (mounted) {
         ScaffoldMessenger.of(context).clearSnackBars();
-        _showSnackBar('Photo saved with GPS watermark');
+        _showSnackBar('Photo saved to KashiGeoFieldPro album');
       }
 
       // Share it
@@ -1976,6 +2023,60 @@ $wpPlacemarks
           text: 'Captured with Kashi GeoField Pro');
     } catch (e) {
       _showSnackBar('Error: $e', isError: true);
+    }
+  }
+
+  Future<void> _extractPhotosToMap() async {
+    try {
+      final picker = ImagePicker();
+      final photos = await picker.pickMultiImage();
+      if (photos.isEmpty) return;
+
+      _showSnackBar('Extracting GPS from ${photos.length} photos...');
+      
+      final points = <LatLng>[];
+      for (final photo in photos) {
+        final bytes = await photo.readAsBytes();
+        final data = await readExifFromBytes(bytes);
+        if (data.containsKey('GPS GPSLatitude') && data.containsKey('GPS GPSLongitude')) {
+          final latData = data['GPS GPSLatitude']!.values.toList() as List;
+          final lngData = data['GPS GPSLongitude']!.values.toList() as List;
+          final latRef = data['GPS GPSLatitudeRef']?.printable ?? 'N';
+          final lngRef = data['GPS GPSLongitudeRef']?.printable ?? 'E';
+
+          double parseRatio(dynamic ratio) {
+            try {
+              if (ratio.numerator != null && ratio.denominator != null) {
+                return (ratio.numerator as int) / (ratio.denominator as int);
+              }
+            } catch (_) {}
+            return 0.0;
+          }
+
+          final lat = parseRatio(latData[0]) + parseRatio(latData[1]) / 60 + parseRatio(latData[2]) / 3600;
+          final lng = parseRatio(lngData[0]) + parseRatio(lngData[1]) / 60 + parseRatio(lngData[2]) / 3600;
+
+          final finalLat = latRef == 'S' ? -lat : lat;
+          final finalLng = lngRef == 'W' ? -lng : lng;
+
+          points.add(LatLng(finalLat, finalLng));
+        }
+      }
+
+      if (points.isEmpty) {
+        _showSnackBar('No GPS data found in selected photos', isError: true);
+        return;
+      }
+
+      _showSnackBar('Added ${points.length} coordinates to map');
+      _mapController.setDrawMode(DrawMode.polygon);
+      for (final pt in points) {
+        _mapController.addPoint(pt);
+      }
+      _flutterMapController.move(points.first, 16);
+
+    } catch (e) {
+      _showSnackBar('Error extracting photos: $e', isError: true);
     }
   }
 

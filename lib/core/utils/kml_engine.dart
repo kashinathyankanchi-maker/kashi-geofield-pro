@@ -21,6 +21,24 @@ class KmlShape {
     this.color = '#2EA043',
     this.layerName,
   });
+
+  KmlShape copyWith({
+    String? name,
+    String? type,
+    List<Map<String, double>>? coordinates,
+    String? description,
+    String? color,
+    String? layerName,
+  }) {
+    return KmlShape(
+      name: name ?? this.name,
+      type: type ?? this.type,
+      coordinates: coordinates ?? this.coordinates,
+      description: description ?? this.description,
+      color: color ?? this.color,
+      layerName: layerName ?? this.layerName,
+    );
+  }
 }
 
 /// Parses and generates KML/KMZ files

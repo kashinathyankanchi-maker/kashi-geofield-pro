@@ -12,10 +12,14 @@ class DrawToolbar extends StatelessWidget {
   /// Called when the user presses ✓ on a polygon — should show the title dialog.
   final PolygonNameCallback? onPolygonClose;
 
+  /// Called when the user presses the "Photos" button to extract coordinates.
+  final VoidCallback? onExtractPhotos;
+
   const DrawToolbar({
     super.key,
     required this.controller,
     this.onPolygonClose,
+    this.onExtractPhotos,
   });
 
   @override
@@ -88,6 +92,18 @@ class DrawToolbar extends StatelessWidget {
                     controller.setDrawMode(DrawMode.marker);
                   }
                 },
+              ),
+
+              Container(
+                  width: 1, height: 36, color: AppTheme.borderColor),
+              
+              // ── Extract from Photos ────────────────────────────────────────
+              _ToolBtn(
+                icon: Icons.add_photo_alternate_rounded,
+                label: 'Photos',
+                isActive: false,
+                activeColor: AppTheme.greenAccent,
+                onTap: onExtractPhotos,
               ),
 
               Container(

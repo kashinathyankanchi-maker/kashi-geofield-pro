@@ -109,16 +109,20 @@ class GeoCalculator {
     return {'lat': latSum / points.length, 'lng': lngSum / points.length};
   }
 
-  /// Parse a coordinate string like "lng,lat,0 lng,lat,0" (KML format)
+  /// Parse a coordinate string into a list of lat/lng maps.
+  /// Handles various KML formatting quirks (spaces, newlines, altitudes).
   static List<Map<String, double>> parseKmlCoordinates(String coordStr) {
-    final parts = coordStr.trim().split(RegExp(r'\s+'));
     final List<Map<String, double>> points = [];
-    for (final part in parts) {
-      if (part.trim().isEmpty) continue;
-      final coords = part.split(',');
-      if (coords.length >= 2) {
-        final lng = double.tryParse(coords[0].trim());
-        final lat = double.tryParse(coords[1].trim());
+    // Match lng,lat,alt or lng,lat with optional spaces
+    final regExp = RegExp(r'(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)');
+    final matches = regExp.allMatches(coordStr);
+
+    for (final match in matches) {
+      final lngStr = match.group(1);
+      final latStr = match.group(2);
+      if (lngStr != null && latStr != null) {
+        final lng = double.tryParse(lngStr);
+        final lat = double.tryParse(latStr);
         if (lat != null && lng != null) {
           points.add({'lat': lat, 'lng': lng});
         }
