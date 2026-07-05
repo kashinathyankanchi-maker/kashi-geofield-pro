@@ -108,10 +108,14 @@ class OfflineRegion {
 
   OfflineRegion copyWith({int? downloadedTiles, int? totalTiles}) =>
       OfflineRegion(
-        id: id, name: name,
-        minLat: minLat, maxLat: maxLat,
-        minLng: minLng, maxLng: maxLng,
-        minZoom: minZoom, maxZoom: maxZoom,
+        id: id,
+        name: name,
+        minLat: minLat,
+        maxLat: maxLat,
+        minLng: minLng,
+        maxLng: maxLng,
+        minZoom: minZoom,
+        maxZoom: maxZoom,
         createdAt: createdAt,
         downloadedTiles: downloadedTiles ?? this.downloadedTiles,
         totalTiles: totalTiles ?? this.totalTiles,
@@ -131,8 +135,7 @@ class TileDownloader {
     return '${dir.path}/offline_tiles';
   }
 
-  static String tilePath(int z, int x, int y) =>
-      ''; // resolved asynchronously
+  static String tilePath(int z, int x, int y) => ''; // resolved asynchronously
 
   static Future<String> _tilePath(int z, int x, int y,
       {bool satellite = false}) async {
@@ -161,8 +164,8 @@ class TileDownloader {
           ? '$_satBaseUrl&x=$x&y=$y&z=$z'
           : '$_tileBaseUrl/$z/$x/$y.png';
 
-      final resp = await http.get(Uri.parse(url),
-          headers: {'User-Agent': 'KashiGeoFieldPro/1.0'});
+      final resp = await http
+          .get(Uri.parse(url), headers: {'User-Agent': 'KashiGeoFieldPro/1.0'});
 
       if (resp.statusCode == 200 && resp.bodyBytes.isNotEmpty) {
         await file.writeAsBytes(resp.bodyBytes);
@@ -227,7 +230,9 @@ class TileDownloader {
 // ---------------------------------------------------------------------------
 
 class OfflineMapsScreen extends StatefulWidget {
-  const OfflineMapsScreen({super.key});
+  final Map<String, double>? initialBounds;
+
+  const OfflineMapsScreen({super.key, this.initialBounds});
 
   @override
   State<OfflineMapsScreen> createState() => _OfflineMapsScreenState();
@@ -255,6 +260,12 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
   @override
   void initState() {
     super.initState();
+    if (widget.initialBounds != null) {
+      _minLatCtrl.text = widget.initialBounds!['minLat']!.toStringAsFixed(6);
+      _maxLatCtrl.text = widget.initialBounds!['maxLat']!.toStringAsFixed(6);
+      _minLngCtrl.text = widget.initialBounds!['minLng']!.toStringAsFixed(6);
+      _maxLngCtrl.text = widget.initialBounds!['maxLng']!.toStringAsFixed(6);
+    }
     _loadRegions();
     _refreshCacheSize();
   }
@@ -274,17 +285,16 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
     final raw = prefs.getStringList('offline_regions') ?? [];
     if (mounted) {
       setState(() {
-        _regions = raw
-            .map((s) => OfflineRegion.fromJson(jsonDecode(s)))
-            .toList();
+        _regions =
+            raw.map((s) => OfflineRegion.fromJson(jsonDecode(s))).toList();
       });
     }
   }
 
   Future<void> _saveRegions() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList(
-        'offline_regions', _regions.map((r) => jsonEncode(r.toJson())).toList());
+    await prefs.setStringList('offline_regions',
+        _regions.map((r) => jsonEncode(r.toJson())).toList());
   }
 
   Future<void> _refreshCacheSize() async {
@@ -411,7 +421,8 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
 
     setState(() => _regions.add(region));
     await _saveRegions();
-    _showSnack('Region added: ${region.estimatedTileCount} tiles (~${region.estimatedMB.toStringAsFixed(1)} MB)');
+    _showSnack(
+        'Region added: ${region.estimatedTileCount} tiles (~${region.estimatedMB.toStringAsFixed(1)} MB)');
 
     // Start download immediately
     await _downloadRegion(region);
@@ -483,7 +494,8 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
       appBar: AppBar(
         backgroundColor: AppTheme.bgCard,
         title: const Text('Offline Maps',
-            style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
+            style: TextStyle(
+                color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
         actions: [
           IconButton(
             icon: const Icon(Icons.delete_sweep_rounded, color: Colors.red),
@@ -628,8 +640,7 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
                             decimal: true, signed: true),
                         style: const TextStyle(
                             color: AppTheme.textPrimary, fontSize: 13),
-                        decoration:
-                            _inputDeco('Min Lng ←', Icons.west_rounded),
+                        decoration: _inputDeco('Min Lng ←', Icons.west_rounded),
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -640,8 +651,7 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
                             decimal: true, signed: true),
                         style: const TextStyle(
                             color: AppTheme.textPrimary, fontSize: 13),
-                        decoration:
-                            _inputDeco('Max Lng →', Icons.east_rounded),
+                        decoration: _inputDeco('Max Lng →', Icons.east_rounded),
                       ),
                     ),
                   ],
@@ -760,9 +770,14 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
     final maxLng = double.tryParse(_maxLngCtrl.text) ?? 0;
     if (minLat >= maxLat || minLng >= maxLng) return 0;
     final r = OfflineRegion(
-      id: '', name: '', minLat: minLat, maxLat: maxLat,
-      minLng: minLng, maxLng: maxLng,
-      minZoom: _minZoom, maxZoom: _maxZoom,
+      id: '',
+      name: '',
+      minLat: minLat,
+      maxLat: maxLat,
+      minLng: minLng,
+      maxLng: maxLng,
+      minZoom: _minZoom,
+      maxZoom: _maxZoom,
       createdAt: DateTime.now(),
     );
     return r.estimatedTileCount;
@@ -867,8 +882,8 @@ class _ZoomChip extends StatelessWidget {
               padding: const EdgeInsets.all(4),
               constraints: const BoxConstraints()),
           Text('$label z$zoom',
-              style: const TextStyle(
-                  color: AppTheme.textPrimary, fontSize: 12)),
+              style:
+                  const TextStyle(color: AppTheme.textPrimary, fontSize: 12)),
           IconButton(
               icon: const Icon(Icons.add, size: 14),
               onPressed: onInc,
@@ -982,7 +997,9 @@ class _RegionCard extends StatelessWidget {
               value: prog,
               backgroundColor: AppTheme.bgSurface,
               valueColor: AlwaysStoppedAnimation<Color>(
-                region.isComplete ? AppTheme.greenAccent : AppTheme.greenPrimary,
+                region.isComplete
+                    ? AppTheme.greenAccent
+                    : AppTheme.greenPrimary,
               ),
               minHeight: 6,
             ),
