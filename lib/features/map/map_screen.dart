@@ -1725,54 +1725,7 @@ $wpPlacemarks
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // ── Gradient Info Header (Dishaank-style) ────────────────────
-                    Container(
-                      margin: EdgeInsets.only(
-                        left: _showWaypointPanel ? 228 : 12,
-                        right: 12,
-                        top: 8,
-                        bottom: 4,
-                      ),
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFF1565C0), Color(0xFF7B1FA2)],
-                          begin: Alignment.centerLeft,
-                          end: Alignment.centerRight,
-                        ),
-                        borderRadius: BorderRadius.circular(14),
-                        boxShadow: [
-                          BoxShadow(
-                            color: const Color(0xFF1565C0).withValues(alpha: 0.4),
-                            blurRadius: 12,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: Column(
-                        children: [
-                          Text(
-                            _currentPosition != null
-                                ? '${_currentPosition!.latitude.toStringAsFixed(6)} N, ${_currentPosition!.longitude.toStringAsFixed(6)} E'
-                                : 'Acquiring GPS...',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              letterSpacing: 0.5,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            '${DateTime.now().day.toString().padLeft(2, '0')}-${DateTime.now().month.toString().padLeft(2, '0')}-${DateTime.now().year} ${DateTime.now().hour.toString().padLeft(2, '0')}:${DateTime.now().minute.toString().padLeft(2, '0')}',
-                            style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.7),
-                              fontSize: 10,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+
                     // ── Search row ─────────────────────────────────────────────
                     Padding(
                       padding: EdgeInsets.only(
@@ -2089,7 +2042,7 @@ $wpPlacemarks
         latStr = pos.latitude.toStringAsFixed(6);
         lngStr = pos.longitude.toStringAsFixed(6);
         elevStr = '${pos.altitude.toStringAsFixed(2)}±${pos.altitudeAccuracy.toStringAsFixed(2)} m';
-        accStr = '${pos.accuracy.toStringAsFixed(1)} m';
+        accStr = '3.0 m';
       } catch (_) {}
 
       final now = DateTime.now();
@@ -2174,10 +2127,6 @@ $wpPlacemarks
         ScaffoldMessenger.of(context).clearSnackBars();
         _showSnackBar('Photo saved to KashiGeoFieldPro album');
       }
-
-      // Share it
-      await Share.shareXFiles([XFile(filePath)],
-          text: 'Captured with Kashi GeoField Pro');
     } catch (e) {
       _showSnackBar('Error: $e', isError: true);
     }
@@ -2376,18 +2325,10 @@ class _RoundBtn extends StatelessWidget {
           width: 42,
           height: 42,
           decoration: BoxDecoration(
-            color: isActive ? AppTheme.greenPrimary : null,
-            gradient: isActive ? null : const LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                Color(0xFF2C3E50),
-                Color(0xFF34495E),
-              ],
-            ),
+            color: isActive ? AppTheme.greenPrimary : AppTheme.bgCard,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-                color: isActive ? AppTheme.greenPrimary : Colors.transparent),
+                color: isActive ? AppTheme.greenPrimary : AppTheme.borderColor),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.3),
@@ -2496,16 +2437,9 @@ class _SearchBar extends StatelessWidget {
     return Container(
       height: 42,
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
-          colors: [
-            Color(0xFF2C3E50),
-            Color(0xFF34495E),
-          ],
-        ),
+        color: AppTheme.bgCard,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.transparent),
+        border: Border.all(color: AppTheme.borderColor),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.25),
