@@ -36,3 +36,4 @@ subprojects {
         project.afterEvaluate { applyCompileSdk() }
     }
 }
+

@@ -17,6 +17,18 @@ class AppTheme {
   static const Color warningColor = Color(0xFFD29922);
   static const Color infoColor = Color(0xFF388BFD);
 
+  // Vibrant accent colors for advanced UI
+  static const Color gradientStart = Color(0xFF1565C0);
+  static const Color gradientEnd = Color(0xFF7B1FA2);
+  static const Color fabZoom = Color(0xFF42A5F5);
+  static const Color fabLocation = Color(0xFF26A69A);
+  static const Color fabDownload = Color(0xFFFF7043);
+  static const Color fabTrack = Color(0xFFAB47BC);
+  static const Color fabImport = Color(0xFF66BB6A);
+  static const Color fabCoords = Color(0xFF7E57C2);
+  static const Color fabPdf = Color(0xFFEF5350);
+  static const Color fabCamera = Color(0xFFEC407A);
+
   // Aliases used by generated screens
   static const Color primaryColor = greenPrimary;
   static const Color accentColor = greenAccent;

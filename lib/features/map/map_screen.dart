@@ -14,7 +14,6 @@ import 'package:share_plus/share_plus.dart';
 import 'package:printing/printing.dart';
 import 'dart:ui' as ui;
 import 'package:image_picker/image_picker.dart';
-import 'package:image/image.dart' as img;
 import 'package:gal/gal.dart';
 import 'package:exif/exif.dart';
 import '../../shared/theme.dart';
@@ -31,6 +30,7 @@ import 'widgets/layer_panel.dart';
 import 'widgets/shape_detail_sheet.dart';
 import '../offline_maps/offline_maps_screen.dart';
 import 'offline_tile_provider.dart';
+import 'geo_reference_screen.dart';
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -60,6 +60,9 @@ class _MapScreenState extends State<MapScreen> {
   LatLng? _tappedPosition;
 
   String? _appDocDir;
+
+  // Geo-referenced PDF overlay images
+  final List<GeoReferencedImage> _geoRefImages = [];
 
   @override
   void initState() {
@@ -645,7 +648,7 @@ class _MapScreenState extends State<MapScreen> {
       final result = await FilePicker.platform.pickFiles(
         allowMultiple: false,
         type: FileType.custom,
-        allowedExtensions: ['kml', 'kmz', 'json', 'geojson'],
+        allowedExtensions: ['kml', 'kmz', 'json', 'geojson', 'shp'],
       );
       if (result == null || result.files.isEmpty) return;
 
@@ -669,10 +672,13 @@ class _MapScreenState extends State<MapScreen> {
         return;
       }
 
-      // Add to map
+      // Add to map & auto-enable KML layer
       _mapController.addKmlShapes(shapes);
+      if (!_mapController.showKmlLayer) {
+        _mapController.toggleKmlLayer();
+      }
 
-      // Save to DB + zoom to first shape
+      // Save to DB
       final dir = await getApplicationDocumentsDirectory();
       final destPath = '${dir.path}/${pickedFile.name}';
       await File(path).copy(destPath);
@@ -683,10 +689,30 @@ class _MapScreenState extends State<MapScreen> {
         createdAt: DateTime.now().toIso8601String(),
       ));
 
-      // Zoom to first coordinate
-      if (shapes.first.coordinates.isNotEmpty) {
-        final c = shapes.first.coordinates.first;
-        _flutterMapController.move(LatLng(c['lat']!, c['lng']!), 14);
+      // Calculate bounding box and zoom to fit ALL coordinates (like Google Earth)
+      double minLat = 90, maxLat = -90, minLng = 180, maxLng = -180;
+      for (final shape in shapes) {
+        for (final c in shape.coordinates) {
+          final lat = c['lat']!;
+          final lng = c['lng']!;
+          if (lat < minLat) minLat = lat;
+          if (lat > maxLat) maxLat = lat;
+          if (lng < minLng) minLng = lng;
+          if (lng > maxLng) maxLng = lng;
+        }
+      }
+
+      if (minLat <= maxLat && minLng <= maxLng) {
+        final sw = LatLng(minLat, minLng);
+        final ne = LatLng(maxLat, maxLng);
+        final bounds = fmap.LatLngBounds(sw, ne);
+        _flutterMapController.fitBounds(
+          bounds,
+          options: const fmap.FitBoundsOptions(
+            padding: EdgeInsets.all(50),
+            maxZoom: 18,
+          ),
+        );
       }
 
       if (mounted) {
@@ -1558,6 +1584,20 @@ $wpPlacemarks
                             isSatellite: _mapController.mapStyle == 'Satellite' || _mapController.mapStyle == 'Hybrid',
                           ),
                         ),
+                      // Geo-referenced PDF overlay images
+                      if (_geoRefImages.isNotEmpty)
+                        fmap.OverlayImageLayer(
+                          overlayImages: _geoRefImages
+                              .map((img) => fmap.OverlayImage(
+                                    bounds: fmap.LatLngBounds(
+                                      img.bottomRight,
+                                      img.topLeft,
+                                    ),
+                                    imageProvider: MemoryImage(img.imageBytes),
+                                    opacity: 0.75,
+                                  ))
+                              .toList(),
+                        ),
                       fmap.PolygonLayer(polygons: _buildPolygons()),
                       fmap.PolylineLayer(polylines: _buildPolylines()),
                       // ── Live tracking path ─────────────────────────────────
@@ -1655,11 +1695,59 @@ $wpPlacemarks
                   ),
                 ),
 
-              // ── Top: Search bar + action buttons ────────────────────────────
+              // ── Top: Gradient header + Search bar + action buttons ─────────
               SafeArea(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    // ── Gradient Info Header (Dishaank-style) ────────────────────
+                    Container(
+                      margin: EdgeInsets.only(
+                        left: _showWaypointPanel ? 228 : 12,
+                        right: 12,
+                        top: 8,
+                        bottom: 4,
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF1565C0), Color(0xFF7B1FA2)],
+                          begin: Alignment.centerLeft,
+                          end: Alignment.centerRight,
+                        ),
+                        borderRadius: BorderRadius.circular(14),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFF1565C0).withValues(alpha: 0.4),
+                            blurRadius: 12,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        children: [
+                          Text(
+                            _currentPosition != null
+                                ? '${_currentPosition!.latitude.toStringAsFixed(6)} N, ${_currentPosition!.longitude.toStringAsFixed(6)} E'
+                                : 'Acquiring GPS...',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '${DateTime.now().day.toString().padLeft(2, '0')}-${DateTime.now().month.toString().padLeft(2, '0')}-${DateTime.now().year} ${DateTime.now().hour.toString().padLeft(2, '0')}:${DateTime.now().minute.toString().padLeft(2, '0')}',
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.7),
+                              fontSize: 10,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                     // ── Search row ─────────────────────────────────────────────
                     Padding(
                       padding: EdgeInsets.only(
@@ -1740,46 +1828,50 @@ $wpPlacemarks
               // ── Right: Map controls ──────────────────────────────────────────
               Positioned(
                 right: 12,
-                top: 80,
+                top: 90,
                 child: Column(
                   children: [
                     // Zoom in
                     _MapFab(
                       icon: Icons.add,
                       tooltip: 'Zoom In',
+                      color: const Color(0xFF42A5F5),
                       onTap: () {
                         final c = _flutterMapController.camera;
                         _flutterMapController.move(c.center, c.zoom + 1);
                       },
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 10),
                     // Zoom out
                     _MapFab(
                       icon: Icons.remove,
                       tooltip: 'Zoom Out',
+                      color: const Color(0xFF42A5F5),
                       onTap: () {
                         final c = _flutterMapController.camera;
                         _flutterMapController.move(c.center, c.zoom - 1);
                       },
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 10),
                     // GPS location
                     _MapFab(
                       icon: _loadingLocation
                           ? Icons.hourglass_top_rounded
                           : Icons.my_location_rounded,
                       tooltip: 'My Location',
+                      color: const Color(0xFF26A69A),
                       onTap: _loadingLocation ? null : _goToCurrentLocation,
                       isLoading: _loadingLocation,
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 10),
                     // Download offline
                     _MapFab(
                       icon: Icons.download_rounded,
                       tooltip: 'Download Area',
+                      color: const Color(0xFFFF7043),
                       onTap: _onDownloadMapArea,
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 10),
                     // GPS Track Start/Stop
                     _MapFab(
                       icon: _mapController.isTracking
@@ -1796,7 +1888,7 @@ $wpPlacemarks
                           ? const Color(0xFFFF6F00)
                           : (_mapController.isTrackingPaused
                               ? Colors.amber
-                              : null),
+                              : const Color(0xFFAB47BC)),
                       onTap: () {
                         if (_mapController.isTracking) {
                           _mapController.pauseTracking();
@@ -1809,20 +1901,29 @@ $wpPlacemarks
                         }
                       },
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 10),
                     // Quick Import KML
                     _MapFab(
                       icon: Icons.upload_file_rounded,
                       tooltip: 'Import KML / GeoJSON',
+                      color: const Color(0xFF66BB6A),
                       onTap: _importKmlFile,
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 10),
                     // Manual lat/lng entry
                     _MapFab(
                       icon: Icons.pin_drop_rounded,
                       tooltip: 'Enter Coordinates Manually',
-                      color: const Color(0xFF9C27B0),
+                      color: const Color(0xFF7E57C2),
                       onTap: _showManualCoordinateEntry,
+                    ),
+                    const SizedBox(height: 10),
+                    // Import PDF Map
+                    _MapFab(
+                      icon: Icons.picture_as_pdf_rounded,
+                      tooltip: 'Import PDF Village Map',
+                      color: const Color(0xFFEF5350),
+                      onTap: _importPdfMap,
                     ),
                   ],
                 ),
@@ -1952,19 +2053,42 @@ $wpPlacemarks
 
       // Load image
       final bytes = await photo.readAsBytes();
-      final image = img.decodeImage(bytes);
-      if (image == null) throw Exception('Failed to decode image');
 
-      // Get location
-      String locationStr = 'Location unavailable';
+      // Get location data with elevation and accuracy
+      String latStr = 'N/A';
+      String lngStr = 'N/A';
+      String elevStr = 'N/A';
+      String accStr = 'N/A';
       if (_currentPosition != null) {
-        locationStr =
-            'Lat: ${_currentPosition!.latitude.toStringAsFixed(6)}\nLng: ${_currentPosition!.longitude.toStringAsFixed(6)}';
+        latStr = _currentPosition!.latitude.toStringAsFixed(6);
+        lngStr = _currentPosition!.longitude.toStringAsFixed(6);
       }
+      
+      // Try to get elevation and accuracy from fresh GPS
+      try {
+        final pos = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.high,
+        );
+        latStr = pos.latitude.toStringAsFixed(6);
+        lngStr = pos.longitude.toStringAsFixed(6);
+        elevStr = '${pos.altitude.toStringAsFixed(2)}±${pos.altitudeAccuracy.toStringAsFixed(2)} m';
+        accStr = '${pos.accuracy.toStringAsFixed(1)} m';
+      } catch (_) {}
 
-      final dateStr = DateTime.now().toString().substring(0, 16);
-      final watermarkText =
-          '${name != null && name.isNotEmpty ? "$name\n" : ""}$locationStr\n$dateStr';
+      final now = DateTime.now();
+      final dateStr = '${now.day.toString().padLeft(2, '0')}-${now.month.toString().padLeft(2, '0')}-${now.year} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+
+      // Build watermark lines
+      final lines = <String>[
+        'Latitude: $latStr',
+        'Longitude: $lngStr',
+        'Elevation: $elevStr',
+        'Accuracy: $accStr',
+        'Time: $dateStr',
+      ];
+      if (name != null && name.isNotEmpty) {
+        lines.add('Note: $name');
+      }
 
       // Draw watermark using dart:ui
       final ui.Image bgImage = await decodeImageFromList(bytes);
@@ -1973,31 +2097,43 @@ $wpPlacemarks
       
       canvas.drawImage(bgImage, Offset.zero, Paint());
 
-      // Calculate proportional font size (3% of image height)
-      final double fontSize = bgImage.height * 0.03;
-      final textStyle = TextStyle(
-        color: Colors.white,
-        fontSize: fontSize,
-        fontWeight: FontWeight.bold,
-        shadows: [
-          Shadow(offset: const Offset(2, 2), blurRadius: 4.0, color: Colors.black.withOpacity(0.8)),
-          Shadow(offset: const Offset(-2, -2), blurRadius: 4.0, color: Colors.black.withOpacity(0.8)),
-          Shadow(offset: const Offset(2, -2), blurRadius: 4.0, color: Colors.black.withOpacity(0.8)),
-          Shadow(offset: const Offset(-2, 2), blurRadius: 4.0, color: Colors.black.withOpacity(0.8)),
-        ],
-      );
+      // Calculate proportional font size (3.5% of image height)
+      final double fontSize = bgImage.height * 0.035;
+      final double lineHeight = fontSize * 1.35;
+      final double padding = fontSize * 0.6;
+      final double totalTextHeight = lines.length * lineHeight + padding * 2;
+      final double boxWidth = bgImage.width * 0.65;
 
-      final textSpan = TextSpan(text: watermarkText, style: textStyle);
-      final textPainter = TextPainter(
-        text: textSpan,
-        textDirection: TextDirection.ltr,
+      // Draw semi-transparent background rectangle
+      final bgRect = Rect.fromLTWH(
+        0,
+        bgImage.height.toDouble() - totalTextHeight - 10,
+        boxWidth,
+        totalTextHeight + 10,
       );
-      textPainter.layout(maxWidth: bgImage.width.toDouble() - 40);
+      final bgPaint = Paint()
+        ..color = Colors.black.withValues(alpha: 0.45);
+      canvas.drawRect(bgRect, bgPaint);
 
-      // Draw text at bottom left
-      final dx = 20.0;
-      final dy = bgImage.height.toDouble() - textPainter.height - 20.0;
-      textPainter.paint(canvas, Offset(dx, dy));
+      // Draw each line of text
+      for (int i = 0; i < lines.length; i++) {
+        final textStyle = TextStyle(
+          color: Colors.black.withValues(alpha: 0.9),
+          fontSize: fontSize,
+          fontWeight: FontWeight.w600,
+          height: 1.0,
+        );
+        final textSpan = TextSpan(text: lines[i], style: textStyle);
+        final textPainter = TextPainter(
+          text: textSpan,
+          textDirection: TextDirection.ltr,
+        );
+        textPainter.layout(maxWidth: boxWidth - padding * 2);
+        
+        final dx = padding;
+        final dy = bgRect.top + padding + (i * lineHeight);
+        textPainter.paint(canvas, Offset(dx, dy));
+      }
 
       final picture = recorder.endRecording();
       final finalUiImage = await picture.toImage(bgImage.width, bgImage.height);
@@ -2026,6 +2162,47 @@ $wpPlacemarks
     }
   }
 
+  Future<void> _importPdfMap() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        allowMultiple: false,
+        type: FileType.custom,
+        allowedExtensions: ['pdf'],
+      );
+      if (result == null || result.files.isEmpty) return;
+
+      final pickedFile = result.files.first;
+      final path = pickedFile.path;
+      if (path == null) return;
+
+      if (!mounted) return;
+      final geoResult = await Navigator.push<GeoReferencedImage>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => GeoReferenceScreen(
+            pdfPath: path,
+            fileName: pickedFile.name,
+          ),
+        ),
+      );
+
+      if (geoResult != null && mounted) {
+        setState(() => _geoRefImages.add(geoResult));
+        // Zoom to the geo-referenced image
+        _flutterMapController.fitBounds(
+          fmap.LatLngBounds(geoResult.bottomRight, geoResult.topLeft),
+          options: const fmap.FitBoundsOptions(
+            padding: EdgeInsets.all(30),
+            maxZoom: 18,
+          ),
+        );
+        _showSnackBar('PDF map pinned to real-world coordinates!');
+      }
+    } catch (e) {
+      _showSnackBar('Error importing PDF: $e', isError: true);
+    }
+  }
+
   Future<void> _extractPhotosToMap() async {
     try {
       final picker = ImagePicker();
@@ -2039,8 +2216,8 @@ $wpPlacemarks
         final bytes = await photo.readAsBytes();
         final data = await readExifFromBytes(bytes);
         if (data.containsKey('GPS GPSLatitude') && data.containsKey('GPS GPSLongitude')) {
-          final latData = data['GPS GPSLatitude']!.values.toList() as List;
-          final lngData = data['GPS GPSLongitude']!.values.toList() as List;
+          final latData = data['GPS GPSLatitude']!.values.toList();
+          final lngData = data['GPS GPSLongitude']!.values.toList();
           final latRef = data['GPS GPSLatitudeRef']?.printable ?? 'N';
           final lngRef = data['GPS GPSLongitudeRef']?.printable ?? 'E';
 
@@ -2201,7 +2378,7 @@ class _RoundBtn extends StatelessWidget {
   }
 }
 
-/// Square map FAB (zoom/GPS/download)
+/// Colorful circular map FAB with gradient background (Dishaank-style)
 class _MapFab extends StatelessWidget {
   final IconData icon;
   final String tooltip;
@@ -2219,25 +2396,36 @@ class _MapFab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final baseColor = color ?? const Color(0xFF5C6BC0);
+    final gradientColors = [
+      baseColor,
+      Color.lerp(baseColor, Colors.white, 0.25) ?? baseColor,
+    ];
+
     return Tooltip(
       message: tooltip,
       child: GestureDetector(
         onTap: onTap,
         child: Container(
-          width: 40,
-          height: 40,
+          width: 46,
+          height: 46,
           decoration: BoxDecoration(
-            color: AppTheme.bgCard,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: color != null
-                  ? color!.withValues(alpha: 0.6)
-                  : AppTheme.borderColor,
+            shape: BoxShape.circle,
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: gradientColors,
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.25),
-                blurRadius: 8,
+                color: baseColor.withValues(alpha: 0.45),
+                blurRadius: 10,
+                spreadRadius: 1,
+                offset: const Offset(0, 3),
+              ),
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.2),
+                blurRadius: 6,
                 offset: const Offset(0, 2),
               ),
             ],
@@ -2245,15 +2433,15 @@ class _MapFab extends StatelessWidget {
           child: isLoading
               ? const Center(
                   child: SizedBox(
-                    width: 18,
-                    height: 18,
+                    width: 20,
+                    height: 20,
                     child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: AppTheme.greenAccent,
+                      strokeWidth: 2.5,
+                      color: Colors.white,
                     ),
                   ),
                 )
-              : Icon(icon, size: 20, color: color ?? AppTheme.textSecondary),
+              : Icon(icon, size: 22, color: Colors.white),
         ),
       ),
     );

@@ -64,7 +64,7 @@ dependencies:
   image: ^4.3.0
   gal: ^2.3.2
   exif: ^3.3.0
-
+  pdfx: ^2.9.2
 dependency_overrides:
   flutter_plugin_android_lifecycle: 2.0.21
 
