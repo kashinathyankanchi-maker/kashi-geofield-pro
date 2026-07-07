@@ -33,11 +33,21 @@ class _MainScaffoldState extends State<MainScaffold> {
       ),
       bottomNavigationBar: Container(
         decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.bottomCenter,
+            end: Alignment.topCenter,
+            colors: [
+              Color(0xFF1E293B),
+              Color(0xFF2C3E50),
+            ],
+          ),
           border: Border(
-            top: BorderSide(color: AppTheme.borderColor, width: 1),
+            top: BorderSide(color: Colors.transparent, width: 1),
           ),
         ),
         child: BottomNavigationBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
           currentIndex: _currentIndex,
           onTap: (index) => setState(() => _currentIndex = index),
           items: const [

@@ -177,9 +177,9 @@ class KmlEngine {
         final name = pm.findElements('name').firstOrNull?.innerText.trim() ?? 'Unnamed';
         final desc = pm.findElements('description').firstOrNull?.innerText.trim();
 
-        // Polygon
-        final polygonEl = pm.findElements('Polygon').firstOrNull;
-        if (polygonEl != null) {
+        // Polygons
+        final polygons = pm.findAllElements('Polygon');
+        for (final polygonEl in polygons) {
           final coordStr = polygonEl
               .findAllElements('coordinates')
               .firstOrNull
@@ -189,19 +189,18 @@ class KmlEngine {
             final coords = GeoCalculator.parseKmlCoordinates(coordStr);
             if (coords.isNotEmpty) {
               shapes.add(KmlShape(
-                name: name,
+                name: polygons.length > 1 ? '$name (Part)' : name,
                 type: 'polygon',
                 coordinates: coords,
                 description: desc,
               ));
             }
           }
-          continue;
         }
 
-        // LineString
-        final lineEl = pm.findElements('LineString').firstOrNull;
-        if (lineEl != null) {
+        // LineStrings (Paths)
+        final lineStrings = pm.findAllElements('LineString');
+        for (final lineEl in lineStrings) {
           final coordStr = lineEl
               .findAllElements('coordinates')
               .firstOrNull
@@ -211,19 +210,18 @@ class KmlEngine {
             final coords = GeoCalculator.parseKmlCoordinates(coordStr);
             if (coords.isNotEmpty) {
               shapes.add(KmlShape(
-                name: name,
+                name: lineStrings.length > 1 ? '$name (Part)' : name,
                 type: 'path',
                 coordinates: coords,
                 description: desc,
               ));
             }
           }
-          continue;
         }
 
-        // Point/Marker
-        final pointEl = pm.findElements('Point').firstOrNull;
-        if (pointEl != null) {
+        // Points (Markers)
+        final points = pm.findAllElements('Point');
+        for (final pointEl in points) {
           final coordStr = pointEl
               .findAllElements('coordinates')
               .firstOrNull
@@ -233,7 +231,7 @@ class KmlEngine {
             final coords = GeoCalculator.parseKmlCoordinates(coordStr);
             if (coords.isNotEmpty) {
               shapes.add(KmlShape(
-                name: name,
+                name: points.length > 1 ? '$name (Part)' : name,
                 type: 'marker',
                 coordinates: coords,
                 description: desc,

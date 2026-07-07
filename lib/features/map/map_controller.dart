@@ -54,7 +54,7 @@ class MapController extends ChangeNotifier {
   List<KmlShape> _kmlShapes = [];
 
   // Map Style (Street / Satellite / Hybrid)
-  String _mapStyle = 'Street';
+  String _mapStyle = 'Satellite';
 
   // Offline Download Mode
   bool _isOfflineDownloadMode = false;

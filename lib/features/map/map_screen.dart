@@ -581,6 +581,31 @@ class _MapScreenState extends State<MapScreen> {
             ),
           ));
         }
+        if (shape.type == DrawMode.path) {
+          if (shape.points.isNotEmpty) {
+            final pt = shape.points.last;
+            markers.add(fmap.Marker(
+              point: pt,
+              width: 44,
+              height: 44,
+              alignment: Alignment.center,
+              child: GestureDetector(
+                onTap: () {
+                  _mapController.selectShape(shape);
+                  _showShapeDetail();
+                },
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: AppTheme.bgCard.withValues(alpha: 0.8),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: shape.color, width: 2),
+                  ),
+                  child: Icon(Icons.share, color: shape.color, size: 20),
+                ),
+              ),
+            ));
+          }
+        }
       }
     }
 
@@ -2091,40 +2116,44 @@ $wpPlacemarks
 
       // Calculate proportional font size (3.5% of image height)
       final double fontSize = bgImage.height * 0.035;
-      final double lineHeight = fontSize * 1.35;
       final double padding = fontSize * 0.6;
-      final double totalTextHeight = lines.length * lineHeight + padding * 2;
       final double boxWidth = bgImage.width * 0.65;
+      
+      // We must layout the text first to find the actual total height when wrapped
+      final List<TextPainter> painters = [];
+      double totalTextHeight = padding * 2;
+      for (final line in lines) {
+        final textStyle = TextStyle(
+          color: Colors.white.withValues(alpha: 0.95),
+          fontSize: fontSize,
+          fontWeight: FontWeight.w600,
+          height: 1.1,
+        );
+        final textPainter = TextPainter(
+          text: TextSpan(text: line, style: textStyle),
+          textDirection: TextDirection.ltr,
+        );
+        textPainter.layout(maxWidth: boxWidth - padding * 2);
+        painters.add(textPainter);
+        totalTextHeight += textPainter.height + (fontSize * 0.15); // Add spacing
+      }
 
       // Draw semi-transparent background rectangle
       final bgRect = Rect.fromLTWH(
         0,
         bgImage.height.toDouble() - totalTextHeight - 10,
         boxWidth,
-        totalTextHeight + 10,
+        totalTextHeight,
       );
       final bgPaint = Paint()
-        ..color = Colors.black.withValues(alpha: 0.45);
+        ..color = Colors.black.withValues(alpha: 0.55);
       canvas.drawRect(bgRect, bgPaint);
 
       // Draw each line of text
-      for (int i = 0; i < lines.length; i++) {
-        final textStyle = TextStyle(
-          color: Colors.black.withValues(alpha: 0.9),
-          fontSize: fontSize,
-          fontWeight: FontWeight.w600,
-          height: 1.0,
-        );
-        final textSpan = TextSpan(text: lines[i], style: textStyle);
-        final textPainter = TextPainter(
-          text: textSpan,
-          textDirection: TextDirection.ltr,
-        );
-        textPainter.layout(maxWidth: boxWidth - padding * 2);
-        
-        final dx = padding;
-        final dy = bgRect.top + padding + (i * lineHeight);
-        textPainter.paint(canvas, Offset(dx, dy));
+      double currentDy = bgRect.top + padding;
+      for (final painter in painters) {
+        painter.paint(canvas, Offset(padding, currentDy));
+        currentDy += painter.height + (fontSize * 0.15);
       }
 
       final picture = recorder.endRecording();
@@ -2347,10 +2376,18 @@ class _RoundBtn extends StatelessWidget {
           width: 42,
           height: 42,
           decoration: BoxDecoration(
-            color: isActive ? AppTheme.greenPrimary : AppTheme.bgCard,
+            color: isActive ? AppTheme.greenPrimary : null,
+            gradient: isActive ? null : const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Color(0xFF2C3E50),
+                Color(0xFF34495E),
+              ],
+            ),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-                color: isActive ? AppTheme.greenPrimary : AppTheme.borderColor),
+                color: isActive ? AppTheme.greenPrimary : Colors.transparent),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.3),
@@ -2459,9 +2496,16 @@ class _SearchBar extends StatelessWidget {
     return Container(
       height: 42,
       decoration: BoxDecoration(
-        color: AppTheme.bgCard,
+        gradient: const LinearGradient(
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+          colors: [
+            Color(0xFF2C3E50),
+            Color(0xFF34495E),
+          ],
+        ),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppTheme.borderColor),
+        border: Border.all(color: Colors.transparent),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.25),

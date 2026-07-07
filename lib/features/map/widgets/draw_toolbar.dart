@@ -38,9 +38,16 @@ class DrawToolbar extends StatelessWidget {
         return Container(
           height: 64,
           decoration: BoxDecoration(
-            color: AppTheme.bgCard,
-            border: Border(
-                top: BorderSide(color: AppTheme.borderColor, width: 1)),
+            gradient: const LinearGradient(
+              begin: Alignment.bottomCenter,
+              end: Alignment.topCenter,
+              colors: [
+                Color(0xFF212529),
+                Color(0xFF2C3E50),
+              ],
+            ),
+            border: const Border(
+                top: BorderSide(color: Colors.transparent, width: 1)),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.4),
