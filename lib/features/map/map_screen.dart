@@ -1835,7 +1835,7 @@ $wpPlacemarks
                     _MapFab(
                       icon: Icons.add,
                       tooltip: 'Zoom In',
-                      color: const Color(0xFF42A5F5),
+                      color: const Color(0xFF00E5FF), // Cyan A400
                       onTap: () {
                         final c = _flutterMapController.camera;
                         _flutterMapController.move(c.center, c.zoom + 1);
@@ -1846,7 +1846,7 @@ $wpPlacemarks
                     _MapFab(
                       icon: Icons.remove,
                       tooltip: 'Zoom Out',
-                      color: const Color(0xFF42A5F5),
+                      color: const Color(0xFF00E5FF), // Cyan A400
                       onTap: () {
                         final c = _flutterMapController.camera;
                         _flutterMapController.move(c.center, c.zoom - 1);
@@ -1859,7 +1859,7 @@ $wpPlacemarks
                           ? Icons.hourglass_top_rounded
                           : Icons.my_location_rounded,
                       tooltip: 'My Location',
-                      color: const Color(0xFF26A69A),
+                      color: const Color(0xFFD500F9), // Purple A400
                       onTap: _loadingLocation ? null : _goToCurrentLocation,
                       isLoading: _loadingLocation,
                     ),
@@ -1868,7 +1868,7 @@ $wpPlacemarks
                     _MapFab(
                       icon: Icons.download_rounded,
                       tooltip: 'Download Area',
-                      color: const Color(0xFFFF7043),
+                      color: const Color(0xFFFF9100), // Orange A400
                       onTap: _onDownloadMapArea,
                     ),
                     const SizedBox(height: 10),
@@ -1906,7 +1906,7 @@ $wpPlacemarks
                     _MapFab(
                       icon: Icons.upload_file_rounded,
                       tooltip: 'Import KML / GeoJSON',
-                      color: const Color(0xFF66BB6A),
+                      color: const Color(0xFF00E676), // Green A400
                       onTap: _importKmlFile,
                     ),
                     const SizedBox(height: 10),
@@ -1914,16 +1914,8 @@ $wpPlacemarks
                     _MapFab(
                       icon: Icons.pin_drop_rounded,
                       tooltip: 'Enter Coordinates Manually',
-                      color: const Color(0xFF7E57C2),
+                      color: const Color(0xFFFF3D00), // Deep Orange A400
                       onTap: _showManualCoordinateEntry,
-                    ),
-                    const SizedBox(height: 10),
-                    // Import PDF Map
-                    _MapFab(
-                      icon: Icons.picture_as_pdf_rounded,
-                      tooltip: 'Import PDF Village Map',
-                      color: const Color(0xFFEF5350),
-                      onTap: _importPdfMap,
                     ),
                   ],
                 ),
