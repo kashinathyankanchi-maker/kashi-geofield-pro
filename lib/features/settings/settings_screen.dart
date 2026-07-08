@@ -17,6 +17,7 @@ class _Keys {
   static const orientation = 'settings_orientation';
   static const polygonColor = 'settings_polygon_color';
   static const defaultZoom = 'settings_default_zoom';
+  static const geminiApiKey = 'settings_gemini_api_key';
 }
 
 // ---------------------------------------------------------------------------
@@ -33,6 +34,7 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   // -- controllers --
   final _orgNameCtrl = TextEditingController();
+  final _geminiKeyCtrl = TextEditingController();
 
   // -- state --
   String _orgLogoPath = '';
@@ -56,6 +58,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void dispose() {
     _orgNameCtrl.dispose();
+    _geminiKeyCtrl.dispose();
     super.dispose();
   }
 
@@ -65,6 +68,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
       _orgNameCtrl.text = prefs.getString(_Keys.orgName) ?? '';
+      _geminiKeyCtrl.text = prefs.getString(_Keys.geminiApiKey) ?? '';
       _orgLogoPath = prefs.getString(_Keys.orgLogoPath) ?? '';
       _pageSize = prefs.getString(_Keys.pageSize) ?? 'A4';
       _orientation = prefs.getString(_Keys.orientation) ?? 'Portrait';
@@ -309,6 +313,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(height: 16),
                 _buildMapSection(),
                 const SizedBox(height: 16),
+                _buildAISection(),
+                const SizedBox(height: 16),
                 _buildDataManagementSection(),
                 const SizedBox(height: 16),
                 _buildAppInfoSection(),
@@ -506,6 +512,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
           ],
+        ),
+      ],
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Section 3.5 - AI Integration
+  // ---------------------------------------------------------------------------
+
+  Widget _buildAISection() {
+    return _SettingsCard(
+      title: 'AI Scanner Settings',
+      icon: Icons.psychology_rounded,
+      children: [
+        _SettingRow(
+          label: 'Google Gemini API Key',
+          subtitle: 'Required for identifying trees/wildlife via AI',
+          trailing: Expanded(
+            child: TextField(
+              controller: _geminiKeyCtrl,
+              obscureText: true,
+              style: AppTheme.bodyMedium,
+              decoration: InputDecoration(
+                hintText: 'Enter API Key...',
+                isDense: true,
+                filled: true,
+                fillColor: AppTheme.textSecondary.withOpacity(0.05),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide.none,
+                ),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              ),
+              onChanged: (v) => _saveSetting(_Keys.geminiApiKey, v.trim()),
+            ),
+          ),
         ),
       ],
     );

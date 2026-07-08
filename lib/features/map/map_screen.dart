@@ -30,6 +30,7 @@ import 'widgets/draw_toolbar.dart';
 import 'widgets/layer_panel.dart';
 import 'widgets/shape_detail_sheet.dart';
 import '../calculators/cbm_screen.dart';
+import '../ai_scanner/ai_scanner_screen.dart';
 import '../offline_maps/offline_maps_screen.dart';
 import 'offline_tile_provider.dart';
 import 'geo_reference_screen.dart';
@@ -2015,6 +2016,19 @@ $wpPlacemarks
                         Navigator.push(
                           context,
                           MaterialPageRoute(builder: (context) => const CbmScreen()),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 6),
+                    // AI Species Scanner
+                    _MapFab(
+                      icon: Icons.psychology_rounded,
+                      tooltip: 'AI Species Identifier',
+                      color: const Color(0xFF42A5F5), // tactical blue
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => const AiScannerScreen()),
                         );
                       },
                     ),
