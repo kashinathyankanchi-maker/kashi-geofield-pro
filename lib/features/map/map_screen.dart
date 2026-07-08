@@ -1720,18 +1720,82 @@ $wpPlacemarks
                   ),
                 ),
 
-              // ── Top: Gradient header + Search bar + action buttons ─────────
+              // ── Top: Tactical status bar + Search row ─────────────────
               SafeArea(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    // ── Tactical Status Header ──────────────────────────────
+                    Container(
+                      color: AppTheme.bgSecondary.withValues(alpha: 0.92),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                      child: Row(
+                        children: [
+                          // App name
+                          const Text(
+                            'KASHI GEOFIELD PRO',
+                            style: TextStyle(
+                              color: AppTheme.greenAccent,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 2.0,
+                              fontFamily: 'monospace',
+                            ),
+                          ),
+                          const Spacer(),
+                          // GPS indicator
+                          Icon(
+                            _currentPosition != null
+                                ? Icons.gps_fixed_rounded
+                                : Icons.gps_not_fixed_rounded,
+                            color: _currentPosition != null
+                                ? AppTheme.greenAccent
+                                : AppTheme.warningColor,
+                            size: 13,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            _currentPosition != null ? 'GPS OK' : 'GPS...',
+                            style: TextStyle(
+                              color: _currentPosition != null
+                                  ? AppTheme.greenAccent
+                                  : AppTheme.warningColor,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 1.0,
+                              fontFamily: 'monospace',
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          // Map style indicator
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              border: Border.all(color: AppTheme.borderBright, width: 1),
+                              borderRadius: BorderRadius.circular(3),
+                            ),
+                            child: Text(
+                              _mapController.mapStyle.toUpperCase(),
+                              style: const TextStyle(
+                                color: AppTheme.textSecondary,
+                                fontSize: 9,
+                                letterSpacing: 1.5,
+                                fontFamily: 'monospace',
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Divider(height: 1, thickness: 1, color: AppTheme.borderBright),
 
-                    // ── Search row ─────────────────────────────────────────────
-                    Padding(
+                    // ── Search row ────────────────────────────────────────
+                    Container(
+                      color: AppTheme.bgSecondary.withValues(alpha: 0.85),
                       padding: EdgeInsets.only(
-                        left: _showWaypointPanel ? 228 : 12,
-                        right: 12,
-                        top: 10,
+                        left: _showWaypointPanel ? 228 : 8,
+                        right: 8,
+                        top: 6,
                         bottom: 6,
                       ),
                       child: Row(
@@ -1744,7 +1808,7 @@ $wpPlacemarks
                             onTap: () => setState(
                                 () => _showWaypointPanel = !_showWaypointPanel),
                           ),
-                          const SizedBox(width: 8),
+                          const SizedBox(width: 6),
                           // Search field
                           Expanded(
                             child: _SearchBar(
@@ -1757,7 +1821,7 @@ $wpPlacemarks
                               },
                             ),
                           ),
-                          const SizedBox(width: 8),
+                          const SizedBox(width: 6),
                           // Layers toggle
                           _RoundBtn(
                             icon: Icons.layers_rounded,
@@ -1766,7 +1830,7 @@ $wpPlacemarks
                             onTap: () => setState(
                                 () => _showLayerPanel = !_showLayerPanel),
                           ),
-                          const SizedBox(width: 6),
+                          const SizedBox(width: 4),
                           // Shapes list
                           _RoundBtn(
                             icon: Icons.list_alt_rounded,
@@ -1774,7 +1838,7 @@ $wpPlacemarks
                             isActive: false,
                             onTap: _showShapesList,
                           ),
-                          const SizedBox(width: 6),
+                          const SizedBox(width: 4),
                           // Camera button
                           _RoundBtn(
                             icon: Icons.camera_alt_rounded,
@@ -1813,7 +1877,7 @@ $wpPlacemarks
                     _MapFab(
                       icon: Icons.add,
                       tooltip: 'Zoom In',
-                      color: const Color(0xFF29B6F6), // Light Blue
+                      color: const Color(0xFF2D7A3A), // tactical green
                       onTap: () {
                         final c = _flutterMapController.camera;
                         _flutterMapController.move(c.center, c.zoom + 1);
@@ -1824,7 +1888,7 @@ $wpPlacemarks
                     _MapFab(
                       icon: Icons.remove,
                       tooltip: 'Zoom Out',
-                      color: const Color(0xFF29B6F6), // Light Blue
+                      color: const Color(0xFF2D7A3A), // tactical green
                       onTap: () {
                         final c = _flutterMapController.camera;
                         _flutterMapController.move(c.center, c.zoom - 1);
@@ -1837,7 +1901,7 @@ $wpPlacemarks
                           ? Icons.hourglass_top_rounded
                           : Icons.my_location_rounded,
                       tooltip: 'My Location',
-                      color: const Color(0xFF66BB6A), // Professional Green
+                      color: const Color(0xFF39D353), // bright green location
                       onTap: _loadingLocation ? null : _goToCurrentLocation,
                       isLoading: _loadingLocation,
                     ),
@@ -1846,7 +1910,7 @@ $wpPlacemarks
                     _MapFab(
                       icon: Icons.download_rounded,
                       tooltip: 'Download Area',
-                      color: const Color(0xFF42A5F5), // Professional Blue
+                      color: const Color(0xFF29B6F6), // tactical blue
                       onTap: _onDownloadMapArea,
                     ),
                     const SizedBox(height: 10),
@@ -1884,7 +1948,7 @@ $wpPlacemarks
                     _MapFab(
                       icon: Icons.upload_file_rounded,
                       tooltip: 'Import KML / GeoJSON',
-                      color: const Color(0xFF26A69A), // Teal
+                      color: const Color(0xFF26A69A), // tactical teal
                       onTap: _importKmlFile,
                     ),
                     const SizedBox(height: 10),
@@ -1892,7 +1956,7 @@ $wpPlacemarks
                     _MapFab(
                       icon: Icons.pin_drop_rounded,
                       tooltip: 'Enter Coordinates Manually',
-                      color: const Color(0xFFEF5350), // Professional Red
+                      color: const Color(0xFFEF5350), // tactical red
                       onTap: _showManualCoordinateEntry,
                     ),
                   ],
@@ -1983,173 +2047,253 @@ $wpPlacemarks
   }
 
   Future<void> _openCameraScreen() async {
-    // Show name input dialog — single button, name is optional
-    final locationNameCtrl = TextEditingController();
-    final shouldProceed = await showDialog<bool>(
-      context: context,
-      barrierDismissible: true,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1A1F2E),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Row(
-          children: [
-            Icon(Icons.camera_alt_rounded, color: Color(0xFF4FC3F7), size: 22),
-            SizedBox(width: 8),
-            Text('Add Location Note',
-                style: TextStyle(color: Colors.white, fontSize: 16)),
+    // ── Camera loop — keeps shooting until user cancels the dialog ─────────
+    int photoCount = 0;
+    while (mounted) {
+      // Show name dialog before each capture
+      final locationNameCtrl = TextEditingController();
+      final shouldProceed = await showDialog<bool>(
+        context: context,
+        barrierDismissible: true,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: const Color(0xFF0D1410),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+            side: const BorderSide(color: AppTheme.borderBright, width: 1),
+          ),
+          title: Row(
+            children: [
+              const Icon(Icons.camera_alt_rounded,
+                  color: AppTheme.greenAccent, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                photoCount == 0 ? 'ADD LOCATION NOTE' : 'NEXT PHOTO',
+                style: const TextStyle(
+                  color: AppTheme.greenAccent,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 2.0,
+                  fontFamily: 'monospace',
+                ),
+              ),
+              if (photoCount > 0) ...[
+                const Spacer(),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: AppTheme.greenDim,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    '$photoCount saved',
+                    style: const TextStyle(
+                      color: AppTheme.greenAccent,
+                      fontSize: 10,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          content: TextField(
+            controller: locationNameCtrl,
+            autofocus: photoCount == 0,
+            style: const TextStyle(
+              color: AppTheme.textPrimary,
+              fontFamily: 'monospace',
+            ),
+            decoration: InputDecoration(
+              hintText: 'Optional — location or note',
+              hintStyle: TextStyle(
+                  color: AppTheme.textMuted.withValues(alpha: 0.7)),
+              filled: true,
+              fillColor: AppTheme.bgSurface,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(6),
+                borderSide:
+                    const BorderSide(color: AppTheme.borderColor, width: 1),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(6),
+                borderSide:
+                    const BorderSide(color: AppTheme.borderColor, width: 1),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(6),
+                borderSide:
+                    const BorderSide(color: AppTheme.greenAccent, width: 1.5),
+              ),
+              prefixIcon: const Icon(Icons.edit_note_rounded,
+                  color: AppTheme.greenAccent, size: 18),
+            ),
+            onSubmitted: (_) => Navigator.pop(ctx, true),
+          ),
+          actionsPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          actions: [
+            Row(
+              children: [
+                // Exit camera mode button
+                if (photoCount > 0)
+                  Expanded(
+                    child: OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppTheme.textSecondary,
+                        side: const BorderSide(color: AppTheme.borderColor),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(6)),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                      ),
+                      onPressed: () => Navigator.pop(ctx, false),
+                      child: const Text('DONE',
+                          style: TextStyle(
+                            fontSize: 11,
+                            letterSpacing: 1.5,
+                            fontFamily: 'monospace',
+                          )),
+                    ),
+                  ),
+                if (photoCount > 0) const SizedBox(width: 8),
+                // Take photo button
+                Expanded(
+                  flex: 2,
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.greenPrimary,
+                      foregroundColor: AppTheme.greenAccent,
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(6),
+                        side: const BorderSide(
+                            color: AppTheme.greenAccent, width: 1),
+                      ),
+                    ),
+                    icon: const Icon(Icons.camera_alt_rounded, size: 16),
+                    label: const Text('TAKE PHOTO',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 12,
+                          letterSpacing: 1.5,
+                          fontFamily: 'monospace',
+                        )),
+                    onPressed: () => Navigator.pop(ctx, true),
+                  ),
+                ),
+              ],
+            ),
           ],
         ),
-        content: TextField(
-          controller: locationNameCtrl,
-          autofocus: true,
-          style: const TextStyle(color: Colors.white),
-          decoration: InputDecoration(
-            hintText: 'Optional — e.g. "North Field Corner"',
-            hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.4)),
-            filled: true,
-            fillColor: Colors.white.withValues(alpha: 0.06),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: BorderSide.none,
-            ),
-            prefixIcon: const Icon(Icons.edit_note_rounded, color: Color(0xFF4FC3F7)),
-          ),
-          onSubmitted: (_) => Navigator.pop(ctx, true),
-        ),
-        actions: [
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF4FC3F7),
-                foregroundColor: Colors.black,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10)),
-              ),
-              icon: const Icon(Icons.camera_alt_rounded, size: 18),
-              label: const Text('Take Photo',
-                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
-              onPressed: () => Navigator.pop(ctx, true),
-            ),
-          ),
-        ],
-      ),
-    );
-
-    if (shouldProceed != true || !mounted) return;
-
-    final name = locationNameCtrl.text.trim();
-
-    try {
-      final picker = ImagePicker();
-      final XFile? photo = await picker.pickImage(
-        source: ImageSource.camera,
-        imageQuality: 90,
       );
-      if (photo == null) return;
 
-      _showSnackBar('Saving photo...');
+      // User cancelled / pressed back / pressed DONE
+      if (shouldProceed != true || !mounted) break;
 
-      // Load image
-      final bytes = await photo.readAsBytes();
+      final name = locationNameCtrl.text.trim();
 
-      // Use cached GPS position for speed — no fresh fix needed
-      String latStr = 'N/A';
-      String lngStr = 'N/A';
-      String elevStr = 'N/A';
-      String accStr = '3.0 m';
-      if (_currentPosition != null) {
-        latStr = _currentPosition!.latitude.toStringAsFixed(6);
-        lngStr = _currentPosition!.longitude.toStringAsFixed(6);
-        elevStr = 'N/A'; // altitude not available from LatLng cache
-      }
-
-      final now = DateTime.now();
-      final dateStr = '${now.day.toString().padLeft(2, '0')}-${now.month.toString().padLeft(2, '0')}-${now.year} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
-
-      // Build watermark lines
-      final lines = <String>[
-        'Latitude: $latStr',
-        'Longitude: $lngStr',
-        'Elevation: $elevStr',
-        'Accuracy: $accStr',
-        'Time: $dateStr',
-      ];
-      if (name.isNotEmpty) lines.add('Note: $name');
-
-
-      // Draw watermark using dart:ui
-      final ui.Image bgImage = await decodeImageFromList(bytes);
-      final recorder = ui.PictureRecorder();
-      final canvas = Canvas(recorder);
-      
-      canvas.drawImage(bgImage, Offset.zero, Paint());
-
-      // Calculate proportional font size (3.5% of image height)
-      final double fontSize = bgImage.height * 0.035;
-      final double padding = fontSize * 0.6;
-      final double boxWidth = bgImage.width * 0.65;
-      
-      // We must layout the text first to find the actual total height when wrapped
-      final List<TextPainter> painters = [];
-      double totalTextHeight = padding * 2;
-      for (final line in lines) {
-        final textStyle = TextStyle(
-          color: Colors.white.withValues(alpha: 0.95),
-          fontSize: fontSize,
-          fontWeight: FontWeight.w600,
-          height: 1.1,
+      try {
+        final picker = ImagePicker();
+        final XFile? photo = await picker.pickImage(
+          source: ImageSource.camera,
+          imageQuality: 90,
         );
-        final textPainter = TextPainter(
-          text: TextSpan(text: line, style: textStyle),
-          textDirection: TextDirection.ltr,
+        if (photo == null) break; // user backed out of camera
+
+        _showSnackBar('Saving photo...');
+
+        final bytes = await photo.readAsBytes();
+
+        String latStr = 'N/A';
+        String lngStr = 'N/A';
+        const String accStr = '3.0 m';
+        if (_currentPosition != null) {
+          latStr = _currentPosition!.latitude.toStringAsFixed(6);
+          lngStr = _currentPosition!.longitude.toStringAsFixed(6);
+        }
+
+        final now = DateTime.now();
+        final dateStr =
+            '${now.day.toString().padLeft(2, '0')}-${now.month.toString().padLeft(2, '0')}-${now.year} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+
+        final lines = <String>[
+          'Latitude: $latStr',
+          'Longitude: $lngStr',
+          'Accuracy: $accStr',
+          'Time: $dateStr',
+        ];
+        if (name.isNotEmpty) lines.add('Note: $name');
+
+        // Draw watermark
+        final ui.Image bgImage = await decodeImageFromList(bytes);
+        final recorder = ui.PictureRecorder();
+        final canvas = Canvas(recorder);
+        canvas.drawImage(bgImage, Offset.zero, Paint());
+
+        final double fontSize = bgImage.height * 0.035;
+        final double padding = fontSize * 0.6;
+        final double boxWidth = bgImage.width * 0.65;
+
+        final List<TextPainter> painters = [];
+        double totalTextHeight = padding * 2;
+        for (final line in lines) {
+          final textStyle = TextStyle(
+            color: Colors.white.withValues(alpha: 0.95),
+            fontSize: fontSize,
+            fontWeight: FontWeight.w600,
+            height: 1.1,
+          );
+          final textPainter = TextPainter(
+            text: TextSpan(text: line, style: textStyle),
+            textDirection: TextDirection.ltr,
+          );
+          textPainter.layout(maxWidth: boxWidth - padding * 2);
+          painters.add(textPainter);
+          totalTextHeight += textPainter.height + (fontSize * 0.15);
+        }
+
+        final bgRect = Rect.fromLTWH(
+          0,
+          bgImage.height.toDouble() - totalTextHeight - 10,
+          boxWidth,
+          totalTextHeight,
         );
-        textPainter.layout(maxWidth: boxWidth - padding * 2);
-        painters.add(textPainter);
-        totalTextHeight += textPainter.height + (fontSize * 0.15); // Add spacing
+        final bgPaint = Paint()
+          ..color = Colors.black.withValues(alpha: 0.55);
+        canvas.drawRect(bgRect, bgPaint);
+
+        double currentDy = bgRect.top + padding;
+        for (final painter in painters) {
+          painter.paint(canvas, Offset(padding, currentDy));
+          currentDy += painter.height + (fontSize * 0.15);
+        }
+
+        final picture = recorder.endRecording();
+        final finalUiImage =
+            await picture.toImage(bgImage.width, bgImage.height);
+        final byteData =
+            await finalUiImage.toByteData(format: ui.ImageByteFormat.png);
+        final watermarkedBytes = byteData!.buffer.asUint8List();
+
+        final dir = await getTemporaryDirectory();
+        final filePath =
+            '${dir.path}/watermarked_${DateTime.now().millisecondsSinceEpoch}.png';
+        final file = File(filePath);
+        await file.writeAsBytes(watermarkedBytes);
+
+        await Gal.putImage(filePath, album: 'KashiGeoFieldPro');
+
+        photoCount++;
+        if (mounted) {
+          ScaffoldMessenger.of(context).clearSnackBars();
+          _showSnackBar('Photo $photoCount saved ✓  — tap camera to continue');
+        }
+      } catch (e) {
+        if (mounted) _showSnackBar('Error: $e', isError: true);
+        break;
       }
-
-      // Draw semi-transparent background rectangle
-      final bgRect = Rect.fromLTWH(
-        0,
-        bgImage.height.toDouble() - totalTextHeight - 10,
-        boxWidth,
-        totalTextHeight,
-      );
-      final bgPaint = Paint()
-        ..color = Colors.black.withValues(alpha: 0.55);
-      canvas.drawRect(bgRect, bgPaint);
-
-      // Draw each line of text
-      double currentDy = bgRect.top + padding;
-      for (final painter in painters) {
-        painter.paint(canvas, Offset(padding, currentDy));
-        currentDy += painter.height + (fontSize * 0.15);
-      }
-
-      final picture = recorder.endRecording();
-      final finalUiImage = await picture.toImage(bgImage.width, bgImage.height);
-      final byteData = await finalUiImage.toByteData(format: ui.ImageByteFormat.png);
-      final watermarkedBytes = byteData!.buffer.asUint8List();
-
-      final dir = await getTemporaryDirectory();
-      final filePath =
-          '${dir.path}/watermarked_${DateTime.now().millisecondsSinceEpoch}.png';
-      final file = File(filePath);
-      await file.writeAsBytes(watermarkedBytes);
-
-      // Save watermarked image to gallery using Gal
-      await Gal.putImage(filePath, album: 'KashiGeoFieldPro');
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).clearSnackBars();
-        _showSnackBar('Photo saved to KashiGeoFieldPro album');
-      }
-    } catch (e) {
-      _showSnackBar('Error: $e', isError: true);
     }
   }
+
 
   Future<void> _importPdfMap() async {
     try {
