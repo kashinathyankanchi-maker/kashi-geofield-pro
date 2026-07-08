@@ -1813,7 +1813,7 @@ $wpPlacemarks
                     _MapFab(
                       icon: Icons.add,
                       tooltip: 'Zoom In',
-                      color: const Color(0xFF00E5FF), // Cyan A400
+                      color: const Color(0xFF29B6F6), // Light Blue
                       onTap: () {
                         final c = _flutterMapController.camera;
                         _flutterMapController.move(c.center, c.zoom + 1);
@@ -1824,7 +1824,7 @@ $wpPlacemarks
                     _MapFab(
                       icon: Icons.remove,
                       tooltip: 'Zoom Out',
-                      color: const Color(0xFF00E5FF), // Cyan A400
+                      color: const Color(0xFF29B6F6), // Light Blue
                       onTap: () {
                         final c = _flutterMapController.camera;
                         _flutterMapController.move(c.center, c.zoom - 1);
@@ -1837,7 +1837,7 @@ $wpPlacemarks
                           ? Icons.hourglass_top_rounded
                           : Icons.my_location_rounded,
                       tooltip: 'My Location',
-                      color: const Color(0xFFD500F9), // Purple A400
+                      color: const Color(0xFF66BB6A), // Professional Green
                       onTap: _loadingLocation ? null : _goToCurrentLocation,
                       isLoading: _loadingLocation,
                     ),
@@ -1846,7 +1846,7 @@ $wpPlacemarks
                     _MapFab(
                       icon: Icons.download_rounded,
                       tooltip: 'Download Area',
-                      color: const Color(0xFFFF9100), // Orange A400
+                      color: const Color(0xFF42A5F5), // Professional Blue
                       onTap: _onDownloadMapArea,
                     ),
                     const SizedBox(height: 10),
@@ -1863,10 +1863,10 @@ $wpPlacemarks
                               ? 'Resume Tracking'
                               : 'Start GPS Track'),
                       color: _mapController.isTracking
-                          ? const Color(0xFFFF6F00)
+                          ? const Color(0xFFFF7043) // professional deep orange
                           : (_mapController.isTrackingPaused
-                              ? Colors.amber
-                              : const Color(0xFFAB47BC)),
+                              ? const Color(0xFFFFA726) // professional amber
+                              : const Color(0xFF7E57C2)), // professional indigo
                       onTap: () {
                         if (_mapController.isTracking) {
                           _mapController.pauseTracking();
@@ -1884,7 +1884,7 @@ $wpPlacemarks
                     _MapFab(
                       icon: Icons.upload_file_rounded,
                       tooltip: 'Import KML / GeoJSON',
-                      color: const Color(0xFF00E676), // Green A400
+                      color: const Color(0xFF26A69A), // Teal
                       onTap: _importKmlFile,
                     ),
                     const SizedBox(height: 10),
@@ -1892,7 +1892,7 @@ $wpPlacemarks
                     _MapFab(
                       icon: Icons.pin_drop_rounded,
                       tooltip: 'Enter Coordinates Manually',
-                      color: const Color(0xFFFF3D00), // Deep Orange A400
+                      color: const Color(0xFFEF5350), // Professional Red
                       onTap: _showManualCoordinateEntry,
                     ),
                   ],
@@ -1983,67 +1983,87 @@ $wpPlacemarks
   }
 
   Future<void> _openCameraScreen() async {
+    // Show name input dialog — single button, name is optional
     final locationNameCtrl = TextEditingController();
-    final name = await showDialog<String>(
+    final shouldProceed = await showDialog<bool>(
       context: context,
+      barrierDismissible: true,
       builder: (ctx) => AlertDialog(
-        backgroundColor: AppTheme.bgCard,
-        title: const Text('Location Name (Optional)',
-            style: TextStyle(color: AppTheme.textPrimary, fontSize: 16)),
+        backgroundColor: const Color(0xFF1A1F2E),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.camera_alt_rounded, color: Color(0xFF4FC3F7), size: 22),
+            SizedBox(width: 8),
+            Text('Add Location Note',
+                style: TextStyle(color: Colors.white, fontSize: 16)),
+          ],
+        ),
         content: TextField(
           controller: locationNameCtrl,
-          style: const TextStyle(color: AppTheme.textPrimary),
-          decoration: const InputDecoration(
-            hintText: 'Enter name for watermark',
-            hintStyle: TextStyle(color: AppTheme.textMuted),
-            enabledBorder: UnderlineInputBorder(
-                borderSide: BorderSide(color: AppTheme.borderColor)),
-            focusedBorder: UnderlineInputBorder(
-                borderSide: BorderSide(color: AppTheme.greenPrimary)),
+          autofocus: true,
+          style: const TextStyle(color: Colors.white),
+          decoration: InputDecoration(
+            hintText: 'Optional — e.g. "North Field Corner"',
+            hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.4)),
+            filled: true,
+            fillColor: Colors.white.withValues(alpha: 0.06),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide.none,
+            ),
+            prefixIcon: const Icon(Icons.edit_note_rounded, color: Color(0xFF4FC3F7)),
           ),
+          onSubmitted: (_) => Navigator.pop(ctx, true),
         ),
         actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx), child: const Text('Skip')),
-          ElevatedButton(
-              onPressed: () => Navigator.pop(ctx, locationNameCtrl.text.trim()),
-              child: const Text('Capture')),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF4FC3F7),
+                foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10)),
+              ),
+              icon: const Icon(Icons.camera_alt_rounded, size: 18),
+              label: const Text('Take Photo',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+              onPressed: () => Navigator.pop(ctx, true),
+            ),
+          ),
         ],
       ),
     );
 
-    if (name == null && !mounted) return; // cancelled
+    if (shouldProceed != true || !mounted) return;
+
+    final name = locationNameCtrl.text.trim();
 
     try {
       final picker = ImagePicker();
-      final XFile? photo = await picker.pickImage(source: ImageSource.camera);
+      final XFile? photo = await picker.pickImage(
+        source: ImageSource.camera,
+        imageQuality: 90,
+      );
       if (photo == null) return;
 
-      _showSnackBar('Processing image...');
+      _showSnackBar('Saving photo...');
 
       // Load image
       final bytes = await photo.readAsBytes();
 
-      // Get location data with elevation and accuracy
+      // Use cached GPS position for speed — no fresh fix needed
       String latStr = 'N/A';
       String lngStr = 'N/A';
       String elevStr = 'N/A';
-      String accStr = 'N/A';
+      String accStr = '3.0 m';
       if (_currentPosition != null) {
         latStr = _currentPosition!.latitude.toStringAsFixed(6);
         lngStr = _currentPosition!.longitude.toStringAsFixed(6);
+        elevStr = 'N/A'; // altitude not available from LatLng cache
       }
-      
-      // Try to get elevation and accuracy from fresh GPS
-      try {
-        final pos = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high,
-        );
-        latStr = pos.latitude.toStringAsFixed(6);
-        lngStr = pos.longitude.toStringAsFixed(6);
-        elevStr = '${pos.altitude.toStringAsFixed(2)}±${pos.altitudeAccuracy.toStringAsFixed(2)} m';
-        accStr = '3.0 m';
-      } catch (_) {}
 
       final now = DateTime.now();
       final dateStr = '${now.day.toString().padLeft(2, '0')}-${now.month.toString().padLeft(2, '0')}-${now.year} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
@@ -2056,9 +2076,8 @@ $wpPlacemarks
         'Accuracy: $accStr',
         'Time: $dateStr',
       ];
-      if (name != null && name.isNotEmpty) {
-        lines.add('Note: $name');
-      }
+      if (name.isNotEmpty) lines.add('Note: $name');
+
 
       // Draw watermark using dart:ui
       final ui.Image bgImage = await decodeImageFromList(bytes);

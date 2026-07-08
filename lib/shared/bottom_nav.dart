@@ -37,8 +37,8 @@ class _MainScaffoldState extends State<MainScaffold> {
             begin: Alignment.bottomCenter,
             end: Alignment.topCenter,
             colors: [
-              Color(0xFF1E293B),
-              Color(0xFF2C3E50),
+              Color(0xFF0D1117),
+              Color(0xFF161B22),
             ],
           ),
           border: Border(
@@ -48,6 +48,11 @@ class _MainScaffoldState extends State<MainScaffold> {
         child: BottomNavigationBar(
           backgroundColor: Colors.transparent,
           elevation: 0,
+          selectedItemColor: const Color(0xFF4FC3F7),   // professional sky blue
+          unselectedItemColor: const Color(0xFF607D8B), // blue-grey muted
+          selectedLabelStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 11),
+          unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w400, fontSize: 10),
+          type: BottomNavigationBarType.fixed,
           currentIndex: _currentIndex,
           onTap: (index) => setState(() => _currentIndex = index),
           items: const [

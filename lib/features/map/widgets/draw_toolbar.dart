@@ -42,8 +42,8 @@ class DrawToolbar extends StatelessWidget {
               begin: Alignment.bottomCenter,
               end: Alignment.topCenter,
               colors: [
-                Color(0xFF212529),
-                Color(0xFF2C3E50),
+                Color(0xFF0D1117),
+                Color(0xFF161B22),
               ],
             ),
             border: const Border(
