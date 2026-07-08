@@ -870,7 +870,7 @@ class _MapScreenState extends State<MapScreen> {
                     decoration:
                         _inputDeco('Polygon / Path Name', Icons.label_rounded),
                   ),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 6),
                   // Coordinate entry row
                   Row(
                     children: [
@@ -914,7 +914,7 @@ class _MapScreenState extends State<MapScreen> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 6),
                   // Point list
                   if (coords.isNotEmpty) ...[
                     Container(
@@ -1214,7 +1214,7 @@ $wpPlacemarks
                           const TextStyle(color: AppTheme.textSecondary),
                     ),
                   ),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 6),
                   // Organization name (optional — leave blank to hide)
                   TextField(
                     controller: orgCtrl,
@@ -1241,7 +1241,7 @@ $wpPlacemarks
                           const TextStyle(color: AppTheme.textSecondary),
                     ),
                   ),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 6),
                   // Date/time — editable
                   TextField(
                     controller: dateCtrl,
@@ -1270,7 +1270,7 @@ $wpPlacemarks
                   ),
                   // Multi-part toggle (only shown when multiple polygons exist)
                   if (allPolygons.length > 1) ...[
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 6),
                     Container(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 12, vertical: 6),
@@ -1870,7 +1870,7 @@ $wpPlacemarks
               // ── Right: Map controls ──────────────────────────────────────────
               Positioned(
                 right: 12,
-                top: 90,
+                top: 150,
                 child: Column(
                   children: [
                     // Zoom in
@@ -1883,7 +1883,7 @@ $wpPlacemarks
                         _flutterMapController.move(c.center, c.zoom + 1);
                       },
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 6),
                     // Zoom out
                     _MapFab(
                       icon: Icons.remove,
@@ -1894,7 +1894,7 @@ $wpPlacemarks
                         _flutterMapController.move(c.center, c.zoom - 1);
                       },
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 6),
                     // GPS location
                     _MapFab(
                       icon: _loadingLocation
@@ -1905,7 +1905,7 @@ $wpPlacemarks
                       onTap: _loadingLocation ? null : _goToCurrentLocation,
                       isLoading: _loadingLocation,
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 6),
                     // Download offline
                     _MapFab(
                       icon: Icons.download_rounded,
@@ -1913,7 +1913,7 @@ $wpPlacemarks
                       color: const Color(0xFF29B6F6), // tactical blue
                       onTap: _onDownloadMapArea,
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 6),
                     // GPS Track Start/Stop
                     _MapFab(
                       icon: _mapController.isTracking
@@ -1943,7 +1943,7 @@ $wpPlacemarks
                         }
                       },
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 6),
                     // Quick Import KML
                     _MapFab(
                       icon: Icons.upload_file_rounded,
@@ -1951,7 +1951,7 @@ $wpPlacemarks
                       color: const Color(0xFF26A69A), // tactical teal
                       onTap: _importKmlFile,
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 6),
                     // Manual lat/lng entry
                     _MapFab(
                       icon: Icons.pin_drop_rounded,
@@ -1966,8 +1966,8 @@ $wpPlacemarks
               // ── Layer panel ──────────────────────────────────────────────────
               if (_showLayerPanel)
                 Positioned(
-                  right: 12,
-                  top: 80,
+                  right: 75,
+                  top: 150,
                   child: LayerPanel(
                     controller: _mapController,
                     onClose: () => setState(() => _showLayerPanel = false),
@@ -1997,8 +1997,8 @@ $wpPlacemarks
               // ── Tapped coordinate marker ──────────────────────────────────────
               if (_tappedPosition != null)
                 Positioned(
-                  bottom: _mapController.selectedShape != null ? 68 : 12,
-                  right: 60,
+                  bottom: _mapController.selectedShape != null ? 130 : 75,
+                  left: 12,
                   child: _TappedCoordCard(
                     position: _tappedPosition!,
                     onClose: () => setState(() => _tappedPosition = null),
@@ -2047,157 +2047,135 @@ $wpPlacemarks
   }
 
   Future<void> _openCameraScreen() async {
-    // ── Camera loop — keeps shooting until user cancels the dialog ─────────
-    int photoCount = 0;
-    while (mounted) {
-      // Show name dialog before each capture
-      final locationNameCtrl = TextEditingController();
-      final shouldProceed = await showDialog<bool>(
-        context: context,
-        barrierDismissible: true,
-        builder: (ctx) => AlertDialog(
-          backgroundColor: const Color(0xFF0D1410),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-            side: const BorderSide(color: AppTheme.borderBright, width: 1),
-          ),
-          title: Row(
-            children: [
-              const Icon(Icons.camera_alt_rounded,
-                  color: AppTheme.greenAccent, size: 20),
-              const SizedBox(width: 8),
-              Text(
-                photoCount == 0 ? 'ADD LOCATION NOTE' : 'NEXT PHOTO',
-                style: const TextStyle(
-                  color: AppTheme.greenAccent,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 2.0,
-                  fontFamily: 'monospace',
-                ),
+    // Show name dialog ONLY ONCE before starting the camera loop
+    final locationNameCtrl = TextEditingController();
+    final shouldProceed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF0D1410),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+          side: const BorderSide(color: AppTheme.borderBright, width: 1),
+        ),
+        title: const Row(
+          children: [
+            Icon(Icons.camera_alt_rounded,
+                color: AppTheme.greenAccent, size: 20),
+            SizedBox(width: 8),
+            Text(
+              'ADD LOCATION NOTE',
+              style: TextStyle(
+                color: AppTheme.greenAccent,
+                fontSize: 13,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 2.0,
+                fontFamily: 'monospace',
               ),
-              if (photoCount > 0) ...[
-                const Spacer(),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: AppTheme.greenDim,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    '$photoCount saved',
-                    style: const TextStyle(
-                      color: AppTheme.greenAccent,
-                      fontSize: 10,
-                      fontFamily: 'monospace',
-                    ),
-                  ),
-                ),
-              ],
-            ],
-          ),
-          content: TextField(
-            controller: locationNameCtrl,
-            autofocus: photoCount == 0,
-            style: const TextStyle(
-              color: AppTheme.textPrimary,
-              fontFamily: 'monospace',
-            ),
-            decoration: InputDecoration(
-              hintText: 'Optional — location or note',
-              hintStyle: TextStyle(
-                  color: AppTheme.textMuted.withValues(alpha: 0.7)),
-              filled: true,
-              fillColor: AppTheme.bgSurface,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(6),
-                borderSide:
-                    const BorderSide(color: AppTheme.borderColor, width: 1),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(6),
-                borderSide:
-                    const BorderSide(color: AppTheme.borderColor, width: 1),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(6),
-                borderSide:
-                    const BorderSide(color: AppTheme.greenAccent, width: 1.5),
-              ),
-              prefixIcon: const Icon(Icons.edit_note_rounded,
-                  color: AppTheme.greenAccent, size: 18),
-            ),
-            onSubmitted: (_) => Navigator.pop(ctx, true),
-          ),
-          actionsPadding:
-              const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          actions: [
-            Row(
-              children: [
-                // Exit camera mode button
-                if (photoCount > 0)
-                  Expanded(
-                    child: OutlinedButton(
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppTheme.textSecondary,
-                        side: const BorderSide(color: AppTheme.borderColor),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(6)),
-                        padding: const EdgeInsets.symmetric(vertical: 10),
-                      ),
-                      onPressed: () => Navigator.pop(ctx, false),
-                      child: const Text('DONE',
-                          style: TextStyle(
-                            fontSize: 11,
-                            letterSpacing: 1.5,
-                            fontFamily: 'monospace',
-                          )),
-                    ),
-                  ),
-                if (photoCount > 0) const SizedBox(width: 8),
-                // Take photo button
-                Expanded(
-                  flex: 2,
-                  child: ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppTheme.greenPrimary,
-                      foregroundColor: AppTheme.greenAccent,
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(6),
-                        side: const BorderSide(
-                            color: AppTheme.greenAccent, width: 1),
-                      ),
-                    ),
-                    icon: const Icon(Icons.camera_alt_rounded, size: 16),
-                    label: const Text('TAKE PHOTO',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w900,
-                          fontSize: 12,
-                          letterSpacing: 1.5,
-                          fontFamily: 'monospace',
-                        )),
-                    onPressed: () => Navigator.pop(ctx, true),
-                  ),
-                ),
-              ],
             ),
           ],
         ),
-      );
+        content: TextField(
+          controller: locationNameCtrl,
+          autofocus: true,
+          style: const TextStyle(
+            color: AppTheme.textPrimary,
+            fontFamily: 'monospace',
+          ),
+          decoration: InputDecoration(
+            hintText: 'Optional — location or note',
+            hintStyle: TextStyle(
+                color: AppTheme.textMuted.withValues(alpha: 0.7)),
+            filled: true,
+            fillColor: AppTheme.bgSurface,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(6),
+              borderSide:
+                  const BorderSide(color: AppTheme.borderColor, width: 1),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(6),
+              borderSide:
+                  const BorderSide(color: AppTheme.borderColor, width: 1),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(6),
+              borderSide:
+                  const BorderSide(color: AppTheme.greenAccent, width: 1.5),
+            ),
+            prefixIcon: const Icon(Icons.edit_note_rounded,
+                color: AppTheme.greenAccent, size: 18),
+          ),
+          onSubmitted: (_) => Navigator.pop(ctx, true),
+        ),
+        actionsPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        actions: [
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppTheme.textSecondary,
+                    side: const BorderSide(color: AppTheme.borderColor),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(6)),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                  ),
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('CANCEL',
+                      style: TextStyle(
+                        fontSize: 11,
+                        letterSpacing: 1.5,
+                        fontFamily: 'monospace',
+                      )),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                flex: 2,
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.greenPrimary,
+                    foregroundColor: AppTheme.greenAccent,
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(6),
+                      side: const BorderSide(
+                          color: AppTheme.greenAccent, width: 1),
+                    ),
+                  ),
+                  icon: const Icon(Icons.camera_alt_rounded, size: 16),
+                  label: const Text('START CAMERA',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 12,
+                        letterSpacing: 1.5,
+                        fontFamily: 'monospace',
+                      )),
+                  onPressed: () => Navigator.pop(ctx, true),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
 
-      // User cancelled / pressed back / pressed DONE
-      if (shouldProceed != true || !mounted) break;
+    if (shouldProceed != true || !mounted) return;
 
-      final name = locationNameCtrl.text.trim();
+    final name = locationNameCtrl.text.trim();
+    int photoCount = 0;
 
+    // ── Camera loop — keeps shooting until user cancels the camera intent ──
+    while (mounted) {
       try {
         final picker = ImagePicker();
         final XFile? photo = await picker.pickImage(
           source: ImageSource.camera,
           imageQuality: 90,
         );
-        if (photo == null) break; // user backed out of camera
+        if (photo == null) break; // user backed out of camera, end loop
 
         _showSnackBar('Saving photo...');
 
@@ -2285,7 +2263,7 @@ $wpPlacemarks
         photoCount++;
         if (mounted) {
           ScaffoldMessenger.of(context).clearSnackBars();
-          _showSnackBar('Photo $photoCount saved ✓  — tap camera to continue');
+          _showSnackBar('Photo $photoCount saved ✓');
         }
       } catch (e) {
         if (mounted) _showSnackBar('Error: $e', isError: true);
@@ -2529,52 +2507,63 @@ class _MapFab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final baseColor = color ?? const Color(0xFF5C6BC0);
-    final gradientColors = [
-      baseColor,
-      Color.lerp(baseColor, Colors.white, 0.25) ?? baseColor,
-    ];
+    final effectiveColor = color ?? AppTheme.greenAccent;
+    final label = tooltip.toUpperCase().split(' ').take(2).join(' '); // max 2 words
 
     return Tooltip(
       message: tooltip,
       child: GestureDetector(
         onTap: onTap,
         child: Container(
-          width: 46,
-          height: 46,
+          width: 52,
+          height: 52,
           decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: gradientColors,
-            ),
+            color: AppTheme.bgSecondary.withValues(alpha: 0.9),
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: effectiveColor.withValues(alpha: 0.5), width: 1),
             boxShadow: [
               BoxShadow(
-                color: baseColor.withValues(alpha: 0.45),
-                blurRadius: 10,
-                spreadRadius: 1,
-                offset: const Offset(0, 3),
-              ),
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.2),
+                color: Colors.black.withValues(alpha: 0.4),
                 blurRadius: 6,
                 offset: const Offset(0, 2),
               ),
             ],
           ),
           child: isLoading
-              ? const Center(
+              ? Center(
                   child: SizedBox(
                     width: 20,
                     height: 20,
                     child: CircularProgressIndicator(
-                      strokeWidth: 2.5,
-                      color: Colors.white,
+                      color: effectiveColor,
+                      strokeWidth: 2,
                     ),
                   ),
                 )
-              : Icon(icon, size: 22, color: Colors.white),
+              : Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      icon,
+                      size: 20,
+                      color: effectiveColor,
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      label,
+                      style: TextStyle(
+                        color: effectiveColor,
+                        fontSize: 8,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.5,
+                        fontFamily: 'monospace',
+                      ),
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
         ),
       ),
     );
