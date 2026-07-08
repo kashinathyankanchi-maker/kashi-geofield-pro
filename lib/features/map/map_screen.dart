@@ -14,6 +14,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:printing/printing.dart';
 import 'dart:ui' as ui;
 import 'package:image_picker/image_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:gal/gal.dart';
 import 'package:exif/exif.dart';
 import '../../shared/theme.dart';
@@ -28,6 +29,7 @@ import 'map_controller.dart';
 import 'widgets/draw_toolbar.dart';
 import 'widgets/layer_panel.dart';
 import 'widgets/shape_detail_sheet.dart';
+import 'widgets/quarter_girth_calculator.dart';
 import '../offline_maps/offline_maps_screen.dart';
 import 'offline_tile_provider.dart';
 import 'geo_reference_screen.dart';
@@ -81,11 +83,16 @@ class _MapScreenState extends State<MapScreen> {
   /// Start continuous GPS position stream for the blue dot + live tracking
   void _startLocationStream() async {
     try {
-      final permission = await Geolocator.checkPermission();
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
         return;
       }
+      
+      _positionStream?.cancel(); // Cancel any existing stream
       _positionStream = Geolocator.getPositionStream(
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.high,
@@ -146,6 +153,12 @@ class _MapScreenState extends State<MapScreen> {
           return;
         }
       }
+      
+      // Ensure the location stream is running now that we have permission
+      if (_positionStream == null) {
+        _startLocationStream();
+      }
+
       final position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
       );
@@ -1943,6 +1956,22 @@ $wpPlacemarks
                         }
                       },
                     ),
+                    if (_mapController.isTracking || _mapController.isTrackingPaused) ...[
+                      const SizedBox(height: 6),
+                      _MapFab(
+                        icon: Icons.stop_circle_rounded,
+                        tooltip: 'Stop Track',
+                        color: AppTheme.errorColor,
+                        onTap: () {
+                          final shape = _mapController.stopTracking();
+                          if (shape != null) {
+                            _showSnackBar('Tracking saved: ${shape.name}');
+                          } else {
+                            _showSnackBar('Tracking stopped (no movement recorded)', isError: true);
+                          }
+                        },
+                      ),
+                    ],
                     const SizedBox(height: 6),
                     // Quick Import KML
                     _MapFab(
@@ -1958,6 +1987,36 @@ $wpPlacemarks
                       tooltip: 'Enter Coordinates Manually',
                       color: const Color(0xFFEF5350), // tactical red
                       onTap: _showManualCoordinateEntry,
+                    ),
+                    const SizedBox(height: 6),
+                    // Historical Map (Google Earth)
+                    _MapFab(
+                      icon: Icons.history_rounded,
+                      tooltip: 'Historical Map',
+                      color: const Color(0xFFFDD835), // tactical yellow
+                      onTap: () async {
+                        final center = _flutterMapController.camera.center;
+                        final url = Uri.parse(
+                            'https://earth.google.com/web/@${center.latitude},${center.longitude},1000a,35y,0h,0t,0r');
+                        if (await canLaunchUrl(url)) {
+                          await launchUrl(url, mode: LaunchMode.externalApplication);
+                        } else {
+                          _showSnackBar('Could not open Google Earth', isError: true);
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 6),
+                    // Forestry Calculator
+                    _MapFab(
+                      icon: Icons.calculate_rounded,
+                      tooltip: 'Quarter Girth Calc',
+                      color: const Color(0xFFAB47BC), // tactical purple
+                      onTap: () {
+                        showDialog(
+                          context: context,
+                          builder: (ctx) => const QuarterGirthCalculator(),
+                        );
+                      },
                     ),
                   ],
                 ),
