@@ -29,7 +29,7 @@ import 'map_controller.dart';
 import 'widgets/draw_toolbar.dart';
 import 'widgets/layer_panel.dart';
 import 'widgets/shape_detail_sheet.dart';
-import 'widgets/quarter_girth_calculator.dart';
+import '../calculators/cbm_screen.dart';
 import '../offline_maps/offline_maps_screen.dart';
 import 'offline_tile_provider.dart';
 import 'geo_reference_screen.dart';
@@ -2012,9 +2012,9 @@ $wpPlacemarks
                       tooltip: 'Quarter Girth Calc',
                       color: const Color(0xFFAB47BC), // tactical purple
                       onTap: () {
-                        showDialog(
-                          context: context,
-                          builder: (ctx) => const QuarterGirthCalculator(),
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => const CbmScreen()),
                         );
                       },
                     ),
@@ -2045,18 +2045,18 @@ $wpPlacemarks
                   ),
                 ),
 
-              // ── GPS coordinate overlay (bottom-left corner) ──────────────────
+              // ── GPS coordinate overlay (top-left corner) ──────────────────
               if (_currentPosition != null)
                 Positioned(
                   left: 12,
-                  bottom: _mapController.selectedShape != null ? 68 : 12,
+                  top: 140,
                   child: _GpsCoordChip(position: _currentPosition!),
                 ),
 
               // ── Tapped coordinate marker ──────────────────────────────────────
               if (_tappedPosition != null)
                 Positioned(
-                  bottom: _mapController.selectedShape != null ? 130 : 75,
+                  top: 200,
                   left: 12,
                   child: _TappedCoordCard(
                     position: _tappedPosition!,
