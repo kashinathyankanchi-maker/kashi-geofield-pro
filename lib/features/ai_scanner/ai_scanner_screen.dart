@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:google_generative_ai/google_generative_ai.dart';
+import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -65,13 +65,18 @@ class _AiScannerScreenState extends State<AiScannerScreen> {
     });
 
     try {
-      final model = GenerativeModel(
-        model: 'gemini-1.5-flash-latest',
-        apiKey: _apiKey,
-      );
-
       final imageBytes = await _imageFile!.readAsBytes();
-      final prompt = TextPart('''
+      final base64Image = base64Encode(imageBytes);
+
+      final url = Uri.parse(
+          'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=\$_apiKey');
+      
+      final payload = {
+        "contents": [
+          {
+            "parts": [
+              {
+                "text": '''
 Analyze this image and identify the tree, plant, or wildlife.
 Respond ONLY with a valid JSON object matching this structure (no markdown formatting, no code blocks):
 {
@@ -80,15 +85,28 @@ Respond ONLY with a valid JSON object matching this structure (no markdown forma
   "confidence": "number (0-100)",
   "characteristics": ["string1", "string2"]
 }
-''');
-      final imagePart = DataPart('image/jpeg', imageBytes);
+'''
+              },
+              {
+                "inline_data": {
+                  "mime_type": "image/jpeg",
+                  "data": base64Image
+                }
+              }
+            ]
+          }
+        ]
+      };
 
-      final response = await model.generateContent([
-        Content.multi([prompt, imagePart])
-      ]);
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(payload),
+      );
 
-      if (response.text != null) {
-        String jsonStr = response.text!.trim();
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        String jsonStr = data['candidates'][0]['content']['parts'][0]['text'].toString().trim();
         if (jsonStr.startsWith('```json')) {
           jsonStr = jsonStr.substring(7);
           if (jsonStr.endsWith('```')) {
@@ -99,7 +117,7 @@ Respond ONLY with a valid JSON object matching this structure (no markdown forma
           _result = jsonDecode(jsonStr);
         });
       } else {
-        setState(() => _errorMessage = 'No response from AI.');
+        setState(() => _errorMessage = 'API Error: \${response.statusCode} - \${response.body}');
       }
     } catch (e) {
       setState(() => _errorMessage = 'Error analyzing image: $e');
