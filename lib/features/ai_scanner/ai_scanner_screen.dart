@@ -66,7 +66,7 @@ class _AiScannerScreenState extends State<AiScannerScreen> {
 
     try {
       final model = GenerativeModel(
-        model: 'gemini-1.5-flash',
+        model: 'gemini-1.5-flash-latest',
         apiKey: _apiKey,
       );
 
