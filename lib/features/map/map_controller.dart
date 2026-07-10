@@ -303,6 +303,44 @@ class MapController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> convertPathToPolygon(String id) async {
+    final idx = _drawnShapes.indexWhere((s) => s.id == id);
+    if (idx < 0) return;
+    final oldShape = _drawnShapes[idx];
+    if (oldShape.type != DrawMode.path) return;
+
+    final pointMaps = oldShape.points.map((p) => {'lat': p.latitude, 'lng': p.longitude}).toList();
+    final area = GeoCalculator.calculateAreaHectares(pointMaps);
+    
+    final newShape = DrawnShape(
+      id: oldShape.id,
+      name: oldShape.name.replaceAll('Track', 'Polygon').replaceAll('Path', 'Polygon'),
+      type: DrawMode.polygon,
+      points: oldShape.points,
+      areaHectares: area,
+      perimeterMeters: oldShape.perimeterMeters,
+      dbId: oldShape.dbId,
+    );
+    newShape.color = oldShape.color;
+    
+    _drawnShapes[idx] = newShape;
+    if (_selectedShape?.id == id) _selectedShape = newShape;
+    notifyListeners();
+    
+    if (newShape.dbId != null) {
+      final model = PolygonModel(
+        id: newShape.dbId,
+        name: newShape.name,
+        coordinates: jsonEncode(newShape.points.map((p) => {'lat': p.latitude, 'lng': p.longitude}).toList()),
+        areaHectares: newShape.areaHectares,
+        perimeterMeters: newShape.perimeterMeters,
+        color: "#\${newShape.color.toARGB32().toRadixString(16).padLeft(8, '0').substring(2)}",
+        createdAt: DateTime.now().toIso8601String(),
+      );
+      await DbHelper().updatePolygon(model);
+    }
+  }
+
   void renameShape(String id, String newName) {
     final idx = _drawnShapes.indexWhere((s) => s.id == id);
     if (idx >= 0) {

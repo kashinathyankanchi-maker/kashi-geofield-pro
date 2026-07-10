@@ -125,47 +125,58 @@ class LayerPanel extends StatelessWidget {
 
               const Divider(height: 1, color: AppTheme.borderColor),
 
-              // Legend
-              Padding(
-                padding: const EdgeInsets.all(10),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Legend',
-                      style: TextStyle(
-                        color: AppTheme.textSecondary,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0.5,
-                      ),
+              // My Shapes List
+              if (controller.drawnShapes.isNotEmpty) ...[
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  child: Text(
+                    'My Shapes',
+                    style: TextStyle(
+                      color: AppTheme.textSecondary,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.5,
                     ),
-                    const SizedBox(height: 8),
-                    ...AppTheme.polygonColors.take(4).map((c) => Padding(
-                          padding: const EdgeInsets.only(bottom: 4),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 14,
-                                height: 14,
-                                decoration: BoxDecoration(
-                                  color: c.withOpacity(0.7),
-                                  borderRadius: BorderRadius.circular(3),
-                                  border: Border.all(color: c),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                _colorLabel(c),
-                                style: const TextStyle(
-                                    color: AppTheme.textSecondary, fontSize: 11),
-                              ),
-                            ],
-                          ),
-                        )),
-                  ],
+                  ),
                 ),
-              ),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 150),
+                  child: ListView.builder(
+                    padding: EdgeInsets.zero,
+                    shrinkWrap: true,
+                    itemCount: controller.drawnShapes.length,
+                    itemBuilder: (context, index) {
+                      final shape = controller.drawnShapes[index];
+                      return ListTile(
+                        dense: true,
+                        visualDensity: VisualDensity.compact,
+                        leading: Icon(
+                          shape.type == DrawMode.path ? Icons.timeline : Icons.pentagon,
+                          color: shape.color,
+                          size: 16,
+                        ),
+                        title: Text(
+                          shape.name,
+                          style: const TextStyle(fontSize: 12, color: AppTheme.textPrimary),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        trailing: IconButton(
+                          icon: const Icon(Icons.delete_outline, color: AppTheme.errorColor, size: 16),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                          onPressed: () {
+                            controller.deleteShape(shape.id);
+                          },
+                        ),
+                        onTap: () {
+                          controller.selectShape(shape);
+                        },
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
 
               const Divider(height: 1, color: AppTheme.borderColor),
               

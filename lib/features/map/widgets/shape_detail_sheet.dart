@@ -171,6 +171,21 @@ class ShapeDetailSheet extends StatelessWidget {
                   label: 'Export KML',
                   onTap: () => _exportKml(context),
                 ),
+                if (shape.type == DrawMode.path && shape.points.length > 2)
+                  _ActionChip(
+                    icon: Icons.auto_awesome_mosaic,
+                    label: 'To Polygon',
+                    color: AppTheme.greenPrimary,
+                    onTap: () async {
+                      await controller.convertPathToPolygon(shape.id);
+                      if (context.mounted) {
+                        Navigator.pop(context);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('\${shape.name} converted to Polygon!'), backgroundColor: AppTheme.greenPrimary)
+                        );
+                      }
+                    },
+                  ),
                 if (shape.type == DrawMode.polygon)
                   _ActionChip(
                     icon: Icons.print,
