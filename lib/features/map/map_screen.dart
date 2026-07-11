@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:collection/collection.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+import '../duty_diary/duty_diary_screen.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart' as fmap;
 import 'package:latlong2/latlong.dart';
@@ -2049,8 +2051,7 @@ $wpPlacemarks
                 ),
 
               // ── Bottom: Selected shape info bar ──────────────────────────────
-              const Positioned(top: 70, right: 12, child: CompassWidget(size: 45.0)),
-              if (_mapController.selectedShape != null)
+                            if (_mapController.selectedShape != null)
                 Positioned(
                   bottom: 8,
                   left: _showWaypointPanel ? 228 : 12,
@@ -2085,6 +2086,7 @@ $wpPlacemarks
                 ),
 
               // ── Offline Download Overlay ─────────────────────────────────────
+              _LiveDrawingMeasurementCard(controller: _mapController),
               if (_mapController.isOfflineDownloadMode)
                 _OfflineOverlay(
                   onCancel: _mapController.toggleOfflineDownloadMode,
@@ -2460,9 +2462,35 @@ $wpPlacemarks
             if (finalLat >= -90 && finalLat <= 90 && finalLng >= -180 && finalLng <= 180) {
               if (finalLat != 0.0 || finalLng != 0.0) {
                 points.add(LatLng(finalLat, finalLng));
+                continue; // Found via EXIF, move to next photo
               }
             }
           }
+        }
+        
+        // --- Fallback: Try OCR if EXIF failed ---
+        try {
+          final textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
+          final RecognizedText recognizedText = await textRecognizer.processImage(InputImage.fromFilePath(photo.path));
+          String text = recognizedText.text;
+          textRecognizer.close();
+          
+          // Regex to find floating point numbers with at least 4 decimal places (typical for GPS)
+          final regex = RegExp(r'(-?\d{1,3}\.\d{4,})');
+          final matches = regex.allMatches(text).toList();
+          
+          if (matches.length >= 2) {
+            final lat = double.tryParse(matches[0].group(1)!) ?? 0.0;
+            final lng = double.tryParse(matches[1].group(1)!) ?? 0.0;
+            if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+               if (lat != 0.0 || lng != 0.0) {
+                 points.add(LatLng(lat, lng));
+                 continue;
+               }
+            }
+          }
+        } catch (e) {
+           debugPrint('OCR fallback failed for ${photo.path}: $e');
         }
       }
 
@@ -3763,6 +3791,9 @@ class _LiveDrawingMeasurementCard extends StatelessWidget {
     );
   }
 }
+
+
+
 
 
 
