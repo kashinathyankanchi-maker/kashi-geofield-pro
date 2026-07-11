@@ -112,9 +112,9 @@ class _DutyDiaryScreenState extends State<DutyDiaryScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              title: Text('Export Week: \${DateFormat('MMM d').format(monday)} - \${DateFormat('MMM d').format(sunday)}',
+              title: Text('Export Week: ${DateFormat('MMM d').format(monday)} - ${DateFormat('MMM d').format(sunday)}',
                 style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-              subtitle: Text('\${weekEntries.length} entries found', style: const TextStyle(color: AppTheme.textSecondary)),
+              subtitle: Text('${weekEntries.length} entries found', style: const TextStyle(color: AppTheme.textSecondary)),
             ),
             const Divider(color: Colors.white24),
             ListTile(
@@ -230,7 +230,7 @@ class _DutyDiaryScreenState extends State<DutyDiaryScreen> {
                   const Divider(color: Colors.white12, height: 16),
                   _buildRow(Icons.place_outlined, entry.locations),
                   const SizedBox(height: 4),
-                  _buildRow(Icons.directions_walk, '\${entry.distance.toStringAsFixed(1)} km'),
+                  _buildRow(Icons.directions_walk, '${entry.distance.toStringAsFixed(1)} km'),
                   const SizedBox(height: 8),
                   Text(
                     entry.activities,
@@ -271,3 +271,4 @@ class _DutyDiaryScreenState extends State<DutyDiaryScreen> {
     );
   }
 }
+

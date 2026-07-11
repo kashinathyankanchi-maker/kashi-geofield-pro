@@ -1,5 +1,5 @@
 import 'dart:io';
-import 'package:flutter/material.dart' show BuildContext, ScaffoldMessenger, SnackBar;
+import 'package:flutter/material.dart' show BuildContext, ScaffoldMessenger, SnackBar, Text;
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
@@ -53,7 +53,7 @@ class DiaryPdfGenerator {
               pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
-                  pw.Text('Week Of: \${DateFormat('MMM d, yyyy').format(startOfWeek)} To: \${DateFormat('MMM d, yyyy').format(endOfWeek)}'),
+                  pw.Text('Week Of: ${DateFormat('MMM d, yyyy').format(startOfWeek)} To: ${DateFormat('MMM d, yyyy').format(endOfWeek)}'),
                   pw.Text('Officer Name: _____________________'),
                 ],
               ),
@@ -142,12 +142,12 @@ class DiaryPdfGenerator {
     try {
       final bytes = await pdf.save();
       final dir = await getApplicationDocumentsDirectory();
-      final file = File('\${dir.path}/Duty_Diary_\${df.format(startOfWeek)}.pdf');
+      final file = File('${dir.path}/Duty_Diary_${df.format(startOfWeek)}.pdf');
       await file.writeAsBytes(bytes);
 
       await Share.shareXFiles([XFile(file.path)], text: 'Weekly Duty Diary PDF');
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: \$e')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
     }
   }
 
@@ -182,7 +182,7 @@ class DiaryPdfGenerator {
             children: [
               pw.Text(dayName, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
               pw.SizedBox(height: 10),
-              pw.Text('Date: \$dateStr', style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
+              pw.Text('Date: $dateStr', style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
             ],
           ),
         ),
@@ -224,7 +224,7 @@ class DiaryPdfGenerator {
 
     final StringBuffer csv = StringBuffer();
     csv.writeln('WEEKLY DUTY DIARY');
-    csv.writeln('Week Of: \${df.format(startOfWeek)} To: \${df.format(endOfWeek)}');
+    csv.writeln('Week Of: ${df.format(startOfWeek)} To: ${df.format(endOfWeek)}');
     csv.writeln();
     csv.writeln('Day,Date,Locations/Compartments,Activities & Observations,Distance (km)');
 
@@ -238,17 +238,18 @@ class DiaryPdfGenerator {
       final activities = entry?.activities.replaceAll('"', '""').replaceAll('\n', ' ') ?? '';
       final distance = entry != null ? entry.distance.toStringAsFixed(1) : '';
 
-      csv.writeln('"\$dayName","\$dateStr","\$locations","\$activities","\$distance"');
+      csv.writeln('"$dayName","$dateStr","$locations","$activities","$distance"');
     }
 
     try {
       final dir = await getApplicationDocumentsDirectory();
-      final file = File('\${dir.path}/Duty_Diary_\${df.format(startOfWeek)}.csv');
+      final file = File('${dir.path}/Duty_Diary_${df.format(startOfWeek)}.csv');
       await file.writeAsString(csv.toString());
 
       await Share.shareXFiles([XFile(file.path)], text: 'Weekly Duty Diary CSV');
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: \$e')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
     }
   }
 }
+

@@ -136,7 +136,7 @@ class _DutyDiaryFormScreenState extends State<DutyDiaryFormScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     final dateFormat = DateFormat('yyyy-MM-dd');
-    final timeFormat = '\${_selectedTime.hour.toString().padLeft(2, '0')}:\${_selectedTime.minute.toString().padLeft(2, '0')}';
+    final timeFormat = '${_selectedTime.hour.toString().padLeft(2, '0')}:${_selectedTime.minute.toString().padLeft(2, '0')}';
 
     final entry = DutyDiaryModel(
       id: widget.entry?.id,
@@ -327,3 +327,4 @@ class _DutyDiaryFormScreenState extends State<DutyDiaryFormScreen> {
             borderSide: const BorderSide(color: AppTheme.greenPrimary, width: 2)),
       );
 }
+
