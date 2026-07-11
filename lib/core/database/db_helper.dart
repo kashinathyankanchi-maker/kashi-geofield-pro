@@ -13,7 +13,7 @@ class DbHelper {
   DbHelper._internal();
 
   static const String _dbName = 'kashi_geofield.db';
-  static const int _dbVersion = 1;
+  static const int _dbVersion = 2;
 
   Future<Database> get database async {
     _db ??= await _initDb();
@@ -23,7 +23,7 @@ class DbHelper {
   Future<Database> _initDb() async {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, _dbName);
-    return openDatabase(path, version: _dbVersion, onCreate: _onCreate);
+    return openDatabase(path, version: _dbVersion, onCreate: _onCreate, onUpgrade: _onUpgrade);
   }
 
   Future<void> _onCreate(Database db, int version) async {
@@ -66,12 +66,82 @@ class DbHelper {
     await db.execute('''
       CREATE TABLE print_history (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        map_type TEXT NOT NULL,
-        map_name TEXT NOT NULL,
-        pdf_path TEXT NOT NULL,
-        printed_at TEXT NOT NULL
+        title TEXT NOT NULL,
+        polygon_id INTEGER,
+        file_path TEXT NOT NULL,
+        created_at TEXT NOT NULL
       )
     ''');
+
+    await db.execute('''
+      CREATE TABLE duty_diary (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT NOT NULL,
+        time TEXT NOT NULL,
+        locations TEXT NOT NULL,
+        activities TEXT NOT NULL,
+        distance REAL NOT NULL,
+        created_at TEXT NOT NULL
+      )
+    ''');
+  }
+
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS duty_diary (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          date TEXT NOT NULL,
+          time TEXT NOT NULL,
+          locations TEXT NOT NULL,
+          activities TEXT NOT NULL,
+          distance REAL NOT NULL,
+          created_at TEXT NOT NULL
+        )
+      ''');
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS kml_files (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          filename TEXT NOT NULL,
+          filepath TEXT NOT NULL,
+          layer_color TEXT DEFAULT '#2EA043',
+          is_visible INTEGER DEFAULT 1,
+          created_at TEXT NOT NULL
+        )
+      ''');
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS print_history (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          title TEXT NOT NULL,
+          polygon_id INTEGER,
+          file_path TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        )
+      ''');
+    }
+  }
+
+  // ── Duty Diary ─────────────────────────────────────────────────────────────
+
+  Future<int> insertDutyDiary(Map<String, dynamic> row) async {
+    final db = await database;
+    return await db.insert('duty_diary', row);
+  }
+
+  Future<List<Map<String, dynamic>>> getAllDutyDiaries() async {
+    final db = await database;
+    return await db.query('duty_diary', orderBy: 'date DESC, time DESC');
+  }
+
+  Future<int> updateDutyDiary(Map<String, dynamic> row) async {
+    final db = await database;
+    int id = row['id'] as int;
+    return await db.update('duty_diary', row, where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<int> deleteDutyDiary(int id) async {
+    final db = await database;
+    return await db.delete('duty_diary', where: 'id = ?', whereArgs: [id]);
   }
 
   // ─────────────────── POLYGONS ──────────────────────────────────────────────

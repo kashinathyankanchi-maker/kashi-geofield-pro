@@ -255,7 +255,7 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
   final _minLngCtrl = TextEditingController();
   final _maxLngCtrl = TextEditingController();
   int _minZoom = 10;
-  int _maxZoom = 15;
+  int _maxZoom = 18;
 
   @override
   void initState() {
@@ -683,7 +683,7 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
                         onDec: _maxZoom > _minZoom
                             ? () => setState(() => _maxZoom--)
                             : null,
-                        onInc: _maxZoom < 18
+                        onInc: _maxZoom < 20
                             ? () => setState(() => _maxZoom++)
                             : null),
                     const Spacer(),

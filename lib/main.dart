@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'shared/theme.dart';
-import 'shared/bottom_nav.dart';
+import 'features/splash/splash_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -28,7 +28,9 @@ class KashiGeoFieldApp extends StatelessWidget {
       title: 'kashi GeoField Pro',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.darkTheme,
-      home: const MainScaffold(),
+      home: const SplashScreen(),
     );
   }
 }
+
+

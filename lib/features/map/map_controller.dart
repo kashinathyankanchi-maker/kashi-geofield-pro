@@ -97,6 +97,13 @@ class MapController extends ChangeNotifier {
     }
   }
 
+  void updatePoint(int index, LatLng newPoint) {
+    if (index >= 0 && index < _currentPoints.length) {
+      _currentPoints[index] = newPoint;
+      notifyListeners();
+    }
+  }
+
   void addPoint(LatLng point) {
     if (_drawMode == DrawMode.none) return;
     _undoStack.add(List.from(_currentPoints));
@@ -493,3 +500,4 @@ class MapController extends ChangeNotifier {
     notifyListeners();
   }
 }
+

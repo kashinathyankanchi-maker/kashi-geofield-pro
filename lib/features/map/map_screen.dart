@@ -4,8 +4,10 @@ import 'dart:io';
 import 'package:collection/collection.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart' as fmap;
 import 'package:latlong2/latlong.dart';
+import 'dart:math' as math;
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:screenshot/screenshot.dart';
@@ -18,6 +20,8 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:gal/gal.dart';
 import 'package:exif/exif.dart';
 import '../../shared/theme.dart';
+import '../../shared/compass_widget.dart';
+import '../../shared/compass_widget.dart';
 import '../../core/database/db_helper.dart';
 import '../../core/models/kml_file_model.dart';
 import '../../core/models/village_model.dart';
@@ -30,7 +34,7 @@ import 'widgets/draw_toolbar.dart';
 import 'widgets/layer_panel.dart';
 import 'widgets/shape_detail_sheet.dart';
 import '../calculators/cbm_screen.dart';
-import '../ai_scanner/ai_scanner_screen.dart';
+
 import '../offline_maps/offline_maps_screen.dart';
 import 'offline_tile_provider.dart';
 import 'geo_reference_screen.dart';
@@ -671,7 +675,7 @@ class _MapScreenState extends State<MapScreen> {
   String _getActiveShapeName() {
     if (_mapController.drawMode == DrawMode.polygon)
       return 'Drawing Polygon...';
-    if (_mapController.selectedShape != null) {
+              if (_mapController.selectedShape != null) {
       return _mapController.selectedShape!.name;
     }
     final poly = _mapController.drawnShapes
@@ -1578,7 +1582,33 @@ $wpPlacemarks
         final waypoints = _getActiveWaypoints();
         final shapeName = _getActiveShapeName();
 
-        return Scaffold(
+        return PopScope(
+          canPop: false,
+          onPopInvoked: (didPop) async {
+            if (didPop) return;
+            final shouldExit = await showDialog<bool>(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                backgroundColor: AppTheme.bgCard,
+                title: const Text('Exit App', style: TextStyle(color: Colors.white)),
+                content: const Text('Are you sure you want to exit the app?', style: TextStyle(color: AppTheme.textSecondary)),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx, false),
+                    child: const Text('Cancel'),
+                  ),
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx, true),
+                    child: const Text('OK', style: TextStyle(color: Colors.redAccent)),
+                  ),
+                ],
+              ),
+            );
+            if (shouldExit == true) {
+              SystemNavigator.pop();
+            }
+          },
+          child: Scaffold(
           backgroundColor: AppTheme.bgPrimary,
           // Fixed bottom toolbar — always visible
           bottomNavigationBar: DrawToolbar(
@@ -1990,23 +2020,7 @@ $wpPlacemarks
                       onTap: _showManualCoordinateEntry,
                     ),
                     const SizedBox(height: 6),
-                    // Historical Map (Google Earth)
-                    _MapFab(
-                      icon: Icons.history_rounded,
-                      tooltip: 'Historical Map',
-                      color: const Color(0xFFFDD835), // tactical yellow
-                      onTap: () async {
-                        final center = _flutterMapController.camera.center;
-                        final url = Uri.parse(
-                            'https://earth.google.com/web/@${center.latitude},${center.longitude},1000a,35y,0h,0t,0r');
-                        if (await canLaunchUrl(url)) {
-                          await launchUrl(url, mode: LaunchMode.externalApplication);
-                        } else {
-                          _showSnackBar('Could not open Google Earth', isError: true);
-                        }
-                      },
-                    ),
-                    const SizedBox(height: 6),
+                    
                     // Forestry Calculator
                     _MapFab(
                       icon: Icons.calculate_rounded,
@@ -2016,19 +2030,6 @@ $wpPlacemarks
                         Navigator.push(
                           context,
                           MaterialPageRoute(builder: (context) => const CbmScreen()),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 6),
-                    // AI Species Scanner
-                    _MapFab(
-                      icon: Icons.psychology_rounded,
-                      tooltip: 'AI Species Identifier',
-                      color: const Color(0xFF42A5F5), // tactical blue
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (context) => const AiScannerScreen()),
                         );
                       },
                     ),
@@ -2048,6 +2049,7 @@ $wpPlacemarks
                 ),
 
               // ── Bottom: Selected shape info bar ──────────────────────────────
+              const Positioned(top: 70, right: 12, child: CompassWidget(size: 45.0)),
               if (_mapController.selectedShape != null)
                 Positioned(
                   bottom: 8,
@@ -2090,7 +2092,7 @@ $wpPlacemarks
                 ),
             ],
           ),
-        );
+        ));
       },
     );
   }
@@ -2399,28 +2401,68 @@ $wpPlacemarks
       for (final photo in photos) {
         final bytes = await photo.readAsBytes();
         final data = await readExifFromBytes(bytes);
-        if (data.containsKey('GPS GPSLatitude') && data.containsKey('GPS GPSLongitude')) {
-          final latData = data['GPS GPSLatitude']!.values.toList();
-          final lngData = data['GPS GPSLongitude']!.values.toList();
-          final latRef = data['GPS GPSLatitudeRef']?.printable ?? 'N';
-          final lngRef = data['GPS GPSLongitudeRef']?.printable ?? 'E';
+        
+        IfdTag? latTag;
+        IfdTag? lngTag;
+        IfdTag? latRefTag;
+        IfdTag? lngRefTag;
+        
+        for (final key in data.keys) {
+          final k = key.toLowerCase();
+          if (k.endsWith('latitude')) latTag = data[key];
+          if (k.endsWith('longitude')) lngTag = data[key];
+          if (k.endsWith('latituderef')) latRefTag = data[key];
+          if (k.endsWith('longituderef')) lngRefTag = data[key];
+        }
+
+        if (latTag != null && lngTag != null) {
+          final latData = latTag.values.toList();
+          final lngData = lngTag.values.toList();
+          final latRef = latRefTag?.printable.trim().toUpperCase() ?? 'N';
+          final lngRef = lngRefTag?.printable.trim().toUpperCase() ?? 'E';
 
           double parseRatio(dynamic ratio) {
             try {
-              if (ratio.numerator != null && ratio.denominator != null) {
-                return (ratio.numerator as int) / (ratio.denominator as int);
+              if (ratio is num) return ratio.toDouble();
+              if (ratio is String) {
+                if (ratio.contains('/')) {
+                  final parts = ratio.split('/');
+                  return double.parse(parts[0]) / double.parse(parts[1]);
+                }
+                return double.parse(ratio);
               }
+              try {
+                // Ignore types, use dynamic invocation
+                final numVal = ratio.numerator;
+                final denVal = ratio.denominator;
+                if (numVal != null && denVal != null && denVal != 0) {
+                  return (numVal as num) / (denVal as num);
+                }
+              } catch (_) {}
+              
+              final str = ratio.toString();
+              if (str.contains('/')) {
+                final parts = str.split('/');
+                return double.parse(parts[0]) / double.parse(parts[1]);
+              }
+              return double.parse(str);
             } catch (_) {}
             return 0.0;
           }
 
-          final lat = parseRatio(latData[0]) + parseRatio(latData[1]) / 60 + parseRatio(latData[2]) / 3600;
-          final lng = parseRatio(lngData[0]) + parseRatio(lngData[1]) / 60 + parseRatio(lngData[2]) / 3600;
+          if (latData.length >= 3 && lngData.length >= 3) {
+            final lat = parseRatio(latData[0]) + parseRatio(latData[1]) / 60 + parseRatio(latData[2]) / 3600;
+            final lng = parseRatio(lngData[0]) + parseRatio(lngData[1]) / 60 + parseRatio(lngData[2]) / 3600;
 
-          final finalLat = latRef == 'S' ? -lat : lat;
-          final finalLng = lngRef == 'W' ? -lng : lng;
+            final finalLat = latRef == 'S' ? -lat : lat;
+            final finalLng = lngRef == 'W' ? -lng : lng;
 
-          points.add(LatLng(finalLat, finalLng));
+            if (finalLat >= -90 && finalLat <= 90 && finalLng >= -180 && finalLng <= 180) {
+              if (finalLat != 0.0 || finalLng != 0.0) {
+                points.add(LatLng(finalLat, finalLng));
+              }
+            }
+          }
         }
       }
 
@@ -2449,8 +2491,6 @@ $wpPlacemarks
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// HELPER WIDGETS
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /// Numbered waypoint pin displayed on the map
@@ -3619,3 +3659,110 @@ class _TappedCoordCard extends StatelessWidget {
     );
   }
 }
+
+
+class _LiveDrawingMeasurementCard extends StatelessWidget {
+  final MapController controller;
+
+  const _LiveDrawingMeasurementCard({required this.controller});
+
+  @override
+  Widget build(BuildContext context) {
+    if (controller.drawMode != DrawMode.polygon || controller.currentPoints.length < 3) {
+      return const SizedBox.shrink();
+    }
+
+    final points = controller.currentPoints
+        .map((p) => {'lat': p.latitude, 'lng': p.longitude})
+        .toList();
+    
+    final areaHectares = GeoCalculator.calculateAreaHectares(points);
+    final areaAcres = areaHectares * 2.47105;
+    final perimeter = GeoCalculator.calculatePerimeterMeters(points);
+
+    return Positioned(
+      top: 100, // Just below the search bar
+      left: 12,
+      right: 80, // Leave room for FABs
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1E1E1E).withValues(alpha: 0.95),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppTheme.greenAccent.withValues(alpha: 0.5), width: 1.5),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.5),
+              blurRadius: 8,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.architecture_rounded, color: AppTheme.greenAccent, size: 18),
+                const SizedBox(width: 8),
+                const Text(
+                  'Live Measurement',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  '${controller.currentPoints.length} pts',
+                  style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: 12),
+                ),
+              ],
+            ),
+            const Divider(color: Colors.white24, height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                _buildStat('Area (Hectares)', '${areaHectares.toStringAsFixed(3)} ha'),
+                _buildStat('Area (Acres)', '${areaAcres.toStringAsFixed(3)} ac'),
+              ],
+            ),
+            const SizedBox(height: 8),
+            _buildStat('Perimeter', '${perimeter.toStringAsFixed(1)} m'),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStat(String label, String value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.6),
+            fontSize: 10,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          value,
+          style: const TextStyle(
+            color: AppTheme.greenAccent,
+            fontSize: 14,
+            fontWeight: FontWeight.w900,
+            fontFamily: 'RobotoMono',
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+
+
