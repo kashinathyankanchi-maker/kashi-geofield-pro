@@ -2023,6 +2023,20 @@ $wpPlacemarks
                     ),
                     const SizedBox(height: 6),
                     
+                    // Duty Diary & Voice Assistant
+                    _MapFab(
+                      icon: Icons.mic_rounded,
+                      tooltip: "Duty Diary & Voice Assistant",
+                      color: Colors.orangeAccent,
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => const DutyDiaryScreen()),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 6),
+                    
                     // Forestry Calculator
                     _MapFab(
                       icon: Icons.calculate_rounded,
@@ -3791,7 +3805,6 @@ class _LiveDrawingMeasurementCard extends StatelessWidget {
     );
   }
 }
-
 
 
 
