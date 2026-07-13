@@ -1,5 +1,5 @@
 import 'dart:io';
-import 'package:flutter/material.dart' show BuildContext, ScaffoldMessenger, SnackBar, Text;
+import 'package:flutter/material.dart' show BuildContext, ScaffoldMessenger, SnackBar, Text, Colors;
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
@@ -141,9 +141,36 @@ class DiaryPdfGenerator {
 
     try {
       final bytes = await pdf.save();
-      final dir = await getApplicationDocumentsDirectory();
-      final file = File('${dir.path}/Duty_Diary_${df.format(startOfWeek)}.pdf');
-      await file.writeAsBytes(bytes);
+      
+      // Attempt to save to public Downloads folder first (Android)
+      final downloadDir = Directory('/storage/emulated/0/Download');
+      File? file;
+      bool savedToDownloads = false;
+      
+      if (downloadDir.existsSync()) {
+        try {
+          file = File('${downloadDir.path}/Duty_Diary_${df.format(startOfWeek)}.pdf');
+          await file.writeAsBytes(bytes);
+          savedToDownloads = true;
+        } catch (_) {
+          // Fallback to app dir
+          final dir = await getApplicationDocumentsDirectory();
+          file = File('${dir.path}/Duty_Diary_${df.format(startOfWeek)}.pdf');
+          await file.writeAsBytes(bytes);
+        }
+      } else {
+        final dir = await getApplicationDocumentsDirectory();
+        file = File('${dir.path}/Duty_Diary_${df.format(startOfWeek)}.pdf');
+        await file.writeAsBytes(bytes);
+      }
+
+      if (context.mounted) {
+        if (savedToDownloads) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Saved to Downloads folder!'), backgroundColor: Colors.green),
+          );
+        }
+      }
 
       await Share.shareXFiles([XFile(file.path)], text: 'Weekly Duty Diary PDF');
     } catch (e) {
@@ -242,9 +269,35 @@ class DiaryPdfGenerator {
     }
 
     try {
-      final dir = await getApplicationDocumentsDirectory();
-      final file = File('${dir.path}/Duty_Diary_${df.format(startOfWeek)}.csv');
-      await file.writeAsString(csv.toString());
+      // Attempt to save to public Downloads folder first (Android)
+      final downloadDir = Directory('/storage/emulated/0/Download');
+      File? file;
+      bool savedToDownloads = false;
+      
+      if (downloadDir.existsSync()) {
+        try {
+          file = File('${downloadDir.path}/Duty_Diary_${df.format(startOfWeek)}.csv');
+          await file.writeAsString(csv.toString());
+          savedToDownloads = true;
+        } catch (_) {
+          // Fallback to app dir
+          final dir = await getApplicationDocumentsDirectory();
+          file = File('${dir.path}/Duty_Diary_${df.format(startOfWeek)}.csv');
+          await file.writeAsString(csv.toString());
+        }
+      } else {
+        final dir = await getApplicationDocumentsDirectory();
+        file = File('${dir.path}/Duty_Diary_${df.format(startOfWeek)}.csv');
+        await file.writeAsString(csv.toString());
+      }
+
+      if (context.mounted) {
+        if (savedToDownloads) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Saved to Downloads folder!'), backgroundColor: Colors.green),
+          );
+        }
+      }
 
       await Share.shareXFiles([XFile(file.path)], text: 'Weekly Duty Diary CSV');
     } catch (e) {
