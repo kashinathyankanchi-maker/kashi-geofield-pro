@@ -1,10 +1,10 @@
 import 'dart:io';
 import 'package:flutter/material.dart' show BuildContext, ScaffoldMessenger, SnackBar, Text, Colors;
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-import 'package:printing/printing.dart';
 import 'package:share_plus/share_plus.dart';
 import 'models/duty_diary_model.dart';
 
@@ -16,11 +16,32 @@ class DiaryPdfGenerator {
     final endOfWeek = startOfWeek.add(const Duration(days: 6));
     final df = DateFormat('yyyy-MM-dd');
 
+    // ── Load Kannada font ──────────────────────────────────────────────────
+    pw.Font? kannadaFont;
+    try {
+      final fontData = await rootBundle.load('assets/fonts/NotoSansKannada-Regular.ttf');
+      kannadaFont = pw.Font.ttf(fontData);
+    } catch (_) {
+      // If font fails to load, fall back to default (text may not render)
+    }
+
+    pw.TextStyle kannadaStyle({
+      double fontSize = 10,
+      pw.FontWeight fontWeight = pw.FontWeight.normal,
+      PdfColor? color,
+    }) {
+      return pw.TextStyle(
+        font: kannadaFont,
+        fontSize: fontSize,
+        fontWeight: fontWeight,
+        color: color,
+      );
+    }
+
     // Create a map of day index (0-6 for Mon-Sun) to entry
     final Map<int, DutyDiaryModel> weekData = {};
     for (var e in entries) {
       final dt = DateTime.parse(e.date);
-      // weekday is 1 for Mon, 7 for Sun. We want 0 for Mon, 6 for Sun.
       weekData[dt.weekday - 1] = e;
     }
 
@@ -32,42 +53,33 @@ class DiaryPdfGenerator {
           return pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.stretch,
             children: [
-              // Header
-              pw.Center(
-                child: pw.Text('WEEKLY DUTY DIARY',
-                    style: pw.TextStyle(
-                        fontSize: 20,
-                        fontWeight: pw.FontWeight.bold,
-                        color: PdfColor.fromHex('#2e5b2c'))),
-              ),
-              pw.SizedBox(height: 4),
-              pw.Center(
-                child: pw.Text('Forest Department Official Log',
-                    style: const pw.TextStyle(fontSize: 12, color: PdfColors.grey700)),
-              ),
-              pw.SizedBox(height: 12),
-              pw.Divider(color: PdfColor.fromHex('#2e5b2c'), thickness: 1.5),
-              pw.SizedBox(height: 12),
-
-              // Officer Info
+              // ── Week info row ──────────────────────────────────────────────
               pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
-                  pw.Text('Week Of: ${DateFormat('MMM d, yyyy').format(startOfWeek)} To: ${DateFormat('MMM d, yyyy').format(endOfWeek)}'),
-                  pw.Text('Officer Name: _____________________'),
+                  pw.Text(
+                    'Week Of: ${DateFormat('MMM d, yyyy').format(startOfWeek)} To: ${DateFormat('MMM d, yyyy').format(endOfWeek)}',
+                    style: kannadaStyle(fontSize: 10),
+                  ),
+                  pw.Text('Officer Name: _____________________',
+                      style: kannadaStyle(fontSize: 10)),
                 ],
               ),
-              pw.SizedBox(height: 16),
+              pw.SizedBox(height: 6),
               pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
-                  pw.Text('Section / Beat: ___________________'),
-                  pw.Text('Range: ___________________________'),
+                  pw.Text('Section / Beat: ___________________',
+                      style: kannadaStyle(fontSize: 10)),
+                  pw.Text('Range: ___________________________',
+                      style: kannadaStyle(fontSize: 10)),
                 ],
               ),
-              pw.SizedBox(height: 16),
+              pw.SizedBox(height: 12),
+              pw.Divider(color: PdfColor.fromHex('#2e5b2c'), thickness: 1),
+              pw.SizedBox(height: 10),
 
-              // Table Header
+              // ── Table ───────────────────────────────────────────────────────
               pw.Table(
                 border: pw.TableBorder.all(color: PdfColors.grey400),
                 columnWidths: {
@@ -77,24 +89,31 @@ class DiaryPdfGenerator {
                   3: const pw.FixedColumnWidth(50),
                 },
                 children: [
+                  // Header row
                   pw.TableRow(
                     decoration: pw.BoxDecoration(color: PdfColor.fromHex('#e8f5e9')),
                     children: [
-                      _buildHeaderCell('Day'),
-                      _buildHeaderCell('Locations /\nCompartments'),
-                      _buildHeaderCell('Key Activities & Observations\n(Wildlife, Offenses, Flora)'),
-                      _buildHeaderCell('Dist\n(km)'),
+                      _buildHeaderCell('Day', kannadaFont),
+                      _buildHeaderCell('Locations /\nCompartments', kannadaFont),
+                      _buildHeaderCell(
+                          'Key Activities & Observations\n(Wildlife, Offenses, Flora)',
+                          kannadaFont),
+                      _buildHeaderCell('Dist\n(km)', kannadaFont),
                     ],
                   ),
                   // Monday to Sunday rows
                   for (int i = 0; i < 7; i++)
-                    _buildDayRow(startOfWeek.add(Duration(days: i)), weekData[i]),
+                    _buildDayRow(
+                      startOfWeek.add(Duration(days: i)),
+                      weekData[i],
+                      kannadaFont,
+                    ),
                 ],
               ),
 
               pw.SizedBox(height: 16),
 
-              // Summary & Notes Box
+              // ── Summary & Notes ─────────────────────────────────────────────
               pw.Container(
                 height: 80,
                 width: double.infinity,
@@ -102,17 +121,20 @@ class DiaryPdfGenerator {
                   border: pw.Border.all(color: PdfColors.grey600),
                 ),
                 padding: const pw.EdgeInsets.all(8),
-                child: pw.Text('Weekly Summary & Notes',
-                    style: pw.TextStyle(
-                        fontWeight: pw.FontWeight.bold,
-                        color: PdfColor.fromHex('#2e5b2c'))),
+                child: pw.Text(
+                  'Summary & Notes',
+                  style: kannadaStyle(
+                    fontWeight: pw.FontWeight.bold,
+                    color: PdfColor.fromHex('#2e5b2c'),
+                  ),
+                ),
               ),
 
               pw.Spacer(),
               pw.Divider(color: PdfColors.black, thickness: 1.5),
               pw.SizedBox(height: 40),
 
-              // Signatures
+              // ── Signatures ──────────────────────────────────────────────────
               pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
@@ -120,15 +142,17 @@ class DiaryPdfGenerator {
                     children: [
                       pw.Container(width: 150, height: 1, color: PdfColors.black),
                       pw.SizedBox(height: 4),
-                      pw.Text('Signature of the Officer', style: const pw.TextStyle(fontSize: 10)),
+                      pw.Text('Signature of the Officer',
+                          style: kannadaStyle(fontSize: 10)),
                     ],
                   ),
                   pw.Column(
                     children: [
                       pw.Container(width: 200, height: 1, color: PdfColors.black),
                       pw.SizedBox(height: 4),
-                      pw.Text('Signature of the Supervising Officer', style: const pw.TextStyle(fontSize: 10)),
-                      pw.Text('(RFO)', style: const pw.TextStyle(fontSize: 10)),
+                      pw.Text('Signature of the Supervising Officer',
+                          style: kannadaStyle(fontSize: 10)),
+                      pw.Text('(RFO)', style: kannadaStyle(fontSize: 10)),
                     ],
                   ),
                 ],
@@ -141,19 +165,18 @@ class DiaryPdfGenerator {
 
     try {
       final bytes = await pdf.save();
-      
+
       // Attempt to save to public Downloads folder first (Android)
       final downloadDir = Directory('/storage/emulated/0/Download');
-      File? file;
+      File file;
       bool savedToDownloads = false;
-      
+
       if (downloadDir.existsSync()) {
         try {
           file = File('${downloadDir.path}/Duty_Diary_${df.format(startOfWeek)}.pdf');
           await file.writeAsBytes(bytes);
           savedToDownloads = true;
         } catch (_) {
-          // Fallback to app dir
           final dir = await getApplicationDocumentsDirectory();
           file = File('${dir.path}/Duty_Diary_${df.format(startOfWeek)}.pdf');
           await file.writeAsBytes(bytes);
@@ -164,21 +187,30 @@ class DiaryPdfGenerator {
         await file.writeAsBytes(bytes);
       }
 
+      // ignore: use_build_context_synchronously
       if (context.mounted) {
         if (savedToDownloads) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Saved to Downloads folder!'), backgroundColor: Colors.green),
+            const SnackBar(
+                content: Text('PDF saved to Downloads!'),
+                backgroundColor: Colors.green),
           );
         }
       }
 
       await Share.shareXFiles([XFile(file.path)], text: 'Weekly Duty Diary PDF');
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      // ignore: use_build_context_synchronously
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
     }
   }
 
-  static pw.Widget _buildHeaderCell(String text) {
+  // ── Helpers ──────────────────────────────────────────────────────────────
+
+  static pw.Widget _buildHeaderCell(String text, pw.Font? font) {
     return pw.Padding(
       padding: const pw.EdgeInsets.all(6),
       child: pw.Center(
@@ -186,15 +218,18 @@ class DiaryPdfGenerator {
           text,
           textAlign: pw.TextAlign.center,
           style: pw.TextStyle(
-              fontSize: 10,
-              fontWeight: pw.FontWeight.bold,
-              color: PdfColor.fromHex('#1b5e20')),
+            font: font,
+            fontSize: 10,
+            fontWeight: pw.FontWeight.bold,
+            color: PdfColor.fromHex('#1b5e20'),
+          ),
         ),
       ),
     );
   }
 
-  static pw.TableRow _buildDayRow(DateTime date, DutyDiaryModel? entry) {
+  static pw.TableRow _buildDayRow(
+      DateTime date, DutyDiaryModel? entry, pw.Font? font) {
     final dayName = DateFormat('EEEE').format(date);
     final dateStr = DateFormat('dd/MM').format(date);
 
@@ -207,21 +242,35 @@ class DiaryPdfGenerator {
           child: pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
-              pw.Text(dayName, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
+              pw.Text(dayName,
+                  style: pw.TextStyle(
+                      font: font,
+                      fontWeight: pw.FontWeight.bold,
+                      fontSize: 10)),
               pw.SizedBox(height: 10),
-              pw.Text('Date: $dateStr', style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
+              pw.Text('Date: $dateStr',
+                  style: pw.TextStyle(
+                      font: font,
+                      fontSize: 9,
+                      color: PdfColors.grey700)),
             ],
           ),
         ),
         // Locations
         pw.Padding(
           padding: const pw.EdgeInsets.all(6),
-          child: pw.Text(entry?.locations ?? '', style: const pw.TextStyle(fontSize: 10)),
+          child: pw.Text(
+            entry?.locations ?? '',
+            style: pw.TextStyle(font: font, fontSize: 10),
+          ),
         ),
         // Activities
         pw.Padding(
           padding: const pw.EdgeInsets.all(6),
-          child: pw.Text(entry?.activities ?? '', style: const pw.TextStyle(fontSize: 10)),
+          child: pw.Text(
+            entry?.activities ?? '',
+            style: pw.TextStyle(font: font, fontSize: 10),
+          ),
         ),
         // Distance
         pw.Padding(
@@ -229,7 +278,7 @@ class DiaryPdfGenerator {
           child: pw.Center(
             child: pw.Text(
               entry != null ? entry.distance.toStringAsFixed(1) : '',
-              style: const pw.TextStyle(fontSize: 10),
+              style: pw.TextStyle(font: font, fontSize: 10),
             ),
           ),
         ),
@@ -237,12 +286,15 @@ class DiaryPdfGenerator {
     );
   }
 
+  // ── CSV Export ────────────────────────────────────────────────────────────
+
   static Future<void> generateWeeklyCsv(
-      BuildContext context, DateTime startOfWeek, List<DutyDiaryModel> entries) async {
+      BuildContext context,
+      DateTime startOfWeek,
+      List<DutyDiaryModel> entries) async {
     final endOfWeek = startOfWeek.add(const Duration(days: 6));
     final df = DateFormat('yyyy-MM-dd');
 
-    // Create a map of day index (0-6 for Mon-Sun) to entry
     final Map<int, DutyDiaryModel> weekData = {};
     for (var e in entries) {
       final dt = DateTime.parse(e.date);
@@ -250,7 +302,6 @@ class DiaryPdfGenerator {
     }
 
     final StringBuffer csv = StringBuffer();
-    csv.writeln('WEEKLY DUTY DIARY');
     csv.writeln('Week Of: ${df.format(startOfWeek)} To: ${df.format(endOfWeek)}');
     csv.writeln();
     csv.writeln('Day,Date,Locations/Compartments,Activities & Observations,Distance (km)');
@@ -261,48 +312,58 @@ class DiaryPdfGenerator {
       final dateStr = df.format(currentDay);
       final entry = weekData[i];
 
-      final locations = entry?.locations.replaceAll('"', '""').replaceAll('\n', ' ') ?? '';
-      final activities = entry?.activities.replaceAll('"', '""').replaceAll('\n', ' ') ?? '';
-      final distance = entry != null ? entry.distance.toStringAsFixed(1) : '';
+      final locations =
+          entry?.locations.replaceAll('"', '""').replaceAll('\n', ' ') ?? '';
+      final activities =
+          entry?.activities.replaceAll('"', '""').replaceAll('\n', ' ') ?? '';
+      final distance =
+          entry != null ? entry.distance.toStringAsFixed(1) : '';
 
       csv.writeln('"$dayName","$dateStr","$locations","$activities","$distance"');
     }
 
     try {
-      // Attempt to save to public Downloads folder first (Android)
       final downloadDir = Directory('/storage/emulated/0/Download');
-      File? file;
+      File file;
       bool savedToDownloads = false;
-      
+
       if (downloadDir.existsSync()) {
         try {
-          file = File('${downloadDir.path}/Duty_Diary_${df.format(startOfWeek)}.csv');
+          file = File(
+              '${downloadDir.path}/Duty_Diary_${df.format(startOfWeek)}.csv');
           await file.writeAsString(csv.toString());
           savedToDownloads = true;
         } catch (_) {
-          // Fallback to app dir
           final dir = await getApplicationDocumentsDirectory();
-          file = File('${dir.path}/Duty_Diary_${df.format(startOfWeek)}.csv');
+          file = File(
+              '${dir.path}/Duty_Diary_${df.format(startOfWeek)}.csv');
           await file.writeAsString(csv.toString());
         }
       } else {
         final dir = await getApplicationDocumentsDirectory();
-        file = File('${dir.path}/Duty_Diary_${df.format(startOfWeek)}.csv');
+        file =
+            File('${dir.path}/Duty_Diary_${df.format(startOfWeek)}.csv');
         await file.writeAsString(csv.toString());
       }
 
+      // ignore: use_build_context_synchronously
       if (context.mounted) {
         if (savedToDownloads) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Saved to Downloads folder!'), backgroundColor: Colors.green),
+            const SnackBar(
+                content: Text('CSV saved to Downloads!'),
+                backgroundColor: Colors.green),
           );
         }
       }
 
       await Share.shareXFiles([XFile(file.path)], text: 'Weekly Duty Diary CSV');
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      // ignore: use_build_context_synchronously
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
     }
   }
 }
-
