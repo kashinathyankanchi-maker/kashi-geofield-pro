@@ -15,13 +15,15 @@ class MainScaffold extends StatefulWidget {
 
 class _MainScaffoldState extends State<MainScaffold> {
   int _currentIndex = 0;
+  int _previousIndex = 0;
+  final GlobalKey<MapScreenState> _mapKey = GlobalKey<MapScreenState>();
 
-  final List<Widget> _screens = const [
-    MapScreen(),
-    VillagesScreen(),
-    KmlScreen(),
-    OfflineMapsScreen(),
-    SettingsScreen(),
+  List<Widget> get _screens => [
+    MapScreen(key: _mapKey),
+    const VillagesScreen(),
+    const KmlScreen(),
+    const OfflineMapsScreen(),
+    const SettingsScreen(),
   ];
 
   @override
@@ -56,7 +58,14 @@ class _MainScaffoldState extends State<MainScaffold> {
           ),
           type: BottomNavigationBarType.fixed,
           currentIndex: _currentIndex,
-          onTap: (index) => setState(() => _currentIndex = index),
+          onTap: (index) {
+            // If switching back to map from KML tab, reload KML layers
+            if (index == 0 && _previousIndex == 2) {
+              _mapKey.currentState?.reloadKmlLayers();
+            }
+            _previousIndex = index;
+            setState(() => _currentIndex = index);
+          },
           items: const [
             BottomNavigationBarItem(
               icon: Icon(Icons.map_outlined, size: 22),

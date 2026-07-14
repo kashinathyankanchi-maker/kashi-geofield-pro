@@ -45,10 +45,11 @@ class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
 
   @override
-  State<MapScreen> createState() => _MapScreenState();
+  State<MapScreen> createState() => MapScreenState();
 }
 
-class _MapScreenState extends State<MapScreen> {
+// ignore: library_private_types_in_public_api
+class MapScreenState extends State<MapScreen> {
   final MapController _mapController = MapController();
   late final fmap.MapController _flutterMapController;
   final ScreenshotController _screenshotController = ScreenshotController();
@@ -85,6 +86,30 @@ class _MapScreenState extends State<MapScreen> {
       _goToCurrentLocation();
       _startLocationStream();
     });
+  }
+
+  /// Called by MainScaffold when switching back to Map tab from KML tab.
+  /// Re-parses all visible KML/KMZ files and reloads them on the map.
+  Future<void> reloadKmlLayers() async {
+    try {
+      final db = DbHelper();
+      final kmlFiles = await db.getAllKmlFiles();
+      final allShapes = <KmlShape>[];
+      for (final kf in kmlFiles) {
+        if (!kf.isVisible) continue;
+        try {
+          final shapes = await KmlEngine.parseFile(kf.filepath);
+          final coloredShapes = shapes
+              .map((s) => s.copyWith(color: kf.layerColor, opacity: kf.opacity))
+              .toList();
+          allShapes.addAll(coloredShapes);
+        } catch (_) {}
+      }
+      if (mounted) {
+        _mapController.loadKmlShapes(allShapes);
+        setState(() {});
+      }
+    } catch (_) {}
   }
 
   /// Start continuous GPS position stream for the blue dot + live tracking

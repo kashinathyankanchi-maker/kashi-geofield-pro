@@ -251,16 +251,41 @@ class KmlEngine {
   }
 
   /// Parse KMZ file (zipped KML) - returns list of KmlShape
+  /// KMZ is a ZIP archive. The main KML is typically doc.kml or any *.kml file.
   static List<KmlShape> parseKmz(List<int> kmzBytes) {
     try {
       final archive = ZipDecoder().decodeBytes(kmzBytes);
-      for (final file in archive) {
-        if (file.name.endsWith('.kml') && file.isFile) {
-          final content = utf8.decode(file.content as List<int>);
-          return parseKml(content);
+
+      /// Helper: get raw bytes from an ArchiveFile (archive 3.x compatible)
+      List<int>? getEntryBytes(ArchiveFile entry) {
+        if (!entry.isFile) return null;
+        final raw = entry.content; // dynamic in archive 3.x
+        if (raw is List<int>) return raw;
+        return null;
+      }
+
+      // 1) Try doc.kml first (Google Maps / QGIS default export name)
+      for (final entry in archive.files) {
+        final entryName = entry.name.toLowerCase();
+        if (entryName == 'doc.kml' || entryName.endsWith('/doc.kml')) {
+          final bytes = getEntryBytes(entry);
+          if (bytes == null) continue;
+          final content = utf8.decode(bytes, allowMalformed: true);
+          final shapes = parseKml(content);
+          if (shapes.isNotEmpty) return shapes;
         }
       }
-    } catch (e) {
+
+      // 2) Fall back to any *.kml file in the archive
+      for (final entry in archive.files) {
+        if (!entry.name.toLowerCase().endsWith('.kml')) continue;
+        final bytes = getEntryBytes(entry);
+        if (bytes == null) continue;
+        final content = utf8.decode(bytes, allowMalformed: true);
+        final shapes = parseKml(content);
+        if (shapes.isNotEmpty) return shapes;
+      }
+    } catch (_) {
       // Return empty on error
     }
     return [];
@@ -366,19 +391,25 @@ class KmlEngine {
 
   /// Parse KML or KMZ from file path
   static Future<List<KmlShape>> parseFile(String filePath) async {
-    final file = File(filePath);
-    if (!await file.exists()) return [];
+    try {
+      final file = File(filePath);
+      if (!await file.exists()) return [];
 
-    final lowerPath = filePath.toLowerCase();
-    if (lowerPath.endsWith('.kmz')) {
-      final bytes = await file.readAsBytes();
-      return parseKmz(bytes);
-    } else if (lowerPath.endsWith('.kml')) {
-      final content = await file.readAsString();
-      return parseKml(content);
-    } else if (lowerPath.endsWith('.geojson') || lowerPath.endsWith('.json')) {
-      final content = await file.readAsString();
-      return parseGeoJson(content);
+      // Determine type by extension (also handle uppercase extensions)
+      final lowerPath = filePath.toLowerCase();
+
+      if (lowerPath.endsWith('.kmz')) {
+        final bytes = await file.readAsBytes();
+        return parseKmz(bytes.toList());
+      } else if (lowerPath.endsWith('.kml')) {
+        final content = await file.readAsString();
+        return parseKml(content);
+      } else if (lowerPath.endsWith('.geojson') || lowerPath.endsWith('.json')) {
+        final content = await file.readAsString();
+        return parseGeoJson(content);
+      }
+    } catch (_) {
+      // Silent fail — file may be inaccessible
     }
     return [];
   }
