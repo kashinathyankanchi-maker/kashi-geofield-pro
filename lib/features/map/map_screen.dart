@@ -547,7 +547,6 @@ class MapScreenState extends State<MapScreen> {
           ));
         }
       }
-      }
     }
 
     return lines;
