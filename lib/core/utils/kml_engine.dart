@@ -332,7 +332,7 @@ class KmlEngine {
               if (imgEntry != null) {
                 final imgBytes = getEntryBytes(imgEntry);
                 if (imgBytes != null) {
-                  final imgFile = File('\$extractDir/\${imgEntry.name.split('/').last}');
+                  final imgFile = File('$extractDir/${imgEntry.name.split('/').last}');
                   if (!imgFile.existsSync()) {
                     imgFile.writeAsBytesSync(imgBytes);
                   }
