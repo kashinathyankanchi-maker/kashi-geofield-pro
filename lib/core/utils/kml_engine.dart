@@ -14,6 +14,13 @@ class KmlShape {
   final String? layerName;
   final double opacity; // 0.0 to 1.0
 
+  // Ground Overlay (Image map)
+  final String? imageUrl;
+  final double? north;
+  final double? south;
+  final double? east;
+  final double? west;
+
   const KmlShape({
     required this.name,
     required this.type,
@@ -22,6 +29,11 @@ class KmlShape {
     this.color = '#2EA043',
     this.layerName,
     this.opacity = 1.0,
+    this.imageUrl,
+    this.north,
+    this.south,
+    this.east,
+    this.west,
   });
 
   KmlShape copyWith({
@@ -32,6 +44,11 @@ class KmlShape {
     String? color,
     String? layerName,
     double? opacity,
+    String? imageUrl,
+    double? north,
+    double? south,
+    double? east,
+    double? west,
   }) {
     return KmlShape(
       name: name ?? this.name,
@@ -41,6 +58,11 @@ class KmlShape {
       color: color ?? this.color,
       layerName: layerName ?? this.layerName,
       opacity: opacity ?? this.opacity,
+      imageUrl: imageUrl ?? this.imageUrl,
+      north: north ?? this.north,
+      south: south ?? this.south,
+      east: east ?? this.east,
+      west: west ?? this.west,
     );
   }
 }
@@ -244,6 +266,36 @@ class KmlEngine {
           }
         }
       }
+
+      // GroundOverlays (Image Maps)
+      final groundOverlays = doc.findAllElements('GroundOverlay');
+      for (final go in groundOverlays) {
+        final name = go.findElements('name').firstOrNull?.innerText.trim() ?? 'Image Overlay';
+        final desc = go.findElements('description').firstOrNull?.innerText.trim();
+        final href = go.findAllElements('Icon').firstOrNull?.findElements('href').firstOrNull?.innerText.trim();
+        final latLonBox = go.findAllElements('LatLonBox').firstOrNull;
+
+        if (href != null && latLonBox != null) {
+          final north = double.tryParse(latLonBox.findElements('north').firstOrNull?.innerText.trim() ?? '');
+          final south = double.tryParse(latLonBox.findElements('south').firstOrNull?.innerText.trim() ?? '');
+          final east = double.tryParse(latLonBox.findElements('east').firstOrNull?.innerText.trim() ?? '');
+          final west = double.tryParse(latLonBox.findElements('west').firstOrNull?.innerText.trim() ?? '');
+
+          if (north != null && south != null && east != null && west != null) {
+            shapes.add(KmlShape(
+              name: name,
+              type: 'overlay',
+              coordinates: [], // Not needed for overlay, bounds used instead
+              description: desc,
+              imageUrl: href,
+              north: north,
+              south: south,
+              east: east,
+              west: west,
+            ));
+          }
+        }
+      }
     } catch (e) {
       // Return empty list on parse error
     }
@@ -252,7 +304,7 @@ class KmlEngine {
 
   /// Parse KMZ file (zipped KML) - returns list of KmlShape
   /// KMZ is a ZIP archive. The main KML is typically doc.kml or any *.kml file.
-  static List<KmlShape> parseKmz(List<int> kmzBytes) {
+  static List<KmlShape> parseKmz(List<int> kmzBytes, {String? extractDir}) {
     try {
       final archive = ZipDecoder().decodeBytes(kmzBytes);
 
@@ -264,14 +316,41 @@ class KmlEngine {
         return null;
       }
 
+      List<KmlShape> parseAndExtractImages(ArchiveFile entry) {
+        final bytes = getEntryBytes(entry);
+        if (bytes == null) return [];
+        final content = utf8.decode(bytes, allowMalformed: true);
+        var shapes = parseKml(content);
+
+        // Extract any images referenced by GroundOverlays
+        if (extractDir != null) {
+          shapes = shapes.map((shape) {
+            if (shape.type == 'overlay' && shape.imageUrl != null) {
+              final targetImg = shape.imageUrl!;
+              // Find image in archive
+              final imgEntry = archive.files.where((f) => f.name.endsWith(targetImg)).firstOrNull;
+              if (imgEntry != null) {
+                final imgBytes = getEntryBytes(imgEntry);
+                if (imgBytes != null) {
+                  final imgFile = File('\$extractDir/\${imgEntry.name.split('/').last}');
+                  if (!imgFile.existsSync()) {
+                    imgFile.writeAsBytesSync(imgBytes);
+                  }
+                  return shape.copyWith(imageUrl: imgFile.path);
+                }
+              }
+            }
+            return shape;
+          }).toList();
+        }
+        return shapes;
+      }
+
       // 1) Try doc.kml first (Google Maps / QGIS default export name)
       for (final entry in archive.files) {
         final entryName = entry.name.toLowerCase();
         if (entryName == 'doc.kml' || entryName.endsWith('/doc.kml')) {
-          final bytes = getEntryBytes(entry);
-          if (bytes == null) continue;
-          final content = utf8.decode(bytes, allowMalformed: true);
-          final shapes = parseKml(content);
+          final shapes = parseAndExtractImages(entry);
           if (shapes.isNotEmpty) return shapes;
         }
       }
@@ -279,10 +358,7 @@ class KmlEngine {
       // 2) Fall back to any *.kml file in the archive
       for (final entry in archive.files) {
         if (!entry.name.toLowerCase().endsWith('.kml')) continue;
-        final bytes = getEntryBytes(entry);
-        if (bytes == null) continue;
-        final content = utf8.decode(bytes, allowMalformed: true);
-        final shapes = parseKml(content);
+        final shapes = parseAndExtractImages(entry);
         if (shapes.isNotEmpty) return shapes;
       }
     } catch (_) {
@@ -400,7 +476,7 @@ class KmlEngine {
 
       if (lowerPath.endsWith('.kmz')) {
         final bytes = await file.readAsBytes();
-        return parseKmz(bytes.toList());
+        return parseKmz(bytes.toList(), extractDir: file.parent.path);
       } else if (lowerPath.endsWith('.kml')) {
         final content = await file.readAsString();
         return parseKml(content);

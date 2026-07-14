@@ -1,4 +1,4 @@
-﻿import 'dart:io';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
@@ -92,16 +92,15 @@ class _KmlScreenState extends State<KmlScreen> {
       builder: (ctx) => AlertDialog(
         backgroundColor: AppTheme.bgCard,
         title: const Text('Delete KML/KMZ File?', style: TextStyle(color: AppTheme.textPrimary)),
-        content: Text('Delete "${kml.filename}"? This cannot be undone.',
-            style: const TextStyle(color: AppTheme.textSecondary)),
+        content: Text('Are you sure you want to delete "${kml.filename}"?', style: const TextStyle(color: AppTheme.textSecondary)),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.errorColor),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Delete'),
+            child: const Text('Delete', style: TextStyle(color: Colors.redAccent)),
           ),
         ],
       ),
@@ -110,12 +109,24 @@ class _KmlScreenState extends State<KmlScreen> {
     if (confirmed != true) return;
     try {
       if (kml.id != null) await DbHelper().deleteKmlFile(kml.id!);
+      
+      // Clean up extracted image overlays if any
+      try {
+        final shapes = await KmlEngine.parseFile(kml.filepath);
+        for (final s in shapes) {
+          if (s.type == 'overlay' && s.imageUrl != null) {
+            final imgFile = File(s.imageUrl!);
+            if (await imgFile.exists()) await imgFile.delete();
+          }
+        }
+      } catch (_) {}
+
       final file = File(kml.filepath);
       if (await file.exists()) await file.delete();
       await _loadKmlFiles();
       _showSnack('"${kml.filename}" deleted');
     } catch (e) {
-      _showSnack('Delete failed: $e', isError: true);
+      _showSnack('Error deleting file: $e', isError: true);
     }
   }
 

@@ -547,9 +547,31 @@ class MapScreenState extends State<MapScreen> {
           ));
         }
       }
-    }
-
     return lines;
+  }
+
+  List<fmap.OverlayImage> _buildKmlOverlays() {
+    final overlays = <fmap.OverlayImage>[];
+    for (final shape in _mapController.kmlShapes) {
+      if (shape.type == 'overlay' &&
+          shape.imageUrl != null &&
+          shape.north != null &&
+          shape.south != null &&
+          shape.east != null &&
+          shape.west != null) {
+        overlays.add(
+          fmap.OverlayImage(
+            bounds: fmap.LatLngBounds(
+              LatLng(shape.south!, shape.west!), // SW
+              LatLng(shape.north!, shape.east!), // NE
+            ),
+            imageProvider: FileImage(File(shape.imageUrl!)),
+            opacity: shape.opacity,
+          ),
+        );
+      }
+    }
+    return overlays;
   }
 
   List<fmap.Marker> _buildMarkers() {
@@ -1696,6 +1718,11 @@ $wpPlacemarks
                                     opacity: 0.75,
                                   ))
                               .toList(),
+                        ),
+                      // KML GroundOverlays (Image Maps)
+                      if (_buildKmlOverlays().isNotEmpty)
+                        fmap.OverlayImageLayer(
+                          overlayImages: _buildKmlOverlays(),
                         ),
                       fmap.PolygonLayer(polygons: _buildPolygons()),
                       fmap.PolylineLayer(polylines: _buildPolylines()),
