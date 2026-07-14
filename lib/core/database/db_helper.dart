@@ -13,7 +13,7 @@ class DbHelper {
   DbHelper._internal();
 
   static const String _dbName = 'kashi_geofield.db';
-  static const int _dbVersion = 2;
+  static const int _dbVersion = 3;
 
   Future<Database> get database async {
     _db ??= await _initDb();
@@ -66,10 +66,10 @@ class DbHelper {
     await db.execute('''
       CREATE TABLE print_history (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        title TEXT NOT NULL,
-        polygon_id INTEGER,
-        file_path TEXT NOT NULL,
-        created_at TEXT NOT NULL
+        map_type TEXT NOT NULL,
+        map_name TEXT NOT NULL,
+        pdf_path TEXT NOT NULL,
+        printed_at TEXT NOT NULL
       )
     ''');
 
@@ -116,6 +116,19 @@ class DbHelper {
           polygon_id INTEGER,
           file_path TEXT NOT NULL,
           created_at TEXT NOT NULL
+        )
+      ''');
+    }
+    if (oldVersion < 3) {
+      // Recreate print_history with correct schema (map_type, map_name, pdf_path, printed_at)
+      await db.execute('DROP TABLE IF EXISTS print_history');
+      await db.execute('''
+        CREATE TABLE print_history (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          map_type TEXT NOT NULL,
+          map_name TEXT NOT NULL,
+          pdf_path TEXT NOT NULL,
+          printed_at TEXT NOT NULL
         )
       ''');
     }
