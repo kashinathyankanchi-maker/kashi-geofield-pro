@@ -36,12 +36,12 @@ class DiaryPdfGenerator {
     // Helper: style for static English labels (uses built-in PDF font)
     pw.TextStyle labelStyle({
       double fontSize = 10,
-      pw.FontWeight weight = pw.FontWeight.normal,
+      pw.FontWeight fontWeight = pw.FontWeight.normal,
       PdfColor? color,
     }) =>
         pw.TextStyle(
           fontSize: fontSize,
-          fontWeight: weight,
+          fontWeight: fontWeight,
           color: color,
         );
 
@@ -66,7 +66,7 @@ class DiaryPdfGenerator {
                   'WEEKLY DUTY DIARY',
                   style: labelStyle(
                     fontSize: 18,
-                    weight: pw.FontWeight.bold,
+                    fontWeight: pw.FontWeight.bold,
                     color: PdfColor.fromHex('#2e5b2c'),
                   ),
                 ),
