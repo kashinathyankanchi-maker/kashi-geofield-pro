@@ -30,8 +30,7 @@ class DutyDiaryModel {
   }
 
   Map<String, dynamic> toMap() {
-    return {
-      'id': id,
+    final map = <String, dynamic>{
       'date': date,
       'time': time,
       'locations': locations,
@@ -39,6 +38,8 @@ class DutyDiaryModel {
       'distance': distance,
       'created_at': createdAt,
     };
+    if (id != null) map['id'] = id;
+    return map;
   }
 
   DutyDiaryModel copyWith({

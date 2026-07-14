@@ -155,6 +155,13 @@ class _DutyDiaryFormScreenState extends State<DutyDiaryFormScreen> {
     }
 
     if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(entry.id == null ? 'Diary entry saved!' : 'Diary entry updated!'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 2),
+        ),
+      );
       Navigator.pop(context, true);
     }
   }
@@ -167,6 +174,13 @@ class _DutyDiaryFormScreenState extends State<DutyDiaryFormScreen> {
         backgroundColor: AppTheme.bgCard,
         title: Text(widget.entry == null ? 'New Diary Entry' : 'Edit Entry', style: const TextStyle(color: Colors.white)),
         iconTheme: const IconThemeData(color: Colors.white),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.save_rounded, color: Colors.greenAccent),
+            tooltip: 'Save Entry',
+            onPressed: _save,
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
