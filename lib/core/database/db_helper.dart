@@ -13,7 +13,7 @@ class DbHelper {
   DbHelper._internal();
 
   static const String _dbName = 'kashi_geofield.db';
-  static const int _dbVersion = 3;
+  static const int _dbVersion = 4;
 
   Future<Database> get database async {
     _db ??= await _initDb();
@@ -59,6 +59,7 @@ class DbHelper {
         filepath TEXT NOT NULL,
         layer_color TEXT DEFAULT '#2EA043',
         is_visible INTEGER DEFAULT 1,
+        opacity INTEGER DEFAULT 100,
         created_at TEXT NOT NULL
       )
     ''');
@@ -131,6 +132,15 @@ class DbHelper {
           printed_at TEXT NOT NULL
         )
       ''');
+    }
+    if (oldVersion < 4) {
+      // Add opacity column to kml_files (0-100 integer, default 100 = fully opaque)
+      try {
+        await db.execute(
+            'ALTER TABLE kml_files ADD COLUMN opacity INTEGER DEFAULT 100');
+      } catch (_) {
+        // Column may already exist
+      }
     }
   }
 
@@ -257,6 +267,16 @@ class DbHelper {
     return db.update(
       'kml_files',
       {'layer_color': color},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<int> updateKmlOpacity(int id, int opacity) async {
+    final db = await database;
+    return db.update(
+      'kml_files',
+      {'opacity': opacity.clamp(0, 100)},
       where: 'id = ?',
       whereArgs: [id],
     );

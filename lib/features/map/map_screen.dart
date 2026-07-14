@@ -128,7 +128,9 @@ class _MapScreenState extends State<MapScreen> {
       if (!kf.isVisible) continue;
       try {
         final shapes = await KmlEngine.parseFile(kf.filepath);
-        final coloredShapes = shapes.map((s) => s.copyWith(color: kf.layerColor)).toList();
+        final coloredShapes = shapes
+            .map((s) => s.copyWith(color: kf.layerColor, opacity: kf.opacity))
+            .toList();
         allShapes.addAll(coloredShapes);
       } catch (_) {}
     }
@@ -458,10 +460,11 @@ class _MapScreenState extends State<MapScreen> {
               .map((c) => LatLng(c['lat']!, c['lng']!))
               .toList();
           final cColor = Color(int.parse(kmlShape.color.replaceAll('#', '0xFF')));
+          final fillAlpha = (kmlShape.opacity * 0.35).clamp(0.0, 1.0);
           polygons.add(fmap.Polygon(
             points: pts,
-            color: cColor.withValues(alpha: 0.18),
-            borderColor: cColor,
+            color: cColor.withValues(alpha: fillAlpha),
+            borderColor: cColor.withValues(alpha: kmlShape.opacity),
             borderStrokeWidth: 2,
           ));
         }
@@ -514,7 +517,7 @@ class _MapScreenState extends State<MapScreen> {
             points: kmlShape.coordinates
                 .map((c) => LatLng(c['lat']!, c['lng']!))
                 .toList(),
-            color: cColor,
+            color: cColor.withValues(alpha: kmlShape.opacity),
             strokeWidth: 3,
           ));
         }

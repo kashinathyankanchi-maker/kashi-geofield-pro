@@ -1,4 +1,4 @@
-import 'dart:io';
+﻿import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
@@ -72,6 +72,7 @@ class _KmlScreenState extends State<KmlScreen> {
         filepath: destPath,
         layerColor: '#2EA043',
         isVisible: true,
+        opacity: 1.0,
         createdAt: DateTime.now().toIso8601String(),
       );
 
@@ -90,8 +91,9 @@ class _KmlScreenState extends State<KmlScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: AppTheme.bgCard,
-        title: const Text('Delete KML File?'),
-        content: Text('Delete "${kml.filename}"? This cannot be undone.'),
+        title: const Text('Delete KML/KMZ File?', style: TextStyle(color: AppTheme.textPrimary)),
+        content: Text('Delete "${kml.filename}"? This cannot be undone.',
+            style: const TextStyle(color: AppTheme.textSecondary)),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx, false),
@@ -128,6 +130,17 @@ class _KmlScreenState extends State<KmlScreen> {
     }
   }
 
+  Future<void> _updateOpacity(KmlFileModel kml, int opacityPercent) async {
+    try {
+      if (kml.id != null) {
+        await DbHelper().updateKmlOpacity(kml.id!, opacityPercent);
+        await _loadKmlFiles();
+      }
+    } catch (e) {
+      _showSnack('Failed to update opacity: $e', isError: true);
+    }
+  }
+
   Future<void> _shareKmlFile(KmlFileModel kml) async {
     try {
       if (!await File(kml.filepath).exists()) {
@@ -146,7 +159,7 @@ class _KmlScreenState extends State<KmlScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: AppTheme.bgCard,
-        title: const Text('Pick Layer Color'),
+        title: const Text('Pick Layer Color', style: TextStyle(color: AppTheme.textPrimary)),
         content: SingleChildScrollView(
           child: BlockPicker(
             pickerColor: pickedColor,
@@ -174,6 +187,70 @@ class _KmlScreenState extends State<KmlScreen> {
     }
   }
 
+  Future<void> _showOpacityDialog(KmlFileModel kml) async {
+    int currentOpacity = (kml.opacity * 100).round();
+    int selectedOpacity = currentOpacity;
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => AlertDialog(
+          backgroundColor: AppTheme.bgCard,
+          title: const Text('Layer Opacity', style: TextStyle(color: AppTheme.textPrimary)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '${selectedOpacity}%',
+                style: const TextStyle(
+                    color: AppTheme.greenAccent,
+                    fontSize: 32,
+                    fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              Slider(
+                min: 0,
+                max: 100,
+                divisions: 20,
+                value: selectedOpacity.toDouble(),
+                activeColor: AppTheme.greenAccent,
+                inactiveColor: AppTheme.bgSurface,
+                label: '$selectedOpacity%',
+                onChanged: (v) =>
+                    setDlgState(() => selectedOpacity = v.round()),
+              ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('0% (Transparent)',
+                      style: TextStyle(
+                          color: AppTheme.textMuted, fontSize: 10)),
+                  const Text('100% (Opaque)',
+                      style: TextStyle(
+                          color: AppTheme.textMuted, fontSize: 10)),
+                ],
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancel')),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.greenPrimary),
+              onPressed: () {
+                Navigator.pop(ctx);
+                _updateOpacity(kml, selectedOpacity);
+              },
+              child: const Text('Apply'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Color _hexToColor(String hex) {
     try {
       final h = hex.replaceFirst('#', '');
@@ -195,7 +272,7 @@ class _KmlScreenState extends State<KmlScreen> {
     return Scaffold(
       backgroundColor: AppTheme.bgPrimary,
       appBar: AppBar(
-        title: const Text('KML Files'),
+        title: const Text('KML / KMZ Files'),
         actions: [
           IconButton(
             icon: _isImporting
@@ -214,7 +291,8 @@ class _KmlScreenState extends State<KmlScreen> {
           : RefreshIndicator(
               onRefresh: _loadKmlFiles,
               child: ListView.separated(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 itemCount: _kmlFiles.length,
                 separatorBuilder: (_, __) => const SizedBox(height: 4),
                 itemBuilder: (ctx, i) {
@@ -224,11 +302,11 @@ class _KmlScreenState extends State<KmlScreen> {
                     onTap: () => Navigator.push(
                       ctx,
                       MaterialPageRoute(
-                        builder: (_) => KmlDetailScreen(kml: kml),
-                      ),
+                          builder: (_) => KmlDetailScreen(kml: kml)),
                     ).then((_) => _loadKmlFiles()),
                     onLongPress: () => _showColorPicker(kml),
                     onToggleVisibility: () => _toggleVisibility(kml),
+                    onOpacity: () => _showOpacityDialog(kml),
                     onShare: () => _shareKmlFile(kml),
                     onDelete: () => _deleteKmlFile(kml),
                     hexToColor: _hexToColor,
@@ -236,13 +314,12 @@ class _KmlScreenState extends State<KmlScreen> {
                 },
               ),
             ),
-      floatingActionButton: _kmlFiles.isEmpty
-          ? null
-          : FloatingActionButton.extended(
-              onPressed: _isImporting ? null : _importKmlFile,
-              icon: const Icon(Icons.upload_file),
-              label: const Text('Import KML'),
-            ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _isImporting ? null : _importKmlFile,
+        icon: const Icon(Icons.upload_file),
+        label: const Text('Import KML / KMZ'),
+        backgroundColor: AppTheme.greenPrimary,
+      ),
     );
   }
 
@@ -262,7 +339,7 @@ class _KmlScreenState extends State<KmlScreen> {
           ),
           const SizedBox(height: 16),
           const Text(
-            'No KML Files',
+            'No KML / KMZ Files',
             style: TextStyle(
                 color: AppTheme.textPrimary,
                 fontWeight: FontWeight.bold,
@@ -279,6 +356,8 @@ class _KmlScreenState extends State<KmlScreen> {
             onPressed: _importKmlFile,
             icon: const Icon(Icons.upload_file),
             label: const Text('Import KML / KMZ'),
+            style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.greenPrimary),
           ),
         ],
       ),
@@ -286,11 +365,14 @@ class _KmlScreenState extends State<KmlScreen> {
   }
 }
 
+// ── KML Card Widget ──────────────────────────────────────────────────────────
+
 class _KmlCard extends StatelessWidget {
   final KmlFileModel kml;
   final VoidCallback onTap;
   final VoidCallback onLongPress;
   final VoidCallback onToggleVisibility;
+  final VoidCallback onOpacity;
   final VoidCallback onShare;
   final VoidCallback onDelete;
   final Color Function(String) hexToColor;
@@ -300,6 +382,7 @@ class _KmlCard extends StatelessWidget {
     required this.onTap,
     required this.onLongPress,
     required this.onToggleVisibility,
+    required this.onOpacity,
     required this.onShare,
     required this.onDelete,
     required this.hexToColor,
@@ -310,115 +393,187 @@ class _KmlCard extends StatelessWidget {
     final color = hexToColor(kml.layerColor);
     final ext = kml.filename.split('.').last.toLowerCase();
     final isKmz = ext == 'kmz';
+    final opacityPct = (kml.opacity * 100).round();
 
     return Card(
+      color: AppTheme.bgCard,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: InkWell(
         onTap: onTap,
         onLongPress: onLongPress,
         borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: const EdgeInsets.all(12),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Color dot / layer indicator
-              GestureDetector(
-                onTap: onLongPress,
-                child: Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: color.withOpacity(0.15),
-                    shape: BoxShape.circle,
-                    border: Border.all(color: color, width: 2),
-                  ),
-                  child: Icon(
-                    isKmz ? Icons.folder_zip_outlined : Icons.map_outlined,
-                    color: color,
-                    size: 20,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      kml.filename,
-                      style: const TextStyle(
-                          color: AppTheme.textPrimary,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 13),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      kml.createdAt.length >= 10
-                          ? 'Added ${kml.createdAt.substring(0, 10)}'
-                          : kml.createdAt,
-                      style: const TextStyle(
-                          color: AppTheme.textMuted, fontSize: 11),
-                    ),
-                    const SizedBox(height: 4),
-                    Row(children: [
-                      Container(
-                        width: 8,
-                        height: 8,
-                        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+              Row(
+                children: [
+                  // Icon with color
+                  GestureDetector(
+                    onTap: onLongPress,
+                    child: Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: color.withOpacity(0.15),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: color, width: 2),
                       ),
-                      const SizedBox(width: 4),
+                      child: Icon(
+                        isKmz
+                            ? Icons.folder_zip_outlined
+                            : Icons.map_outlined,
+                        color: color,
+                        size: 20,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          kml.filename,
+                          style: const TextStyle(
+                              color: AppTheme.textPrimary,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          isKmz ? 'KMZ File' : 'KML File',
+                          style: TextStyle(
+                              color: isKmz
+                                  ? Colors.orangeAccent
+                                  : AppTheme.greenAccent,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600),
+                        ),
+                        Text(
+                          kml.createdAt.length >= 10
+                              ? 'Added ${kml.createdAt.substring(0, 10)}'
+                              : kml.createdAt,
+                          style: const TextStyle(
+                              color: AppTheme.textMuted, fontSize: 10),
+                        ),
+                      ],
+                    ),
+                  ),
+                  // ON/OFF Toggle
+                  Column(
+                    children: [
+                      Switch(
+                        value: kml.isVisible,
+                        onChanged: (_) => onToggleVisibility(),
+                        activeColor: AppTheme.greenAccent,
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
                       Text(
-                        kml.layerColor.toUpperCase(),
-                        style: const TextStyle(
-                            color: AppTheme.textMuted, fontSize: 10),
+                        kml.isVisible ? 'ON' : 'OFF',
+                        style: TextStyle(
+                          color: kml.isVisible
+                              ? AppTheme.greenAccent
+                              : AppTheme.textMuted,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
-                    ]),
-                  ],
-                ),
-              ),
-              // Visibility toggle
-              Switch(
-                value: kml.isVisible,
-                onChanged: (_) => onToggleVisibility(),
-                activeColor: AppTheme.greenAccent,
-                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-              // Actions
-              PopupMenuButton<String>(
-                icon: const Icon(Icons.more_vert,
-                    color: AppTheme.textSecondary, size: 18),
-                color: AppTheme.bgCard,
-                onSelected: (val) {
-                  if (val == 'share') onShare();
-                  if (val == 'color') onLongPress();
-                  if (val == 'delete') onDelete();
-                },
-                itemBuilder: (_) => [
-                  const PopupMenuItem(
-                    value: 'share',
-                    child: Row(children: [
-                      Icon(Icons.share, size: 16, color: AppTheme.greenAccent),
-                      SizedBox(width: 8),
-                      Text('Share'),
-                    ]),
+                    ],
                   ),
-                  const PopupMenuItem(
-                    value: 'color',
-                    child: Row(children: [
-                      Icon(Icons.palette, size: 16, color: AppTheme.infoColor),
-                      SizedBox(width: 8),
-                      Text('Change Color'),
-                    ]),
+                  // More menu
+                  PopupMenuButton<String>(
+                    icon: const Icon(Icons.more_vert,
+                        color: AppTheme.textSecondary, size: 18),
+                    color: AppTheme.bgCard,
+                    onSelected: (val) {
+                      if (val == 'share') onShare();
+                      if (val == 'color') onLongPress();
+                      if (val == 'opacity') onOpacity();
+                      if (val == 'delete') onDelete();
+                    },
+                    itemBuilder: (_) => [
+                      const PopupMenuItem(
+                        value: 'share',
+                        child: Row(children: [
+                          Icon(Icons.share,
+                              size: 16, color: AppTheme.greenAccent),
+                          SizedBox(width: 8),
+                          Text('Share', style: TextStyle(color: AppTheme.textPrimary)),
+                        ]),
+                      ),
+                      const PopupMenuItem(
+                        value: 'color',
+                        child: Row(children: [
+                          Icon(Icons.palette,
+                              size: 16, color: AppTheme.infoColor),
+                          SizedBox(width: 8),
+                          Text('Change Color', style: TextStyle(color: AppTheme.textPrimary)),
+                        ]),
+                      ),
+                      const PopupMenuItem(
+                        value: 'opacity',
+                        child: Row(children: [
+                          Icon(Icons.opacity,
+                              size: 16, color: Colors.lightBlueAccent),
+                          SizedBox(width: 8),
+                          Text('Set Opacity', style: TextStyle(color: AppTheme.textPrimary)),
+                        ]),
+                      ),
+                      const PopupMenuItem(
+                        value: 'delete',
+                        child: Row(children: [
+                          Icon(Icons.delete_outline,
+                              size: 16, color: AppTheme.errorColor),
+                          SizedBox(width: 8),
+                          Text('Delete', style: TextStyle(color: AppTheme.errorColor)),
+                        ]),
+                      ),
+                    ],
                   ),
-                  const PopupMenuItem(
-                    value: 'delete',
-                    child: Row(children: [
-                      Icon(Icons.delete_outline,
-                          size: 16, color: AppTheme.errorColor),
-                      SizedBox(width: 8),
-                      Text('Delete', style: TextStyle(color: AppTheme.errorColor)),
-                    ]),
+                ],
+              ),
+              const SizedBox(height: 10),
+              // Opacity bar row
+              Row(
+                children: [
+                  const Icon(Icons.opacity,
+                      size: 14, color: AppTheme.textMuted),
+                  const SizedBox(width: 6),
+                  const Text('Opacity',
+                      style: TextStyle(
+                          color: AppTheme.textMuted, fontSize: 11)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: kml.opacity,
+                        backgroundColor:
+                            AppTheme.bgSurface,
+                        color: color,
+                        minHeight: 8,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '$opacityPct%',
+                    style: TextStyle(
+                        color: opacityPct < 30
+                            ? AppTheme.textMuted
+                            : color,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(width: 4),
+                  GestureDetector(
+                    onTap: onOpacity,
+                    child: const Icon(Icons.edit,
+                        size: 14, color: AppTheme.textSecondary),
                   ),
                 ],
               ),

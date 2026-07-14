@@ -12,6 +12,7 @@ class KmlShape {
   final String? description;
   final String color;
   final String? layerName;
+  final double opacity; // 0.0 to 1.0
 
   const KmlShape({
     required this.name,
@@ -20,6 +21,7 @@ class KmlShape {
     this.description,
     this.color = '#2EA043',
     this.layerName,
+    this.opacity = 1.0,
   });
 
   KmlShape copyWith({
@@ -29,6 +31,7 @@ class KmlShape {
     String? description,
     String? color,
     String? layerName,
+    double? opacity,
   }) {
     return KmlShape(
       name: name ?? this.name,
@@ -37,6 +40,7 @@ class KmlShape {
       description: description ?? this.description,
       color: color ?? this.color,
       layerName: layerName ?? this.layerName,
+      opacity: opacity ?? this.opacity,
     );
   }
 }
