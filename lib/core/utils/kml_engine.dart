@@ -1,8 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:archive/archive.dart';
+import 'package:pdfx/pdfx.dart';
 import 'package:xml/xml.dart';
 import 'geo_calculator.dart';
+
 
 /// A parsed KML shape (polygon, path, or marker)
 class KmlShape {
@@ -69,7 +71,37 @@ class KmlShape {
 
 /// Parses and generates KML/KMZ files
 class KmlEngine {
-  // ─────────────────── GENERATION ────────────────────────────────────────────
+  // ─────────────────── PDF → PNG CONVERSION ─────────────────────────────────
+
+  /// Renders the first page of a PDF file to a PNG and saves it next to the PDF.
+  /// Returns the path to the generated PNG, or null on failure.
+  static Future<String?> convertPdfToPng(String pdfPath) async {
+    try {
+      final pngPath = pdfPath.replaceAll(RegExp(r'\.pdf$', caseSensitive: false), '_overlay.png');
+      final pngFile = File(pngPath);
+      if (pngFile.existsSync()) return pngPath; // already converted
+
+      final document = await PdfDocument.openFile(pdfPath);
+      final page = await document.getPage(1);
+      // Render at high resolution (2x DPI)
+      final pageImage = await page.render(
+        width: page.width * 2,
+        height: page.height * 2,
+        format: PdfPageImageFormat.png,
+        backgroundColor: '#FFFFFF',
+      );
+      await page.close();
+      await document.close();
+
+      if (pageImage?.bytes != null) {
+        await pngFile.writeAsBytes(pageImage!.bytes);
+        return pngPath;
+      }
+    } catch (e) {
+      // PDF conversion failed
+    }
+    return null;
+  }
 
   /// Generate KML string from polygon points
   static String generatePolygonKml({
@@ -304,7 +336,7 @@ class KmlEngine {
 
   /// Parse KMZ file (zipped KML) - returns list of KmlShape
   /// KMZ is a ZIP archive. The main KML is typically doc.kml or any *.kml file.
-  static List<KmlShape> parseKmz(List<int> kmzBytes, {String? extractDir}) {
+  static Future<List<KmlShape>> parseKmz(List<int> kmzBytes, {String? extractDir}) async {
     try {
       final archive = ZipDecoder().decodeBytes(kmzBytes);
 
@@ -345,7 +377,7 @@ class KmlEngine {
         return null;
       }
 
-      List<KmlShape> parseAndExtractImages(ArchiveFile entry) {
+      Future<List<KmlShape>> parseAndExtractImages(ArchiveFile entry) async {
         final bytes = getEntryBytes(entry);
         if (bytes == null) return [];
         final content = utf8.decode(bytes, allowMalformed: true);
@@ -353,7 +385,8 @@ class KmlEngine {
 
         // Extract any images referenced by GroundOverlays
         if (extractDir != null) {
-          shapes = shapes.map((shape) {
+          final updatedShapes = <KmlShape>[];
+          for (final shape in shapes) {
             if (shape.type == 'overlay' && shape.imageUrl != null) {
               final targetImg = shape.imageUrl!;
               // Find image in archive using multiple strategies
@@ -372,12 +405,23 @@ class KmlEngine {
                   if (!imgFile.existsSync()) {
                     imgFile.writeAsBytesSync(imgBytes);
                   }
-                  return shape.copyWith(imageUrl: imgFile.path);
+                  // If the extracted file is a PDF, convert it to PNG
+                  final lowerName = imgFileName.toLowerCase();
+                  if (lowerName.endsWith('.pdf')) {
+                    final pngPath = await convertPdfToPng(imgFile.path);
+                    if (pngPath != null) {
+                      updatedShapes.add(shape.copyWith(imageUrl: pngPath));
+                      continue;
+                    }
+                  }
+                  updatedShapes.add(shape.copyWith(imageUrl: imgFile.path));
+                  continue;
                 }
               }
             }
-            return shape;
-          }).toList();
+            updatedShapes.add(shape);
+          }
+          shapes = updatedShapes;
         }
         return shapes;
       }
@@ -386,7 +430,7 @@ class KmlEngine {
       for (final entry in archive.files) {
         final entryName = entry.name.toLowerCase();
         if (entryName == 'doc.kml' || entryName.endsWith('/doc.kml')) {
-          final shapes = parseAndExtractImages(entry);
+          final shapes = await parseAndExtractImages(entry);
           if (shapes.isNotEmpty) return shapes;
         }
       }
@@ -394,7 +438,7 @@ class KmlEngine {
       // 2) Fall back to any *.kml file in the archive
       for (final entry in archive.files) {
         if (!entry.name.toLowerCase().endsWith('.kml')) continue;
-        final shapes = parseAndExtractImages(entry);
+        final shapes = await parseAndExtractImages(entry);
         if (shapes.isNotEmpty) return shapes;
       }
     } catch (_) {
@@ -512,7 +556,7 @@ class KmlEngine {
 
       if (lowerPath.endsWith('.kmz')) {
         final bytes = await file.readAsBytes();
-        return parseKmz(bytes.toList(), extractDir: file.parent.path);
+        return await parseKmz(bytes.toList(), extractDir: file.parent.path);
       } else if (lowerPath.endsWith('.kml')) {
         final content = await file.readAsString();
         return parseKml(content);
