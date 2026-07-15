@@ -257,17 +257,17 @@ class KmlEngine {
     final List<KmlShape> shapes = [];
     try {
       final doc = XmlDocument.parse(kmlContent);
-      final placemarks = doc.findAllElements('Placemark');
+      final placemarks = doc.findAllElements('Placemark', namespace: '*');
 
       for (final pm in placemarks) {
-        final name = pm.findElements('name').firstOrNull?.innerText.trim() ?? 'Unnamed';
-        final desc = pm.findElements('description').firstOrNull?.innerText.trim();
+        final name = pm.findElements('name', namespace: '*').firstOrNull?.innerText.trim() ?? 'Unnamed';
+        final desc = pm.findElements('description', namespace: '*').firstOrNull?.innerText.trim();
 
         // Polygons
-        final polygons = pm.findAllElements('Polygon');
+        final polygons = pm.findAllElements('Polygon', namespace: '*');
         for (final polygonEl in polygons) {
           final coordStr = polygonEl
-              .findAllElements('coordinates')
+              .findAllElements('coordinates', namespace: '*')
               .firstOrNull
               ?.innerText
               .trim();
@@ -285,10 +285,10 @@ class KmlEngine {
         }
 
         // LineStrings (Paths)
-        final lineStrings = pm.findAllElements('LineString');
+        final lineStrings = pm.findAllElements('LineString', namespace: '*');
         for (final lineEl in lineStrings) {
           final coordStr = lineEl
-              .findAllElements('coordinates')
+              .findAllElements('coordinates', namespace: '*')
               .firstOrNull
               ?.innerText
               .trim();
@@ -306,10 +306,10 @@ class KmlEngine {
         }
 
         // Points (Markers)
-        final points = pm.findAllElements('Point');
+        final points = pm.findAllElements('Point', namespace: '*');
         for (final pointEl in points) {
           final coordStr = pointEl
-              .findAllElements('coordinates')
+              .findAllElements('coordinates', namespace: '*')
               .firstOrNull
               ?.innerText
               .trim();
@@ -328,35 +328,35 @@ class KmlEngine {
       }
 
       // GroundOverlays (Image Maps)
-      final groundOverlays = doc.findAllElements('GroundOverlay');
+      final groundOverlays = doc.findAllElements('GroundOverlay', namespace: '*');
       for (final go in groundOverlays) {
-        final name = go.findElements('name').firstOrNull?.innerText.trim() ?? 'Image Overlay';
-        final desc = go.findElements('description').firstOrNull?.innerText.trim();
+        final name = go.findElements('name', namespace: '*').firstOrNull?.innerText.trim() ?? 'Image Overlay';
+        final desc = go.findElements('description', namespace: '*').firstOrNull?.innerText.trim();
 
         // href can be under <Icon> or <Link>
         String? href =
-            go.findAllElements('Icon').firstOrNull?.findElements('href').firstOrNull?.innerText.trim();
-        href ??= go.findAllElements('Link').firstOrNull?.findElements('href').firstOrNull?.innerText.trim();
+            go.findAllElements('Icon', namespace: '*').firstOrNull?.findElements('href', namespace: '*').firstOrNull?.innerText.trim();
+        href ??= go.findAllElements('Link', namespace: '*').firstOrNull?.findElements('href', namespace: '*').firstOrNull?.innerText.trim();
         // Strip any query strings or fragments
         if (href != null && href.contains('?')) href = href.split('?').first;
 
         double? north, south, east, west;
 
         // Try LatLonBox first (axis-aligned)
-        final latLonBox = go.findAllElements('LatLonBox').firstOrNull;
+        final latLonBox = go.findAllElements('LatLonBox', namespace: '*').firstOrNull;
         if (latLonBox != null) {
-          north = double.tryParse(latLonBox.findElements('north').firstOrNull?.innerText.trim() ?? '');
-          south = double.tryParse(latLonBox.findElements('south').firstOrNull?.innerText.trim() ?? '');
-          east  = double.tryParse(latLonBox.findElements('east').firstOrNull?.innerText.trim() ?? '');
-          west  = double.tryParse(latLonBox.findElements('west').firstOrNull?.innerText.trim() ?? '');
+          north = double.tryParse(latLonBox.findElements('north', namespace: '*').firstOrNull?.innerText.trim() ?? '');
+          south = double.tryParse(latLonBox.findElements('south', namespace: '*').firstOrNull?.innerText.trim() ?? '');
+          east  = double.tryParse(latLonBox.findElements('east', namespace: '*').firstOrNull?.innerText.trim() ?? '');
+          west  = double.tryParse(latLonBox.findElements('west', namespace: '*').firstOrNull?.innerText.trim() ?? '');
         }
 
         // Fallback: LatLonQuad (rotated / non-rectangular overlay)
         if (north == null) {
-          final latLonQuad = go.findAllElements('LatLonQuad').firstOrNull ??
-                             go.findAllElements('gx:LatLonQuad').firstOrNull;
+          final latLonQuad = go.findAllElements('LatLonQuad', namespace: '*').firstOrNull ??
+                             go.findAllElements('gx:LatLonQuad', namespace: '*').firstOrNull;
           if (latLonQuad != null) {
-            final coords = latLonQuad.findElements('coordinates').firstOrNull?.innerText.trim() ?? '';
+            final coords = latLonQuad.findElements('coordinates', namespace: '*').firstOrNull?.innerText.trim() ?? '';
             final points = GeoCalculator.parseKmlCoordinates(coords);
             if (points.isNotEmpty) {
               north = points.map((p) => p['lat']!).reduce((a, b) => a > b ? a : b);
