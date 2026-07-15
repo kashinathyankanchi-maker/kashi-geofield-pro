@@ -76,29 +76,57 @@ class KmlEngine {
   /// Renders the first page of a PDF file to a PNG and saves it next to the PDF.
   /// Returns the path to the generated PNG, or null on failure.
   static Future<String?> convertPdfToPng(String pdfPath) async {
+    PdfDocument? document;
+    PdfPage? page;
     try {
       final pngPath = pdfPath.replaceAll(RegExp(r'\.pdf$', caseSensitive: false), '_overlay.png');
       final pngFile = File(pngPath);
-      if (pngFile.existsSync()) return pngPath; // already converted
+      // Return cached version if it exists and is valid (>1KB)
+      if (pngFile.existsSync() && pngFile.lengthSync() > 1024) return pngPath;
 
-      final document = await PdfDocument.openFile(pdfPath);
-      final page = await document.getPage(1);
-      // Render at high resolution (2x DPI)
-      final pageImage = await page.render(
-        width: page.width * 2,
-        height: page.height * 2,
-        format: PdfPageImageFormat.png,
-        backgroundColor: '#FFFFFF',
-      );
-      await page.close();
-      await document.close();
+      document = await PdfDocument.openFile(pdfPath);
+      page = await document.getPage(1);
 
-      if (pageImage?.bytes != null) {
-        await pngFile.writeAsBytes(pageImage!.bytes);
-        return pngPath;
+      // Try rendering at 1.5x scale first (balance quality vs memory)
+      PdfPageImage? pageImage;
+      try {
+        pageImage = await page.render(
+          width: page.width * 1.5,
+          height: page.height * 1.5,
+          format: PdfPageImageFormat.png,
+          backgroundColor: '#ffffff',
+        );
+      } catch (_) {
+        // If OOM, try at 1x scale
+        try {
+          pageImage = await page.render(
+            width: page.width,
+            height: page.height,
+            format: PdfPageImageFormat.png,
+            backgroundColor: '#ffffff',
+          );
+        } catch (_) {
+          // Last resort: 0.5x scale
+          pageImage = await page.render(
+            width: page.width * 0.5,
+            height: page.height * 0.5,
+            format: PdfPageImageFormat.png,
+            backgroundColor: '#ffffff',
+          );
+        }
+      }
+
+      if (pageImage != null && pageImage.bytes.isNotEmpty) {
+        await pngFile.writeAsBytes(pageImage.bytes);
+        if (pngFile.existsSync() && pngFile.lengthSync() > 1024) {
+          return pngPath;
+        }
       }
     } catch (e) {
-      // PDF conversion failed
+      // PDF conversion failed — will use fallback rectangle on map
+    } finally {
+      try { await page?.close(); } catch (_) {}
+      try { await document?.close(); } catch (_) {}
     }
     return null;
   }
@@ -456,9 +484,13 @@ class KmlEngine {
                     final pngPath = await convertPdfToPng(imgFile.path);
                     if (pngPath != null) {
                       updatedShapes.add(shape.copyWith(imageUrl: pngPath));
-                      continue;
+                    } else {
+                      // PDF conversion failed — keep imageUrl null so fallback rect shows
+                      updatedShapes.add(shape); // bounds still valid, image will be missing
                     }
+                    continue;
                   }
+                  // Normal image (JPG/PNG etc.) — use directly
                   updatedShapes.add(shape.copyWith(imageUrl: imgFile.path));
                   continue;
                 }

@@ -557,11 +557,11 @@ class MapScreenState extends State<MapScreen> {
     final overlays = <fmap.OverlayImage>[];
     for (final shape in _mapController.kmlShapes) {
       if (shape.type == 'overlay' &&
-          shape.imageUrl != null &&
           shape.north != null &&
           shape.south != null &&
           shape.east != null &&
-          shape.west != null) {
+          shape.west != null &&
+          shape.imageUrl != null) {
         final imgFile = File(shape.imageUrl!);
         if (!imgFile.existsSync()) continue; // skip if image not found
         overlays.add(
@@ -577,6 +577,40 @@ class MapScreenState extends State<MapScreen> {
       }
     }
     return overlays;
+  }
+
+  /// Returns a fallback polygon for overlays whose image failed to load.
+  /// Draws a visible semi-transparent rectangle so user sees the KMZ area.
+  List<fmap.Polygon> _buildOverlayFallbackPolygons() {
+    if (!_mapController.showKmlLayer) return [];
+    final polys = <fmap.Polygon>[];
+    for (final shape in _mapController.kmlShapes) {
+      if (shape.type == 'overlay' &&
+          shape.north != null &&
+          shape.south != null &&
+          shape.east != null &&
+          shape.west != null &&
+          (shape.imageUrl == null || !File(shape.imageUrl!).existsSync())) {
+        polys.add(fmap.Polygon(
+          points: [
+            LatLng(shape.north!, shape.west!),
+            LatLng(shape.north!, shape.east!),
+            LatLng(shape.south!, shape.east!),
+            LatLng(shape.south!, shape.west!),
+          ],
+          color: const Color(0x330000FF),
+          borderColor: const Color(0xFF0000FF),
+          borderStrokeWidth: 2.0,
+          label: shape.name,
+          labelStyle: const TextStyle(
+            color: Color(0xFF0000FF),
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+          ),
+        ));
+      }
+    }
+    return polys;
   }
 
   List<fmap.Marker> _buildMarkers() {
@@ -1746,6 +1780,12 @@ $wpPlacemarks
                         return fmap.OverlayImageLayer(
                           overlayImages: kmlOverlays,
                         );
+                      }),
+                      // Fallback rectangles for overlays whose image couldn't load
+                      Builder(builder: (ctx) {
+                        final fallbacks = _buildOverlayFallbackPolygons();
+                        if (fallbacks.isEmpty) return const SizedBox.shrink();
+                        return fmap.PolygonLayer(polygons: fallbacks);
                       }),
                       fmap.PolygonLayer(polygons: _buildPolygons()),
                       fmap.PolylineLayer(polylines: _buildPolylines()),
