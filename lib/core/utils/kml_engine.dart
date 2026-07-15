@@ -357,19 +357,12 @@ class KmlEngine {
                              go.findAllElements('gx:LatLonQuad').firstOrNull;
           if (latLonQuad != null) {
             final coords = latLonQuad.findElements('coordinates').firstOrNull?.innerText.trim() ?? '';
-            // coords are: "lng,lat,alt lng,lat,alt lng,lat,alt lng,lat,alt" (4 corners: SW NW NE SE)
-            final parts = coords.split(RegExp(r'[\s,]+'));
-            final lats = <double>[], lngs = <double>[];
-            for (int i = 0; i + 1 < parts.length; i += 3) {
-              final lng = double.tryParse(parts[i]);
-              final lat = double.tryParse(parts[i + 1]);
-              if (lng != null && lat != null) { lats.add(lat); lngs.add(lng); }
-            }
-            if (lats.isNotEmpty) {
-              north = lats.reduce((a, b) => a > b ? a : b);
-              south = lats.reduce((a, b) => a < b ? a : b);
-              east  = lngs.reduce((a, b) => a > b ? a : b);
-              west  = lngs.reduce((a, b) => a < b ? a : b);
+            final points = GeoCalculator.parseKmlCoordinates(coords);
+            if (points.isNotEmpty) {
+              north = points.map((p) => p['lat']!).reduce((a, b) => a > b ? a : b);
+              south = points.map((p) => p['lat']!).reduce((a, b) => a < b ? a : b);
+              east  = points.map((p) => p['lng']!).reduce((a, b) => a > b ? a : b);
+              west  = points.map((p) => p['lng']!).reduce((a, b) => a < b ? a : b);
             }
           }
         }
