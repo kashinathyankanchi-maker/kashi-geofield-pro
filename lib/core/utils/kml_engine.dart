@@ -497,21 +497,15 @@ class KmlEngine {
         return shapes;
       }
 
-      // 1) Try doc.kml first (Google Maps / QGIS default export name)
-      for (final entry in archive.files) {
-        final entryName = entry.name.toLowerCase();
-        if (entryName == 'doc.kml' || entryName.endsWith('/doc.kml')) {
-          final shapes = await parseAndExtractImages(entry);
-          if (shapes.isNotEmpty) return shapes;
-        }
-      }
-
-      // 2) Fall back to any *.kml file in the archive
+      final allShapes = <KmlShape>[];
+      
+      // Parse all *.kml files in the archive (to support SuperOverlays/tiled maps)
       for (final entry in archive.files) {
         if (!entry.name.toLowerCase().endsWith('.kml')) continue;
         final shapes = await parseAndExtractImages(entry);
-        if (shapes.isNotEmpty) return shapes;
+        allShapes.addAll(shapes);
       }
+      return allShapes;
     } catch (_) {
       // Return empty on error
     }
