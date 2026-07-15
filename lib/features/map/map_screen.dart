@@ -553,6 +553,7 @@ class MapScreenState extends State<MapScreen> {
   }
 
   List<fmap.OverlayImage> _buildKmlOverlays() {
+    if (!_mapController.showKmlLayer) return [];
     final overlays = <fmap.OverlayImage>[];
     for (final shape in _mapController.kmlShapes) {
       if (shape.type == 'overlay' &&
@@ -561,13 +562,15 @@ class MapScreenState extends State<MapScreen> {
           shape.south != null &&
           shape.east != null &&
           shape.west != null) {
+        final imgFile = File(shape.imageUrl!);
+        if (!imgFile.existsSync()) continue; // skip if image not found
         overlays.add(
           fmap.OverlayImage(
             bounds: fmap.LatLngBounds(
               LatLng(shape.south!, shape.west!), // SW
               LatLng(shape.north!, shape.east!), // NE
             ),
-            imageProvider: FileImage(File(shape.imageUrl!)),
+            imageProvider: FileImage(imgFile),
             opacity: shape.opacity,
           ),
         );
@@ -788,7 +791,9 @@ class MapScreenState extends State<MapScreen> {
 
       // Calculate bounding box and zoom to fit ALL coordinates (like Google Earth)
       double minLat = 90, maxLat = -90, minLng = 180, maxLng = -180;
+      bool hasBounds = false;
       for (final shape in shapes) {
+        // For vector shapes (polygons, paths, markers)
         for (final c in shape.coordinates) {
           final lat = c['lat']!;
           final lng = c['lng']!;
@@ -796,10 +801,23 @@ class MapScreenState extends State<MapScreen> {
           if (lat > maxLat) maxLat = lat;
           if (lng < minLng) minLng = lng;
           if (lng > maxLng) maxLng = lng;
+          hasBounds = true;
+        }
+        // For GroundOverlay (image maps) - use the lat/lon bounding box
+        if (shape.type == 'overlay' &&
+            shape.north != null &&
+            shape.south != null &&
+            shape.east != null &&
+            shape.west != null) {
+          if (shape.south! < minLat) minLat = shape.south!;
+          if (shape.north! > maxLat) maxLat = shape.north!;
+          if (shape.west! < minLng) minLng = shape.west!;
+          if (shape.east! > maxLng) maxLng = shape.east!;
+          hasBounds = true;
         }
       }
 
-      if (minLat <= maxLat && minLng <= maxLng) {
+      if (hasBounds && minLat <= maxLat && minLng <= maxLng) {
         final sw = LatLng(minLat, minLng);
         final ne = LatLng(maxLat, maxLng);
         final bounds = fmap.LatLngBounds(sw, ne);
@@ -1722,10 +1740,13 @@ $wpPlacemarks
                               .toList(),
                         ),
                       // KML GroundOverlays (Image Maps)
-                      if (_buildKmlOverlays().isNotEmpty)
-                        fmap.OverlayImageLayer(
-                          overlayImages: _buildKmlOverlays(),
-                        ),
+                      Builder(builder: (ctx) {
+                        final kmlOverlays = _buildKmlOverlays();
+                        if (kmlOverlays.isEmpty) return const SizedBox.shrink();
+                        return fmap.OverlayImageLayer(
+                          overlayImages: kmlOverlays,
+                        );
+                      }),
                       fmap.PolygonLayer(polygons: _buildPolygons()),
                       fmap.PolylineLayer(polylines: _buildPolylines()),
                       // ── Live tracking path ─────────────────────────────────

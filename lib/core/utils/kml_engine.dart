@@ -311,8 +311,37 @@ class KmlEngine {
       /// Helper: get raw bytes from an ArchiveFile (archive 3.x compatible)
       List<int>? getEntryBytes(ArchiveFile entry) {
         if (!entry.isFile) return null;
-        final raw = entry.content; // dynamic in archive 3.x
-        if (raw is List<int>) return raw;
+        try {
+          final raw = entry.content; // dynamic in archive 3.x
+          if (raw is List<int>) return raw;
+          // Try decompressing via readBytes if content is an InputStream
+          // Fallback: get content bytes another way
+          if (raw != null) {
+            return raw.toString().codeUnits; // last resort (should not reach here)
+          }
+        } catch (_) {}
+        return null;
+      }
+
+      /// Find an archive entry by href (handles paths like "files/image.jpg")
+      ArchiveFile? findImageEntry(String href) {
+        // Normalize separators
+        final normalizedHref = href.replaceAll('\\', '/');
+        // 1) Exact match
+        for (final f in archive.files) {
+          if (f.name.replaceAll('\\', '/') == normalizedHref) return f;
+        }
+        // 2) Match by filename only (last segment)
+        final hrefFilename = normalizedHref.split('/').last.toLowerCase();
+        for (final f in archive.files) {
+          if (!f.isFile) continue;
+          final fName = f.name.split('/').last.toLowerCase();
+          if (fName == hrefFilename) return f;
+        }
+        // 3) endsWith match
+        for (final f in archive.files) {
+          if (f.name.replaceAll('\\', '/').endsWith(normalizedHref)) return f;
+        }
         return null;
       }
 
@@ -327,12 +356,19 @@ class KmlEngine {
           shapes = shapes.map((shape) {
             if (shape.type == 'overlay' && shape.imageUrl != null) {
               final targetImg = shape.imageUrl!;
-              // Find image in archive
-              final imgEntry = archive.files.where((f) => f.name.endsWith(targetImg)).firstOrNull;
+              // Find image in archive using multiple strategies
+              final imgEntry = findImageEntry(targetImg);
               if (imgEntry != null) {
-                final imgBytes = getEntryBytes(imgEntry);
-                if (imgBytes != null) {
-                  final imgFile = File('$extractDir/${imgEntry.name.split('/').last}');
+                final rawContent = imgEntry.content;
+                List<int>? imgBytes;
+                if (rawContent is List<int>) {
+                  imgBytes = rawContent;
+                } else {
+                  imgBytes = getEntryBytes(imgEntry);
+                }
+                if (imgBytes != null && imgBytes.isNotEmpty) {
+                  final imgFileName = imgEntry.name.split('/').last;
+                  final imgFile = File('$extractDir/$imgFileName');
                   if (!imgFile.existsSync()) {
                     imgFile.writeAsBytesSync(imgBytes);
                   }
