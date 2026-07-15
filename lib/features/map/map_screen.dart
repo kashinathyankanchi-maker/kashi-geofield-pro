@@ -792,17 +792,24 @@ class MapScreenState extends State<MapScreen> {
 
       _showSnackBar('Importing ${pickedFile.name}…');
 
+      // Copy file to app directory FIRST so extracted KMZ images can be saved alongside it
+      final dir = await getApplicationDocumentsDirectory();
+      final destPath = '${dir.path}/${pickedFile.name}';
+      await File(path).copy(destPath);
+
       List<KmlShape> shapes = [];
       final ext = pickedFile.extension?.toLowerCase() ?? '';
       if (ext == 'json' || ext == 'geojson') {
-        final content = await File(path).readAsString();
+        final content = await File(destPath).readAsString();
         shapes = KmlEngine.parseGeoJson(content);
       } else {
-        shapes = await KmlEngine.parseFile(path);
+        shapes = await KmlEngine.parseFile(destPath);
       }
 
       if (shapes.isEmpty) {
         if (mounted) _showSnackBar('No shapes found in file', isError: true);
+        // Clean up copied file if parsing failed
+        try { await File(destPath).delete(); } catch (_) {}
         return;
       }
 
@@ -813,9 +820,6 @@ class MapScreenState extends State<MapScreen> {
       }
 
       // Save to DB
-      final dir = await getApplicationDocumentsDirectory();
-      final destPath = '${dir.path}/${pickedFile.name}';
-      await File(path).copy(destPath);
       await DbHelper().insertKmlFile(KmlFileModel(
         filename: pickedFile.name,
         filepath: destPath,
