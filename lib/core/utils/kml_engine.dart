@@ -353,7 +353,8 @@ class KmlEngine {
 
         // Fallback: LatLonQuad (rotated / non-rectangular overlay)
         if (north == null) {
-          final latLonQuad = go.findAllElements('LatLonQuad').firstOrNull;
+          final latLonQuad = go.findAllElements('LatLonQuad').firstOrNull ??
+                             go.findAllElements('gx:LatLonQuad').firstOrNull;
           if (latLonQuad != null) {
             final coords = latLonQuad.findElements('coordinates').firstOrNull?.innerText.trim() ?? '';
             // coords are: "lng,lat,alt lng,lat,alt lng,lat,alt lng,lat,alt" (4 corners: SW NW NE SE)
