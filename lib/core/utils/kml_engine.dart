@@ -304,28 +304,60 @@ class KmlEngine {
       for (final go in groundOverlays) {
         final name = go.findElements('name').firstOrNull?.innerText.trim() ?? 'Image Overlay';
         final desc = go.findElements('description').firstOrNull?.innerText.trim();
-        final href = go.findAllElements('Icon').firstOrNull?.findElements('href').firstOrNull?.innerText.trim();
+
+        // href can be under <Icon> or <Link>
+        String? href =
+            go.findAllElements('Icon').firstOrNull?.findElements('href').firstOrNull?.innerText.trim();
+        href ??= go.findAllElements('Link').firstOrNull?.findElements('href').firstOrNull?.innerText.trim();
+        // Strip any query strings or fragments
+        if (href != null && href.contains('?')) href = href.split('?').first;
+
+        double? north, south, east, west;
+
+        // Try LatLonBox first (axis-aligned)
         final latLonBox = go.findAllElements('LatLonBox').firstOrNull;
+        if (latLonBox != null) {
+          north = double.tryParse(latLonBox.findElements('north').firstOrNull?.innerText.trim() ?? '');
+          south = double.tryParse(latLonBox.findElements('south').firstOrNull?.innerText.trim() ?? '');
+          east  = double.tryParse(latLonBox.findElements('east').firstOrNull?.innerText.trim() ?? '');
+          west  = double.tryParse(latLonBox.findElements('west').firstOrNull?.innerText.trim() ?? '');
+        }
 
-        if (href != null && latLonBox != null) {
-          final north = double.tryParse(latLonBox.findElements('north').firstOrNull?.innerText.trim() ?? '');
-          final south = double.tryParse(latLonBox.findElements('south').firstOrNull?.innerText.trim() ?? '');
-          final east = double.tryParse(latLonBox.findElements('east').firstOrNull?.innerText.trim() ?? '');
-          final west = double.tryParse(latLonBox.findElements('west').firstOrNull?.innerText.trim() ?? '');
-
-          if (north != null && south != null && east != null && west != null) {
-            shapes.add(KmlShape(
-              name: name,
-              type: 'overlay',
-              coordinates: [], // Not needed for overlay, bounds used instead
-              description: desc,
-              imageUrl: href,
-              north: north,
-              south: south,
-              east: east,
-              west: west,
-            ));
+        // Fallback: LatLonQuad (rotated / non-rectangular overlay)
+        if (north == null) {
+          final latLonQuad = go.findAllElements('LatLonQuad').firstOrNull;
+          if (latLonQuad != null) {
+            final coords = latLonQuad.findElements('coordinates').firstOrNull?.innerText.trim() ?? '';
+            // coords are: "lng,lat,alt lng,lat,alt lng,lat,alt lng,lat,alt" (4 corners: SW NW NE SE)
+            final parts = coords.split(RegExp(r'[\s,]+'));
+            final lats = <double>[], lngs = <double>[];
+            for (int i = 0; i + 1 < parts.length; i += 3) {
+              final lng = double.tryParse(parts[i]);
+              final lat = double.tryParse(parts[i + 1]);
+              if (lng != null && lat != null) { lats.add(lat); lngs.add(lng); }
+            }
+            if (lats.isNotEmpty) {
+              north = lats.reduce((a, b) => a > b ? a : b);
+              south = lats.reduce((a, b) => a < b ? a : b);
+              east  = lngs.reduce((a, b) => a > b ? a : b);
+              west  = lngs.reduce((a, b) => a < b ? a : b);
+            }
           }
+        }
+
+        // Only add if we have valid bounds
+        if (north != null && south != null && east != null && west != null) {
+          shapes.add(KmlShape(
+            name: name,
+            type: 'overlay',
+            coordinates: [],
+            description: desc,
+            imageUrl: href, // may be null — image found from archive later
+            north: north,
+            south: south,
+            east: east,
+            west: west,
+          ));
         }
       }
     } catch (e) {
@@ -385,12 +417,25 @@ class KmlEngine {
 
         // Extract any images referenced by GroundOverlays
         if (extractDir != null) {
+          // Collect all image/pdf entries in the archive for fallback use
+          final imageExtensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.pdf'};
+          final allImageEntries = archive.files.where((f) {
+            if (!f.isFile) return false;
+            final ext = '.${f.name.split('.').last.toLowerCase()}';
+            return imageExtensions.contains(ext);
+          }).toList();
+
           final updatedShapes = <KmlShape>[];
           for (final shape in shapes) {
-            if (shape.type == 'overlay' && shape.imageUrl != null) {
-              final targetImg = shape.imageUrl!;
-              // Find image in archive using multiple strategies
-              final imgEntry = findImageEntry(targetImg);
+            if (shape.type == 'overlay') {
+              // Find image: prefer href match, fallback to first image in archive
+              ArchiveFile? imgEntry;
+              if (shape.imageUrl != null) {
+                imgEntry = findImageEntry(shape.imageUrl!);
+              }
+              // Fallback: use first non-KML file that looks like an image
+              imgEntry ??= allImageEntries.firstOrNull;
+
               if (imgEntry != null) {
                 final rawContent = imgEntry.content;
                 List<int>? imgBytes;
