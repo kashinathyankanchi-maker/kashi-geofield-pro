@@ -165,9 +165,7 @@ class MapScreenState extends State<MapScreen> {
         _villages = villages;
         _savedPolygons = polygons;
       });
-      if (allShapes.isNotEmpty) {
-        _mapController.loadKmlShapes(allShapes);
-      }
+      _mapController.loadKmlShapes(allShapes);
     }
   }
 

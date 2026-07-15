@@ -505,6 +505,18 @@ class KmlEngine {
         final shapes = await parseAndExtractImages(entry);
         allShapes.addAll(shapes);
       }
+      // Sort shapes by area descending (largest first)
+      // This ensures SuperOverlay root tiles (low-res, large area) are drawn FIRST
+      // and high-res tiles (small area) are drawn ON TOP of them, fixing blurry maps.
+      allShapes.sort((a, b) {
+        if (a.type != 'overlay' || b.type != 'overlay') return 0;
+        if (a.north == null || a.south == null || a.east == null || a.west == null) return 0;
+        if (b.north == null || b.south == null || b.east == null || b.west == null) return 0;
+        final areaA = (a.north! - a.south!).abs() * (a.east! - a.west!).abs();
+        final areaB = (b.north! - b.south!).abs() * (b.east! - b.west!).abs();
+        return areaB.compareTo(areaA);
+      });
+      
       return allShapes;
     } catch (_) {
       // Return empty on error
