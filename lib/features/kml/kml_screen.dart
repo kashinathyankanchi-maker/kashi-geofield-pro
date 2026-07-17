@@ -68,6 +68,39 @@ class _KmlScreenState extends State<KmlScreen> {
       final destPath = p.join(kmlDir.path, destName);
       await sourceFile.copy(destPath);
 
+      // Ask for Smart Opacity if it's a KMZ or KML
+      bool useSmartOpacity = false;
+      if (mounted) {
+        useSmartOpacity = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: AppTheme.bgCard,
+            title: const Text('Smart Background Opacity', style: TextStyle(color: AppTheme.textPrimary)),
+            content: const Text(
+                'Would you like to separate the white/cyan background from the lines? '
+                'If enabled, the opacity slider will ONLY fade the background, keeping lines fully visible.',
+                style: TextStyle(color: AppTheme.textSecondary)),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('No, Standard Import'),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: AppTheme.greenPrimary),
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Yes, Enable'),
+              ),
+            ],
+          ),
+        ) ?? false;
+      }
+
+      if (useSmartOpacity) {
+        _showSnack('Processing smart opacity... This may take a moment.');
+        // This will extract images and create the fg/bg split files
+        await KmlEngine.parseFile(destPath, smartOpacity: true);
+      }
+
       final model = KmlFileModel(
         filename: picked.name,
         filepath: destPath,

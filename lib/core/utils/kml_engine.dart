@@ -131,6 +131,56 @@ class KmlEngine {
     return null;
   }
 
+  /// Splits an image into a foreground and background image for Smart Opacity.
+  /// Returns a Map with 'fg' and 'bg' paths.
+  static Future<Map<String, String>?> _splitSmartOpacityImage(String originalPath) async {
+    try {
+      final ext = originalPath.contains('.') ? originalPath.split('.').last : 'png';
+      final pathWithoutExt = originalPath.substring(0, originalPath.length - ext.length - 1);
+      
+      final fgPath = '\${pathWithoutExt}_fg.png';
+      final bgPath = '\${pathWithoutExt}_bg.png';
+
+      if (File(fgPath).existsSync() && File(bgPath).existsSync()) {
+        return {'fg': fgPath, 'bg': bgPath};
+      }
+
+      final bytes = await File(originalPath).readAsBytes();
+      final image = img.decodeImage(bytes);
+      if (image == null) return null;
+
+      final fgImage = img.Image.from(image);
+      final bgImage = img.Image.from(image);
+
+      for (final p in fgImage) {
+        if (p.r > 220 && p.g > 220 && p.b > 220) {
+          // White
+          p.a = 0;
+        } else if (p.g > 200 && p.b > 200 && p.r > 150) {
+          // Light cyan
+          p.a = 0;
+        }
+      }
+
+      for (final p in bgImage) {
+        if (p.r > 220 && p.g > 220 && p.b > 220) {
+          // White -> keep
+        } else if (p.g > 200 && p.b > 200 && p.r > 150) {
+          // Light cyan -> keep
+        } else {
+          p.a = 0;
+        }
+      }
+
+      await File(fgPath).writeAsBytes(img.encodePng(fgImage));
+      await File(bgPath).writeAsBytes(img.encodePng(bgImage));
+
+      return {'fg': fgPath, 'bg': bgPath};
+    } catch (e) {
+      return null;
+    }
+  }
+
   /// Generate KML string from polygon points
   static String generatePolygonKml({
     required String name,
@@ -477,6 +527,20 @@ class KmlEngine {
                   if (lowerName.endsWith('.pdf')) {
                     final pngPath = await convertPdfToPng(imgFile.path);
                     if (pngPath != null) {
+                      final pExt = pngPath.contains('.') ? pngPath.split('.').last : 'png';
+                      final pNoExt = pngPath.substring(0, pngPath.length - pExt.length - 1);
+                      if (File('\${pNoExt}_fg.png').existsSync() && File('\${pNoExt}_bg.png').existsSync()) {
+                        updatedShapes.add(shape.copyWith(imageUrl: '\${pNoExt}_fg.png', bgImageUrl: '\${pNoExt}_bg.png'));
+                        continue;
+                      }
+
+                      if (smartOpacity) {
+                        final splitResult = await _splitSmartOpacityImage(pngPath);
+                        if (splitResult != null) {
+                          updatedShapes.add(shape.copyWith(imageUrl: splitResult['fg'], bgImageUrl: splitResult['bg']));
+                          continue;
+                        }
+                      }
                       updatedShapes.add(shape.copyWith(imageUrl: pngPath));
                     } else {
                       // PDF conversion failed — keep imageUrl null so fallback rect shows
@@ -484,7 +548,22 @@ class KmlEngine {
                     }
                     continue;
                   }
-                  // Normal image (JPG/PNG etc.) — use directly
+                  
+                  // Normal image (JPG/PNG etc.)
+                  final iExt = imgFile.path.contains('.') ? imgFile.path.split('.').last : 'png';
+                  final iNoExt = imgFile.path.substring(0, imgFile.path.length - iExt.length - 1);
+                  if (File('\${iNoExt}_fg.png').existsSync() && File('\${iNoExt}_bg.png').existsSync()) {
+                    updatedShapes.add(shape.copyWith(imageUrl: '\${iNoExt}_fg.png', bgImageUrl: '\${iNoExt}_bg.png'));
+                    continue;
+                  }
+
+                  if (smartOpacity) {
+                    final splitResult = await _splitSmartOpacityImage(imgFile.path);
+                    if (splitResult != null) {
+                      updatedShapes.add(shape.copyWith(imageUrl: splitResult['fg'], bgImageUrl: splitResult['bg']));
+                      continue;
+                    }
+                  }
                   updatedShapes.add(shape.copyWith(imageUrl: imgFile.path));
                   continue;
                 }
