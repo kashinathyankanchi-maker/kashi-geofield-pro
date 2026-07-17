@@ -107,6 +107,7 @@ class _KmlScreenState extends State<KmlScreen> {
         layerColor: '#2EA043',
         isVisible: true,
         opacity: 1.0,
+        smartOpacity: useSmartOpacity,
         createdAt: DateTime.now().toIso8601String(),
       );
 

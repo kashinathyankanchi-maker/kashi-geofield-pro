@@ -137,7 +137,9 @@ class KmlEngine {
   }
 
   /// Splits an image into a foreground and background image for Smart Opacity.
-  /// Returns a Map with 'fg' and 'bg' paths.
+  /// The foreground contains lines/text (white/cyan made transparent).
+  /// The background contains only white/cyan areas (everything else transparent).
+  /// Returns a Map with 'fg' and 'bg' paths, or null on failure.
   static Future<Map<String, String>?> _splitSmartOpacityImage(String originalPath) async {
     try {
       final ext = originalPath.contains('.') ? originalPath.split('.').last : 'png';
@@ -146,34 +148,38 @@ class KmlEngine {
       final fgPath = '${pathWithoutExt}_fg.png';
       final bgPath = '${pathWithoutExt}_bg.png';
 
-      if (File(fgPath).existsSync() && File(bgPath).existsSync()) {
-        return {'fg': fgPath, 'bg': bgPath};
-      }
-
       final bytes = await File(originalPath).readAsBytes();
-      final image = img.decodeImage(bytes);
-      if (image == null) return null;
+      final srcImage = img.decodeImage(bytes);
+      if (srcImage == null) return null;
 
-      final fgImage = img.Image.from(image);
-      final bgImage = img.Image.from(image);
+      final w = srcImage.width;
+      final h = srcImage.height;
 
-      for (final p in fgImage) {
-        if (p.r > 220 && p.g > 220 && p.b > 220) {
-          // White
-          p.a = 0;
-        } else if (p.g > 200 && p.b > 200 && p.r > 150) {
-          // Light cyan
-          p.a = 0;
-        }
-      }
+      // CRITICAL: Create new images with 4 channels (RGBA) so alpha works.
+      // JPEG images are 3-channel (RGB) — setting alpha on them is a no-op!
+      final fgImage = img.Image(width: w, height: h, numChannels: 4);
+      final bgImage = img.Image(width: w, height: h, numChannels: 4);
 
-      for (final p in bgImage) {
-        if (p.r > 220 && p.g > 220 && p.b > 220) {
-          // White -> keep
-        } else if (p.g > 200 && p.b > 200 && p.r > 150) {
-          // Light cyan -> keep
-        } else {
-          p.a = 0;
+      for (int y = 0; y < h; y++) {
+        for (int x = 0; x < w; x++) {
+          final sp = srcImage.getPixel(x, y);
+          final r = sp.r.toInt();
+          final g = sp.g.toInt();
+          final b = sp.b.toInt();
+
+          final isWhite = r > 220 && g > 220 && b > 220;
+          final isLightCyan = !isWhite && g > 200 && b > 200; // Allow any R value for cyan
+          final isBackground = isWhite || isLightCyan;
+
+          if (isBackground) {
+            // Background pixel: visible in bg image, transparent in fg image
+            bgImage.setPixelRgba(x, y, r, g, b, 255);
+            fgImage.setPixelRgba(x, y, 0, 0, 0, 0);
+          } else {
+            // Foreground pixel (line/text): visible in fg image, transparent in bg image
+            fgImage.setPixelRgba(x, y, r, g, b, 255);
+            bgImage.setPixelRgba(x, y, 0, 0, 0, 0);
+          }
         }
       }
 
@@ -522,7 +528,9 @@ class KmlEngine {
                   imgBytes = getEntryBytes(imgEntry);
                 }
                 if (imgBytes != null && imgBytes.isNotEmpty) {
-                  final imgFileName = imgEntry.name.split('/').last;
+                  // For tiled maps (SuperOverlays), images may be in folders like 0/0/0.jpg
+                  // Flatten the path by replacing '/' with '_' to ensure unique filenames
+                  final imgFileName = imgEntry.name.replaceAll('/', '_');
                   final imgFile = File('$extractDir/$imgFileName');
                   if (!imgFile.existsSync()) {
                     imgFile.writeAsBytesSync(imgBytes);
@@ -532,13 +540,6 @@ class KmlEngine {
                   if (lowerName.endsWith('.pdf')) {
                     final pngPath = await convertPdfToPng(imgFile.path);
                     if (pngPath != null) {
-                      final pExt = pngPath.contains('.') ? pngPath.split('.').last : 'png';
-                      final pNoExt = pngPath.substring(0, pngPath.length - pExt.length - 1);
-                      if (File('${pNoExt}_fg.png').existsSync() && File('${pNoExt}_bg.png').existsSync()) {
-                        updatedShapes.add(shape.copyWith(imageUrl: '${pNoExt}_fg.png', bgImageUrl: '${pNoExt}_bg.png'));
-                        continue;
-                      }
-
                       if (smartOpacity) {
                         final splitResult = await _splitSmartOpacityImage(pngPath);
                         if (splitResult != null) {
@@ -555,13 +556,6 @@ class KmlEngine {
                   }
                   
                   // Normal image (JPG/PNG etc.)
-                  final iExt = imgFile.path.contains('.') ? imgFile.path.split('.').last : 'png';
-                  final iNoExt = imgFile.path.substring(0, imgFile.path.length - iExt.length - 1);
-                  if (File('${iNoExt}_fg.png').existsSync() && File('${iNoExt}_bg.png').existsSync()) {
-                    updatedShapes.add(shape.copyWith(imageUrl: '${iNoExt}_fg.png', bgImageUrl: '${iNoExt}_bg.png'));
-                    continue;
-                  }
-
                   if (smartOpacity) {
                     final splitResult = await _splitSmartOpacityImage(imgFile.path);
                     if (splitResult != null) {
@@ -717,7 +711,13 @@ class KmlEngine {
 
       if (lowerPath.endsWith('.kmz')) {
         final bytes = await file.readAsBytes();
-        return await parseKmz(bytes.toList(), extractDir: file.parent.path, smartOpacity: smartOpacity);
+        final kmzBaseName = file.uri.pathSegments.last.split('.').first;
+        final extractPath = '${file.parent.path}/$kmzBaseName';
+        final extractDir = Directory(extractPath);
+        if (!await extractDir.exists()) {
+          await extractDir.create(recursive: true);
+        }
+        return await parseKmz(bytes.toList(), extractDir: extractPath, smartOpacity: smartOpacity);
       } else if (lowerPath.endsWith('.kml')) {
         final content = await file.readAsString();
         return parseKml(content);

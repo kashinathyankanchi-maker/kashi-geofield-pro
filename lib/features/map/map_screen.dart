@@ -98,7 +98,7 @@ class MapScreenState extends State<MapScreen> {
       for (final kf in kmlFiles) {
         if (!kf.isVisible) continue;
         try {
-          final shapes = await KmlEngine.parseFile(kf.filepath);
+          final shapes = await KmlEngine.parseFile(kf.filepath, smartOpacity: kf.smartOpacity);
           final coloredShapes = shapes
               .map((s) => s.copyWith(color: kf.layerColor, opacity: kf.opacity))
               .toList();
@@ -152,7 +152,7 @@ class MapScreenState extends State<MapScreen> {
     for (final kf in kmlFiles) {
       if (!kf.isVisible) continue;
       try {
-        final shapes = await KmlEngine.parseFile(kf.filepath);
+        final shapes = await KmlEngine.parseFile(kf.filepath, smartOpacity: kf.smartOpacity);
         final coloredShapes = shapes
             .map((s) => s.copyWith(color: kf.layerColor, opacity: kf.opacity))
             .toList();
@@ -818,13 +818,46 @@ class MapScreenState extends State<MapScreen> {
       final destPath = '${dir.path}/${pickedFile.name}';
       await File(path).copy(destPath);
 
-      List<KmlShape> shapes = [];
+      // Ask for Smart Opacity if it's a KMZ or KML
+      bool useSmartOpacity = false;
       final ext = pickedFile.extension?.toLowerCase() ?? '';
+      if (ext == 'kmz' || ext == 'kml') {
+        if (mounted) {
+          useSmartOpacity = await showDialog<bool>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              backgroundColor: AppTheme.bgCard,
+              title: const Text('Smart Background Opacity', style: TextStyle(color: AppTheme.textPrimary)),
+              content: const Text(
+                  'Would you like to separate the white/cyan background from the lines? '
+                  'If enabled, the opacity slider will ONLY fade the background, keeping lines fully visible.',
+                  style: TextStyle(color: AppTheme.textSecondary)),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('No, Standard Import'),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: AppTheme.greenPrimary),
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('Yes, Enable'),
+                ),
+              ],
+            ),
+          ) ?? false;
+        }
+      }
+
+      if (useSmartOpacity) {
+        _showSnackBar('Processing smart opacity... This may take a moment.');
+      }
+
+      List<KmlShape> shapes = [];
       if (ext == 'json' || ext == 'geojson') {
         final content = await File(destPath).readAsString();
         shapes = KmlEngine.parseGeoJson(content);
       } else {
-        shapes = await KmlEngine.parseFile(destPath);
+        shapes = await KmlEngine.parseFile(destPath, smartOpacity: useSmartOpacity);
       }
 
       if (shapes.isEmpty) {

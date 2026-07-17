@@ -13,7 +13,7 @@ class DbHelper {
   DbHelper._internal();
 
   static const String _dbName = 'kashi_geofield.db';
-  static const int _dbVersion = 4;
+  static const int _dbVersion = 5;
 
   Future<Database> get database async {
     _db ??= await _initDb();
@@ -138,6 +138,15 @@ class DbHelper {
       try {
         await db.execute(
             'ALTER TABLE kml_files ADD COLUMN opacity INTEGER DEFAULT 100');
+      } catch (_) {
+        // Column may already exist
+      }
+    }
+    if (oldVersion < 5) {
+      // Add smart_opacity column to kml_files
+      try {
+        await db.execute(
+            'ALTER TABLE kml_files ADD COLUMN smart_opacity INTEGER DEFAULT 0');
       } catch (_) {
         // Column may already exist
       }
