@@ -13,7 +13,7 @@ class DbHelper {
   DbHelper._internal();
 
   static const String _dbName = 'kashi_geofield.db';
-  static const int _dbVersion = 5;
+  static const int _dbVersion = 6;
 
   Future<Database> get database async {
     _db ??= await _initDb();
@@ -60,6 +60,7 @@ class DbHelper {
         layer_color TEXT DEFAULT '#2EA043',
         is_visible INTEGER DEFAULT 1,
         opacity INTEGER DEFAULT 100,
+        smart_opacity INTEGER DEFAULT 0,
         created_at TEXT NOT NULL
       )
     ''');
@@ -107,6 +108,8 @@ class DbHelper {
           filepath TEXT NOT NULL,
           layer_color TEXT DEFAULT '#2EA043',
           is_visible INTEGER DEFAULT 1,
+          opacity INTEGER DEFAULT 100,
+          smart_opacity INTEGER DEFAULT 0,
           created_at TEXT NOT NULL
         )
       ''');
@@ -144,6 +147,15 @@ class DbHelper {
     }
     if (oldVersion < 5) {
       // Add smart_opacity column to kml_files
+      try {
+        await db.execute(
+            'ALTER TABLE kml_files ADD COLUMN smart_opacity INTEGER DEFAULT 0');
+      } catch (_) {
+        // Column may already exist
+      }
+    }
+    if (oldVersion < 6) {
+      // Catch-all to fix broken v5 installs where smart_opacity wasn't in _onCreate
       try {
         await db.execute(
             'ALTER TABLE kml_files ADD COLUMN smart_opacity INTEGER DEFAULT 0');
