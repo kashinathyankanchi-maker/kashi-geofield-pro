@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:archive/archive.dart';
+import 'package:image/image.dart' as img;
 import 'package:pdfx/pdfx.dart';
 import 'package:xml/xml.dart';
 import 'geo_calculator.dart';
@@ -18,6 +19,7 @@ class KmlShape {
 
   // Ground Overlay (Image map)
   final String? imageUrl;
+  final String? bgImageUrl;
   final double? north;
   final double? south;
   final double? east;
@@ -32,6 +34,7 @@ class KmlShape {
     this.layerName,
     this.opacity = 1.0,
     this.imageUrl,
+    this.bgImageUrl,
     this.north,
     this.south,
     this.east,
@@ -47,6 +50,7 @@ class KmlShape {
     String? layerName,
     double? opacity,
     String? imageUrl,
+    String? bgImageUrl,
     double? north,
     double? south,
     double? east,
@@ -61,6 +65,7 @@ class KmlShape {
       layerName: layerName ?? this.layerName,
       opacity: opacity ?? this.opacity,
       imageUrl: imageUrl ?? this.imageUrl,
+      bgImageUrl: bgImageUrl ?? this.bgImageUrl,
       north: north ?? this.north,
       south: south ?? this.south,
       east: east ?? this.east,
@@ -138,8 +143,8 @@ class KmlEngine {
       final ext = originalPath.contains('.') ? originalPath.split('.').last : 'png';
       final pathWithoutExt = originalPath.substring(0, originalPath.length - ext.length - 1);
       
-      final fgPath = '\${pathWithoutExt}_fg.png';
-      final bgPath = '\${pathWithoutExt}_bg.png';
+      final fgPath = '${pathWithoutExt}_fg.png';
+      final bgPath = '${pathWithoutExt}_bg.png';
 
       if (File(fgPath).existsSync() && File(bgPath).existsSync()) {
         return {'fg': fgPath, 'bg': bgPath};
@@ -440,7 +445,7 @@ class KmlEngine {
 
   /// Parse KMZ file (zipped KML) - returns list of KmlShape
   /// KMZ is a ZIP archive. The main KML is typically doc.kml or any *.kml file.
-  static Future<List<KmlShape>> parseKmz(List<int> kmzBytes, {String? extractDir}) async {
+  static Future<List<KmlShape>> parseKmz(List<int> kmzBytes, {String? extractDir, bool smartOpacity = false}) async {
     try {
       final archive = ZipDecoder().decodeBytes(kmzBytes);
 
@@ -529,8 +534,8 @@ class KmlEngine {
                     if (pngPath != null) {
                       final pExt = pngPath.contains('.') ? pngPath.split('.').last : 'png';
                       final pNoExt = pngPath.substring(0, pngPath.length - pExt.length - 1);
-                      if (File('\${pNoExt}_fg.png').existsSync() && File('\${pNoExt}_bg.png').existsSync()) {
-                        updatedShapes.add(shape.copyWith(imageUrl: '\${pNoExt}_fg.png', bgImageUrl: '\${pNoExt}_bg.png'));
+                      if (File('${pNoExt}_fg.png').existsSync() && File('${pNoExt}_bg.png').existsSync()) {
+                        updatedShapes.add(shape.copyWith(imageUrl: '${pNoExt}_fg.png', bgImageUrl: '${pNoExt}_bg.png'));
                         continue;
                       }
 
@@ -552,8 +557,8 @@ class KmlEngine {
                   // Normal image (JPG/PNG etc.)
                   final iExt = imgFile.path.contains('.') ? imgFile.path.split('.').last : 'png';
                   final iNoExt = imgFile.path.substring(0, imgFile.path.length - iExt.length - 1);
-                  if (File('\${iNoExt}_fg.png').existsSync() && File('\${iNoExt}_bg.png').existsSync()) {
-                    updatedShapes.add(shape.copyWith(imageUrl: '\${iNoExt}_fg.png', bgImageUrl: '\${iNoExt}_bg.png'));
+                  if (File('${iNoExt}_fg.png').existsSync() && File('${iNoExt}_bg.png').existsSync()) {
+                    updatedShapes.add(shape.copyWith(imageUrl: '${iNoExt}_fg.png', bgImageUrl: '${iNoExt}_bg.png'));
                     continue;
                   }
 
@@ -702,7 +707,7 @@ class KmlEngine {
   }
 
   /// Parse KML or KMZ from file path
-  static Future<List<KmlShape>> parseFile(String filePath) async {
+  static Future<List<KmlShape>> parseFile(String filePath, {bool smartOpacity = false}) async {
     try {
       final file = File(filePath);
       if (!await file.exists()) return [];
@@ -712,7 +717,7 @@ class KmlEngine {
 
       if (lowerPath.endsWith('.kmz')) {
         final bytes = await file.readAsBytes();
-        return await parseKmz(bytes.toList(), extractDir: file.parent.path);
+        return await parseKmz(bytes.toList(), extractDir: file.parent.path, smartOpacity: smartOpacity);
       } else if (lowerPath.endsWith('.kml')) {
         final content = await file.readAsString();
         return parseKml(content);
