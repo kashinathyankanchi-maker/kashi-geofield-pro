@@ -17,23 +17,45 @@ class DiaryPdfGenerator {
     final endOfWeek = startOfWeek.add(const Duration(days: 6));
     final df = DateFormat('yyyy-MM-dd');
 
-    // ── Load Kannada font (used ONLY for user-typed data) ──────────────────
-    pw.Font? kannadaFont;
+    // ── Load Kannada fonts (Regular + Bold) ────────────────────────────────
+    // Both variants MUST be explicitly loaded. When the pdf package needs bold
+    // text and only finds regular, it falls back to built-in Helvetica which
+    // has NO Kannada glyphs — causing boxes/missing characters in the PDF.
+    pw.Font? kannadaRegular;
+    pw.Font? kannadaBold;
+
     try {
-      final fontData =
+      final regularData =
           await rootBundle.load('assets/fonts/NotoSansKannada-Regular.ttf');
-      kannadaFont = pw.Font.ttf(fontData);
+      kannadaRegular = pw.Font.ttf(regularData);
+    } catch (_) {}
+
+    try {
+      // Variable font (NotoSansKannada-Variable.ttf) covers weight 100–900,
+      // including Bold (700). Using it as the bold variant ensures the pdf
+      // package finds the correct font for bold weight rendering.
+      final boldData =
+          await rootBundle.load('assets/fonts/NotoSansKannada-Variable.ttf');
+      kannadaBold = pw.Font.ttf(boldData);
     } catch (_) {
-      // fall back to default if font fails
+      kannadaBold = kannadaRegular; // safe fallback
     }
 
-    // Helper: style for user-entered data (Kannada or English)
-    pw.TextStyle dataStyle({double fontSize = 10}) => pw.TextStyle(
-          font: kannadaFont,
+    // Helper: style for user-entered data (Kannada or English text).
+    // Always specifies both font and fontBold so the pdf package never
+    // falls back to Helvetica when rendering Kannada Unicode glyphs.
+    pw.TextStyle dataStyle({
+      double fontSize = 10,
+      pw.FontWeight fontWeight = pw.FontWeight.normal,
+    }) =>
+        pw.TextStyle(
+          font: fontWeight == pw.FontWeight.bold ? kannadaBold : kannadaRegular,
+          fontBold: kannadaBold,
           fontSize: fontSize,
+          fontWeight: fontWeight,
         );
 
-    // Helper: style for static English labels (uses built-in PDF font)
+    // Helper: style for static English labels — uses built-in PDF font.
     pw.TextStyle labelStyle({
       double fontSize = 10,
       pw.FontWeight fontWeight = pw.FontWeight.normal,
@@ -45,7 +67,7 @@ class DiaryPdfGenerator {
           color: color,
         );
 
-    // Build day → entry map (0=Mon … 6=Sun)
+    // Build day → entry map (0 = Mon … 6 = Sun)
     final Map<int, DutyDiaryModel> weekData = {};
     for (final e in entries) {
       final dt = DateTime.parse(e.date);
@@ -60,7 +82,7 @@ class DiaryPdfGenerator {
           return pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.stretch,
             children: [
-              // ── Header title ───────────────────────────────────────────────
+              // ── Header ────────────────────────────────────────────────────
               pw.Center(
                 child: pw.Text(
                   'WEEKLY DUTY DIARY',
@@ -75,13 +97,11 @@ class DiaryPdfGenerator {
               pw.Center(
                 child: pw.Text(
                   'Forest Department Official Log',
-                  style: labelStyle(
-                      fontSize: 11, color: PdfColors.grey700),
+                  style: labelStyle(fontSize: 11, color: PdfColors.grey700),
                 ),
               ),
               pw.SizedBox(height: 10),
-              pw.Divider(
-                  color: PdfColor.fromHex('#2e5b2c'), thickness: 1.5),
+              pw.Divider(color: PdfColor.fromHex('#2e5b2c'), thickness: 1.5),
               pw.SizedBox(height: 10),
 
               // ── Week / Officer info ────────────────────────────────────────
@@ -119,10 +139,10 @@ class DiaryPdfGenerator {
                   3: const pw.FixedColumnWidth(50),
                 },
                 children: [
-                  // Header row — all English labels, default font
+                  // Header row
                   pw.TableRow(
-                    decoration: pw.BoxDecoration(
-                        color: PdfColor.fromHex('#e8f5e9')),
+                    decoration:
+                        pw.BoxDecoration(color: PdfColor.fromHex('#e8f5e9')),
                     children: [
                       _headerCell('Day'),
                       _headerCell('Locations /\nCompartments'),
@@ -211,8 +231,7 @@ class DiaryPdfGenerator {
         }
       } else {
         final dir = await getApplicationDocumentsDirectory();
-        file =
-            File('${dir.path}/Duty_Diary_${df.format(startOfWeek)}.pdf');
+        file = File('${dir.path}/Duty_Diary_${df.format(startOfWeek)}.pdf');
         await file.writeAsBytes(bytes);
       }
 
@@ -235,7 +254,7 @@ class DiaryPdfGenerator {
     }
   }
 
-  // ── Static English header cell (built-in PDF font) ──────────────────────
+  // ── Header cell (English, built-in font) ─────────────────────────────────
   static pw.Widget _headerCell(String text) {
     return pw.Padding(
       padding: const pw.EdgeInsets.all(6),
@@ -253,19 +272,18 @@ class DiaryPdfGenerator {
     );
   }
 
-  // ── Data row: English labels + Kannada-aware user data ──────────────────
+  // ── Data row (user-entered text uses Kannada-aware font) ─────────────────
   static pw.TableRow _dataRow(
     DateTime date,
     DutyDiaryModel? entry,
-    pw.TextStyle Function({double fontSize}) dataStyle,
+    pw.TextStyle Function({double fontSize, pw.FontWeight fontWeight}) dataStyle,
   ) {
-    // Day name & date use default English font
     final dayName = DateFormat('EEEE').format(date);
     final dateStr = DateFormat('dd/MM').format(date);
 
     return pw.TableRow(
       children: [
-        // Day column — English label
+        // Day/Date — English only, built-in font is fine
         pw.Container(
           padding: const pw.EdgeInsets.all(6),
           color: PdfColor.fromHex('#f1f8e9'),
@@ -282,7 +300,7 @@ class DiaryPdfGenerator {
             ],
           ),
         ),
-        // Locations — user typed (may be Kannada)
+        // Locations — always use Kannada font (covers both English & Kannada)
         pw.Padding(
           padding: const pw.EdgeInsets.all(6),
           child: pw.Text(
@@ -290,7 +308,7 @@ class DiaryPdfGenerator {
             style: dataStyle(fontSize: 10),
           ),
         ),
-        // Activities — user typed (may be Kannada)
+        // Activities — always use Kannada font
         pw.Padding(
           padding: const pw.EdgeInsets.all(6),
           child: pw.Text(
@@ -298,7 +316,7 @@ class DiaryPdfGenerator {
             style: dataStyle(fontSize: 10),
           ),
         ),
-        // Distance — number, default font
+        // Distance — numeric, built-in font is fine
         pw.Padding(
           padding: const pw.EdgeInsets.all(6),
           child: pw.Center(
@@ -341,13 +359,10 @@ class DiaryPdfGenerator {
       final entry = weekData[i];
 
       final loc =
-          entry?.locations.replaceAll('"', '""').replaceAll('\n', ' ') ??
-              '';
+          entry?.locations.replaceAll('"', '""').replaceAll('\n', ' ') ?? '';
       final act =
-          entry?.activities.replaceAll('"', '""').replaceAll('\n', ' ') ??
-              '';
-      final dist =
-          entry != null ? entry.distance.toStringAsFixed(1) : '';
+          entry?.activities.replaceAll('"', '""').replaceAll('\n', ' ') ?? '';
+      final dist = entry != null ? entry.distance.toStringAsFixed(1) : '';
 
       csv.writeln('"$dayName","$dateStr","$loc","$act","$dist"');
     }
@@ -371,8 +386,7 @@ class DiaryPdfGenerator {
         }
       } else {
         final dir = await getApplicationDocumentsDirectory();
-        file =
-            File('${dir.path}/Duty_Diary_${df.format(startOfWeek)}.csv');
+        file = File('${dir.path}/Duty_Diary_${df.format(startOfWeek)}.csv');
         await file.writeAsString(csv.toString());
       }
 

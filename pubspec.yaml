@@ -86,3 +86,6 @@ flutter:
     - family: NotoSansKannada
       fonts:
         - asset: assets/fonts/NotoSansKannada-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/NotoSansKannada-Variable.ttf
+          weight: 700
