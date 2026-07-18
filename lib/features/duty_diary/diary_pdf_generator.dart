@@ -1,71 +1,30 @@
 import 'dart:io';
 import 'package:flutter/material.dart' show BuildContext, ScaffoldMessenger, SnackBar, Text, Colors;
-import 'package:flutter/services.dart' show rootBundle;
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
-import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 import 'package:share_plus/share_plus.dart';
 import 'models/duty_diary_model.dart';
 
+/// Generates the weekly duty diary PDF using HTML → PDF conversion.
+///
+/// WHY HTML-based approach instead of pw.Document?
+/// The `pdf` Dart package performs simple glyph lookup from TTF files but
+/// does NOT support OpenType GSUB/GPOS layout features required by Kannada
+/// (conjunct consonants, matras, half-forms).
+///
+/// `Printing.convertHtml()` uses Android's system WebView / iOS WKWebView
+/// which natively handles complex Indic script shaping — so BOTH Kannada
+/// and English render perfectly with no additional fonts needed.
 class DiaryPdfGenerator {
   static Future<void> generateWeeklyPdf(
-      BuildContext context,
-      DateTime startOfWeek,
-      List<DutyDiaryModel> entries) async {
-    final pdf = pw.Document();
+    BuildContext context,
+    DateTime startOfWeek,
+    List<DutyDiaryModel> entries,
+  ) async {
     final endOfWeek = startOfWeek.add(const Duration(days: 6));
     final df = DateFormat('yyyy-MM-dd');
-
-    // ── Load Kannada fonts (Regular + Bold) ────────────────────────────────
-    // Both variants MUST be explicitly loaded. When the pdf package needs bold
-    // text and only finds regular, it falls back to built-in Helvetica which
-    // has NO Kannada glyphs — causing boxes/missing characters in the PDF.
-    pw.Font? kannadaRegular;
-    pw.Font? kannadaBold;
-
-    try {
-      final regularData =
-          await rootBundle.load('assets/fonts/NotoSansKannada-Regular.ttf');
-      kannadaRegular = pw.Font.ttf(regularData);
-    } catch (_) {}
-
-    try {
-      // Variable font (NotoSansKannada-Variable.ttf) covers weight 100–900,
-      // including Bold (700). Using it as the bold variant ensures the pdf
-      // package finds the correct font for bold weight rendering.
-      final boldData =
-          await rootBundle.load('assets/fonts/NotoSansKannada-Variable.ttf');
-      kannadaBold = pw.Font.ttf(boldData);
-    } catch (_) {
-      kannadaBold = kannadaRegular; // safe fallback
-    }
-
-    // Helper: style for user-entered data (Kannada or English text).
-    // Always specifies both font and fontBold so the pdf package never
-    // falls back to Helvetica when rendering Kannada Unicode glyphs.
-    pw.TextStyle dataStyle({
-      double fontSize = 10,
-      pw.FontWeight fontWeight = pw.FontWeight.normal,
-    }) =>
-        pw.TextStyle(
-          font: fontWeight == pw.FontWeight.bold ? kannadaBold : kannadaRegular,
-          fontBold: kannadaBold,
-          fontSize: fontSize,
-          fontWeight: fontWeight,
-        );
-
-    // Helper: style for static English labels — uses built-in PDF font.
-    pw.TextStyle labelStyle({
-      double fontSize = 10,
-      pw.FontWeight fontWeight = pw.FontWeight.normal,
-      PdfColor? color,
-    }) =>
-        pw.TextStyle(
-          fontSize: fontSize,
-          fontWeight: fontWeight,
-          color: color,
-        );
 
     // Build day → entry map (0 = Mon … 6 = Sun)
     final Map<int, DutyDiaryModel> weekData = {};
@@ -74,145 +33,17 @@ class DiaryPdfGenerator {
       weekData[dt.weekday - 1] = e;
     }
 
-    pdf.addPage(
-      pw.Page(
-        pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.all(32),
-        build: (pw.Context ctx) {
-          return pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.stretch,
-            children: [
-              // ── Header ────────────────────────────────────────────────────
-              pw.Center(
-                child: pw.Text(
-                  'WEEKLY DUTY DIARY',
-                  style: labelStyle(
-                    fontSize: 18,
-                    fontWeight: pw.FontWeight.bold,
-                    color: PdfColor.fromHex('#2e5b2c'),
-                  ),
-                ),
-              ),
-              pw.SizedBox(height: 2),
-              pw.Center(
-                child: pw.Text(
-                  'Forest Department Official Log',
-                  style: labelStyle(fontSize: 11, color: PdfColors.grey700),
-                ),
-              ),
-              pw.SizedBox(height: 10),
-              pw.Divider(color: PdfColor.fromHex('#2e5b2c'), thickness: 1.5),
-              pw.SizedBox(height: 10),
+    // Build HTML content
+    final html = _buildHtml(startOfWeek, endOfWeek, weekData);
 
-              // ── Week / Officer info ────────────────────────────────────────
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Text(
-                    'Week Of: ${DateFormat('MMM d, yyyy').format(startOfWeek)}'
-                    ' To: ${DateFormat('MMM d, yyyy').format(endOfWeek)}',
-                    style: labelStyle(fontSize: 10),
-                  ),
-                  pw.Text('Officer Name: _____________________',
-                      style: labelStyle(fontSize: 10)),
-                ],
-              ),
-              pw.SizedBox(height: 6),
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Text('Section / Beat: ___________________',
-                      style: labelStyle(fontSize: 10)),
-                  pw.Text('Range: ___________________________',
-                      style: labelStyle(fontSize: 10)),
-                ],
-              ),
-              pw.SizedBox(height: 12),
-
-              // ── Table ──────────────────────────────────────────────────────
-              pw.Table(
-                border: pw.TableBorder.all(color: PdfColors.grey400),
-                columnWidths: {
-                  0: const pw.FixedColumnWidth(80),
-                  1: const pw.FlexColumnWidth(2),
-                  2: const pw.FlexColumnWidth(3),
-                  3: const pw.FixedColumnWidth(50),
-                },
-                children: [
-                  // Header row
-                  pw.TableRow(
-                    decoration:
-                        pw.BoxDecoration(color: PdfColor.fromHex('#e8f5e9')),
-                    children: [
-                      _headerCell('Day'),
-                      _headerCell('Locations /\nCompartments'),
-                      _headerCell(
-                          'Key Activities & Observations\n(Wildlife, Offenses, Flora)'),
-                      _headerCell('Dist\n(km)'),
-                    ],
-                  ),
-                  // Data rows Mon–Sun
-                  for (int i = 0; i < 7; i++)
-                    _dataRow(
-                      startOfWeek.add(Duration(days: i)),
-                      weekData[i],
-                      dataStyle,
-                    ),
-                ],
-              ),
-
-              pw.SizedBox(height: 16),
-
-              // ── Summary box ────────────────────────────────────────────────
-              pw.Container(
-                height: 80,
-                width: double.infinity,
-                decoration: pw.BoxDecoration(
-                    border: pw.Border.all(color: PdfColors.grey600)),
-                padding: const pw.EdgeInsets.all(8),
-                child: pw.Text(
-                  'Weekly Summary & Notes',
-                  style: labelStyle(
-                    fontWeight: pw.FontWeight.bold,
-                    color: PdfColor.fromHex('#2e5b2c'),
-                  ),
-                ),
-              ),
-
-              pw.Spacer(),
-              pw.Divider(color: PdfColors.black, thickness: 1.5),
-              pw.SizedBox(height: 40),
-
-              // ── Signatures ─────────────────────────────────────────────────
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Column(children: [
-                    pw.Container(
-                        width: 150, height: 1, color: PdfColors.black),
-                    pw.SizedBox(height: 4),
-                    pw.Text('Signature of the Officer',
-                        style: labelStyle(fontSize: 10)),
-                  ]),
-                  pw.Column(children: [
-                    pw.Container(
-                        width: 200, height: 1, color: PdfColors.black),
-                    pw.SizedBox(height: 4),
-                    pw.Text('Signature of the Supervising Officer',
-                        style: labelStyle(fontSize: 10)),
-                    pw.Text('(RFO)', style: labelStyle(fontSize: 10)),
-                  ]),
-                ],
-              ),
-            ],
-          );
-        },
-      ),
-    );
-
-    // ── Save & Share ──────────────────────────────────────────────────────
     try {
-      final bytes = await pdf.save();
+      // Convert HTML → PDF bytes using Android/iOS system rendering engine.
+      // This properly handles Kannada complex script shaping via native WebView.
+      final bytes = await Printing.convertHtml(
+        format: PdfPageFormat.a4,
+        html: html,
+      );
+
       final downloadDir = Directory('/storage/emulated/0/Download');
       File file;
       bool savedToDownloads = false;
@@ -239,8 +70,9 @@ class DiaryPdfGenerator {
       if (context.mounted && savedToDownloads) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-              content: Text('PDF saved to Downloads!'),
-              backgroundColor: Colors.green),
+            content: Text('PDF saved to Downloads!'),
+            backgroundColor: Colors.green,
+          ),
         );
       }
       await Share.shareXFiles([XFile(file.path)],
@@ -249,92 +81,199 @@ class DiaryPdfGenerator {
       // ignore: use_build_context_synchronously
       if (context.mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Error: $e')));
+            .showSnackBar(SnackBar(content: Text('Error generating PDF: $e')));
       }
     }
   }
 
-  // ── Header cell (English, built-in font) ─────────────────────────────────
-  static pw.Widget _headerCell(String text) {
-    return pw.Padding(
-      padding: const pw.EdgeInsets.all(6),
-      child: pw.Center(
-        child: pw.Text(
-          text,
-          textAlign: pw.TextAlign.center,
-          style: pw.TextStyle(
-            fontSize: 10,
-            fontWeight: pw.FontWeight.bold,
-            color: PdfColor.fromHex('#1b5e20'),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // ── Data row (user-entered text uses Kannada-aware font) ─────────────────
-  static pw.TableRow _dataRow(
-    DateTime date,
-    DutyDiaryModel? entry,
-    pw.TextStyle Function({double fontSize, pw.FontWeight fontWeight}) dataStyle,
+  // ── HTML builder ──────────────────────────────────────────────────────────
+  static String _buildHtml(
+    DateTime startOfWeek,
+    DateTime endOfWeek,
+    Map<int, DutyDiaryModel> weekData,
   ) {
-    final dayName = DateFormat('EEEE').format(date);
-    final dateStr = DateFormat('dd/MM').format(date);
+    final rowsBuffer = StringBuffer();
+    for (int i = 0; i < 7; i++) {
+      final date = startOfWeek.add(Duration(days: i));
+      final entry = weekData[i];
+      final dayName = DateFormat('EEEE').format(date);
+      final dateStr = DateFormat('dd/MM/yyyy').format(date);
+      final locations = _e(entry?.locations ?? '');
+      final activities = _e(entry?.activities ?? '');
+      final dist =
+          entry != null ? entry.distance.toStringAsFixed(1) : '';
 
-    return pw.TableRow(
-      children: [
-        // Day/Date — English only, built-in font is fine
-        pw.Container(
-          padding: const pw.EdgeInsets.all(6),
-          color: PdfColor.fromHex('#f1f8e9'),
-          child: pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.Text(dayName,
-                  style: pw.TextStyle(
-                      fontWeight: pw.FontWeight.bold, fontSize: 10)),
-              pw.SizedBox(height: 8),
-              pw.Text('Date: $dateStr',
-                  style: const pw.TextStyle(
-                      fontSize: 9, color: PdfColors.grey700)),
-            ],
-          ),
-        ),
-        // Locations — always use Kannada font (covers both English & Kannada)
-        pw.Padding(
-          padding: const pw.EdgeInsets.all(6),
-          child: pw.Text(
-            entry?.locations ?? '',
-            style: dataStyle(fontSize: 10),
-          ),
-        ),
-        // Activities — always use Kannada font
-        pw.Padding(
-          padding: const pw.EdgeInsets.all(6),
-          child: pw.Text(
-            entry?.activities ?? '',
-            style: dataStyle(fontSize: 10),
-          ),
-        ),
-        // Distance — numeric, built-in font is fine
-        pw.Padding(
-          padding: const pw.EdgeInsets.all(6),
-          child: pw.Center(
-            child: pw.Text(
-              entry != null ? entry.distance.toStringAsFixed(1) : '',
-              style: const pw.TextStyle(fontSize: 10),
-            ),
-          ),
-        ),
-      ],
-    );
+      rowsBuffer.write('''
+        <tr>
+          <td class="day-cell">
+            <strong>$dayName</strong><br>
+            <span class="date-label">$dateStr</span>
+          </td>
+          <td class="data-cell">$locations</td>
+          <td class="data-cell">$activities</td>
+          <td class="dist-cell">$dist</td>
+        </tr>
+      ''');
+    }
+
+    final weekLabel =
+        '${DateFormat('MMM d, yyyy').format(startOfWeek)} &nbsp;To:&nbsp; '
+        '${DateFormat('MMM d, yyyy').format(endOfWeek)}';
+
+    return '''<!DOCTYPE html>
+<html lang="kn">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Weekly Duty Diary</title>
+  <style>
+    /* System fonts used — Android/iOS has built-in Kannada support */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: sans-serif;
+      font-size: 11px;
+      color: #000;
+      padding: 24px;
+    }
+    h1 {
+      text-align: center;
+      color: #2e5b2c;
+      font-size: 18px;
+      font-weight: bold;
+      margin-bottom: 4px;
+    }
+    .subtitle {
+      text-align: center;
+      color: #666;
+      font-size: 11px;
+      margin-bottom: 12px;
+    }
+    hr.green {
+      border: none;
+      border-top: 2px solid #2e5b2c;
+      margin-bottom: 10px;
+    }
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 10px;
+      margin-bottom: 4px;
+    }
+    .info-label { font-style: italic; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+    }
+    th {
+      background-color: #e8f5e9;
+      color: #1b5e20;
+      font-weight: bold;
+      font-size: 10px;
+      border: 1px solid #aaa;
+      padding: 6px;
+      text-align: center;
+    }
+    td {
+      border: 1px solid #aaa;
+      padding: 5px 6px;
+      vertical-align: top;
+      font-size: 11px;
+      /* Uses system default font which includes Kannada on Android/iOS */
+    }
+    .day-cell {
+      background-color: #f1f8e9;
+      width: 90px;
+      font-size: 10px;
+    }
+    .date-label { color: #666; font-size: 9px; }
+    .data-cell {
+      /* no special font needed — system handles Kannada natively */
+    }
+    .dist-cell { text-align: center; width: 45px; }
+    .summary-box {
+      border: 1px solid #888;
+      min-height: 80px;
+      padding: 8px;
+      margin-top: 14px;
+      font-weight: bold;
+      color: #2e5b2c;
+      font-size: 11px;
+    }
+    .sig-row {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 50px;
+    }
+    .sig-block { text-align: center; font-size: 10px; }
+    .sig-line {
+      border-top: 1px solid #000;
+      margin-bottom: 4px;
+    }
+    .sig-block-left .sig-line { width: 160px; }
+    .sig-block-right .sig-line { width: 220px; }
+  </style>
+</head>
+<body>
+  <h1>WEEKLY DUTY DIARY</h1>
+  <p class="subtitle">Forest Department Official Log</p>
+  <hr class="green">
+
+  <div class="info-row">
+    <span>Week Of: $weekLabel</span>
+    <span class="info-label">Officer Name: _____________________</span>
+  </div>
+  <div class="info-row">
+    <span class="info-label">Section / Beat: ___________________</span>
+    <span class="info-label">Range: ___________________________</span>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Day</th>
+        <th>Locations / Compartments</th>
+        <th>Key Activities &amp; Observations<br>(Wildlife, Offenses, Flora)</th>
+        <th>Dist<br>(km)</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${rowsBuffer.toString()}
+    </tbody>
+  </table>
+
+  <div class="summary-box">Weekly Summary &amp; Notes</div>
+
+  <div class="sig-row">
+    <div class="sig-block sig-block-left">
+      <div class="sig-line"></div>
+      Signature of the Officer
+    </div>
+    <div class="sig-block sig-block-right">
+      <div class="sig-line"></div>
+      Signature of the Supervising Officer (RFO)
+    </div>
+  </div>
+</body>
+</html>''';
   }
 
-  // ── CSV Export ───────────────────────────────────────────────────────────
+  /// HTML-escape special characters so user text renders safely in HTML
+  static String _e(String raw) {
+    return raw
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll('\n', '<br>');
+  }
+
+  // ── CSV Export (unchanged) ────────────────────────────────────────────────
   static Future<void> generateWeeklyCsv(
-      BuildContext context,
-      DateTime startOfWeek,
-      List<DutyDiaryModel> entries) async {
+    BuildContext context,
+    DateTime startOfWeek,
+    List<DutyDiaryModel> entries,
+  ) async {
     final endOfWeek = startOfWeek.add(const Duration(days: 6));
     final df = DateFormat('yyyy-MM-dd');
 
@@ -358,11 +297,16 @@ class DiaryPdfGenerator {
       final dateStr = df.format(currentDay);
       final entry = weekData[i];
 
-      final loc =
-          entry?.locations.replaceAll('"', '""').replaceAll('\n', ' ') ?? '';
-      final act =
-          entry?.activities.replaceAll('"', '""').replaceAll('\n', ' ') ?? '';
-      final dist = entry != null ? entry.distance.toStringAsFixed(1) : '';
+      final loc = entry?.locations
+              .replaceAll('"', '""')
+              .replaceAll('\n', ' ') ??
+          '';
+      final act = entry?.activities
+              .replaceAll('"', '""')
+              .replaceAll('\n', ' ') ??
+          '';
+      final dist =
+          entry != null ? entry.distance.toStringAsFixed(1) : '';
 
       csv.writeln('"$dayName","$dateStr","$loc","$act","$dist"');
     }
@@ -386,7 +330,8 @@ class DiaryPdfGenerator {
         }
       } else {
         final dir = await getApplicationDocumentsDirectory();
-        file = File('${dir.path}/Duty_Diary_${df.format(startOfWeek)}.csv');
+        file =
+            File('${dir.path}/Duty_Diary_${df.format(startOfWeek)}.csv');
         await file.writeAsString(csv.toString());
       }
 
@@ -394,8 +339,9 @@ class DiaryPdfGenerator {
       if (context.mounted && savedToDownloads) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-              content: Text('CSV saved to Downloads!'),
-              backgroundColor: Colors.green),
+            content: Text('CSV saved to Downloads!'),
+            backgroundColor: Colors.green,
+          ),
         );
       }
       await Share.shareXFiles([XFile(file.path)],
