@@ -137,10 +137,14 @@ class KmlEngine {
   }
 
   /// Splits an image into a foreground and background image for Smart Opacity.
-  /// Processes the overlay image for smart opacity:
-  /// - White and cyan background pixels → alpha = 0 (fully transparent)
-  /// - Black, red, and all other line/text pixels → kept fully opaque
-  /// Returns the path to the processed transparent PNG, or null on failure.
+  /// Processes the overlay image for smart opacity using luminance-based detection:
+  /// - Dark pixels (black lines, text, borders) → fully opaque
+  /// - Red pixels (roads, boundaries) → fully opaque
+  /// - Anti-aliasing edge pixels → partial opacity (smooth edges)
+  /// - Everything else (white, grey, cyan background) → fully transparent
+  ///
+  /// This is more reliable than color-range detection because JPEG compression
+  /// creates many intermediate grey/cyan shades that cause a blurry haze.
   static Future<String?> _processSmartOpacityImage(String originalPath) async {
     try {
       final ext = originalPath.contains('.') ? originalPath.split('.').last : 'png';
@@ -154,7 +158,7 @@ class KmlEngine {
       final w = srcImage.width;
       final h = srcImage.height;
 
-      // Create a new RGBA image — JPEG/3-channel images don't support alpha
+      // RGBA output — JPEG/3-channel images don't support alpha
       final outImage = img.Image(width: w, height: h, numChannels: 4);
 
       for (int y = 0; y < h; y++) {
@@ -164,28 +168,26 @@ class KmlEngine {
           final g = sp.g.toInt();
           final b = sp.b.toInt();
 
-          // White: all channels > 220
-          final isWhite = r > 220 && g > 220 && b > 220;
+          // Perceived luminance (standard formula)
+          final luminance = 0.299 * r + 0.587 * g + 0.114 * b;
 
-          // Light cyan: greenish-blue (water bodies, fill areas)
-          // Cyan = high G and B, any R value
-          // But exclude near-white (already caught above)
-          // Also exclude dark cyans that might be actual content
-          final isLightCyan = !isWhite && b > 180 && g > 180 && r < 200 &&
-              (b - r) > 30; // must be distinctly more blue/green than red
+          // Red road / boundary pixels: high red, low green and blue
+          final isRed = r > 140 && g < 110 && b < 110 && (r - g) > 50;
 
-          // Light grey (background grid / paper texture)
-          final isLightGrey = !isWhite && r > 190 && g > 190 && b > 190 &&
-              (r - b).abs() < 20 && (r - g).abs() < 20;
-
-          final isBackground = isWhite || isLightCyan || isLightGrey;
-
-          if (isBackground) {
-            // Make transparent — satellite map will show through
-            outImage.setPixelRgba(x, y, 0, 0, 0, 0);
-          } else {
-            // Keep lines, text, red roads, black borders fully opaque
+          if (isRed) {
+            // Red roads / boundaries — fully opaque
             outImage.setPixelRgba(x, y, r, g, b, 255);
+          } else if (luminance < 80) {
+            // Definitely a dark line or text — fully opaque
+            outImage.setPixelRgba(x, y, r, g, b, 255);
+          } else if (luminance < 210) {
+            // Anti-aliasing / edge pixel — smooth alpha falloff
+            // The darker the pixel, the more opaque it is
+            final alpha = ((210 - luminance) / 130 * 255).clamp(0, 255).toInt();
+            outImage.setPixelRgba(x, y, r, g, b, alpha);
+          } else {
+            // Light / white / cyan / grey background — fully transparent
+            outImage.setPixelRgba(x, y, 0, 0, 0, 0);
           }
         }
       }
@@ -197,13 +199,13 @@ class KmlEngine {
     }
   }
 
-  /// Legacy split function — kept for backward compat but now calls processSmartOpacity
+  /// Wrapper kept for call-site compatibility
   static Future<Map<String, String>?> _splitSmartOpacityImage(String originalPath) async {
     final outPath = await _processSmartOpacityImage(originalPath);
     if (outPath == null) return null;
-    // fg = transparent overlay (lines only), bg = null (not used)
     return {'fg': outPath, 'bg': outPath};
   }
+
 
   /// Generate KML string from polygon points
   static String generatePolygonKml({
