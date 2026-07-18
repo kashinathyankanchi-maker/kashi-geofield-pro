@@ -177,16 +177,15 @@ class KmlEngine {
           if (isRed) {
             // Red roads / boundaries — fully opaque
             outImage.setPixelRgba(x, y, r, g, b, 255);
-          } else if (luminance < 80) {
+          } else if (luminance < 60) {
             // Definitely a dark line or text — fully opaque
             outImage.setPixelRgba(x, y, r, g, b, 255);
-          } else if (luminance < 210) {
-            // Anti-aliasing / edge pixel — smooth alpha falloff
-            // The darker the pixel, the more opaque it is
-            final alpha = ((210 - luminance) / 130 * 255).clamp(0, 255).toInt();
+          } else if (luminance < 100) {
+            // Very narrow anti-aliasing ramp — only the immediate edge pixels
+            final alpha = ((100 - luminance) / 40 * 255).clamp(0, 255).toInt();
             outImage.setPixelRgba(x, y, r, g, b, alpha);
           } else {
-            // Light / white / cyan / grey background — fully transparent
+            // Everything else (white, grey, cyan, light colours) — fully transparent
             outImage.setPixelRgba(x, y, 0, 0, 0, 0);
           }
         }
