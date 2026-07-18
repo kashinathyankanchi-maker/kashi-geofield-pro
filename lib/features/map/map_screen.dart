@@ -561,40 +561,24 @@ class MapScreenState extends State<MapScreen> {
           shape.west != null &&
           shape.imageUrl != null) {
         final imgFile = File(shape.imageUrl!);
-        if (!imgFile.existsSync()) continue; // skip if image not found
-        
+        if (!imgFile.existsSync()) continue;
+
         final bounds = fmap.LatLngBounds(
           LatLng(shape.south!, shape.west!), // SW
           LatLng(shape.north!, shape.east!), // NE
         );
 
-        if (shape.bgImageUrl != null) {
-          final bgFile = File(shape.bgImageUrl!);
-          if (bgFile.existsSync()) {
-            overlays.add(
-              fmap.OverlayImage(
-                bounds: bounds,
-                imageProvider: FileImage(bgFile),
-                opacity: shape.opacity, // Background gets user-selected opacity
-              ),
-            );
-          }
-          overlays.add(
-            fmap.OverlayImage(
-              bounds: bounds,
-              imageProvider: FileImage(imgFile),
-              opacity: 1.0, // Foreground (lines/text) stays fully opaque
-            ),
-          );
-        } else {
-          overlays.add(
-            fmap.OverlayImage(
-              bounds: bounds,
-              imageProvider: FileImage(imgFile),
-              opacity: shape.opacity,
-            ),
-          );
-        }
+        // Smart opacity: the image already has transparent pixels where the
+        // white/cyan background was. Render it directly — the satellite map
+        // shows through those transparent pixels. The opacity slider fades
+        // the entire overlay (lines + remaining colour) uniformly.
+        overlays.add(
+          fmap.OverlayImage(
+            bounds: bounds,
+            imageProvider: FileImage(imgFile),
+            opacity: shape.opacity,
+          ),
+        );
       }
     }
     return overlays;

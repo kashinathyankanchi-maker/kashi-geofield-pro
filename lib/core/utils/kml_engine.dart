@@ -137,16 +137,15 @@ class KmlEngine {
   }
 
   /// Splits an image into a foreground and background image for Smart Opacity.
-  /// The foreground contains lines/text (white/cyan made transparent).
-  /// The background contains only white/cyan areas (everything else transparent).
-  /// Returns a Map with 'fg' and 'bg' paths, or null on failure.
-  static Future<Map<String, String>?> _splitSmartOpacityImage(String originalPath) async {
+  /// Processes the overlay image for smart opacity:
+  /// - White and cyan background pixels → alpha = 0 (fully transparent)
+  /// - Black, red, and all other line/text pixels → kept fully opaque
+  /// Returns the path to the processed transparent PNG, or null on failure.
+  static Future<String?> _processSmartOpacityImage(String originalPath) async {
     try {
       final ext = originalPath.contains('.') ? originalPath.split('.').last : 'png';
       final pathWithoutExt = originalPath.substring(0, originalPath.length - ext.length - 1);
-      
-      final fgPath = '${pathWithoutExt}_fg.png';
-      final bgPath = '${pathWithoutExt}_bg.png';
+      final outPath = '${pathWithoutExt}_smart.png';
 
       final bytes = await File(originalPath).readAsBytes();
       final srcImage = img.decodeImage(bytes);
@@ -155,10 +154,8 @@ class KmlEngine {
       final w = srcImage.width;
       final h = srcImage.height;
 
-      // CRITICAL: Create new images with 4 channels (RGBA) so alpha works.
-      // JPEG images are 3-channel (RGB) — setting alpha on them is a no-op!
-      final fgImage = img.Image(width: w, height: h, numChannels: 4);
-      final bgImage = img.Image(width: w, height: h, numChannels: 4);
+      // Create a new RGBA image — JPEG/3-channel images don't support alpha
+      final outImage = img.Image(width: w, height: h, numChannels: 4);
 
       for (int y = 0; y < h; y++) {
         for (int x = 0; x < w; x++) {
@@ -167,29 +164,45 @@ class KmlEngine {
           final g = sp.g.toInt();
           final b = sp.b.toInt();
 
+          // White: all channels > 220
           final isWhite = r > 220 && g > 220 && b > 220;
-          final isLightCyan = !isWhite && g > 200 && b > 200; // Allow any R value for cyan
-          final isBackground = isWhite || isLightCyan;
+
+          // Light cyan: greenish-blue (water bodies, fill areas)
+          // Cyan = high G and B, any R value
+          // But exclude near-white (already caught above)
+          // Also exclude dark cyans that might be actual content
+          final isLightCyan = !isWhite && b > 180 && g > 180 && r < 200 &&
+              (b - r) > 30; // must be distinctly more blue/green than red
+
+          // Light grey (background grid / paper texture)
+          final isLightGrey = !isWhite && r > 190 && g > 190 && b > 190 &&
+              (r - b).abs() < 20 && (r - g).abs() < 20;
+
+          final isBackground = isWhite || isLightCyan || isLightGrey;
 
           if (isBackground) {
-            // Background pixel: visible in bg image, transparent in fg image
-            bgImage.setPixelRgba(x, y, r, g, b, 255);
-            fgImage.setPixelRgba(x, y, 0, 0, 0, 0);
+            // Make transparent — satellite map will show through
+            outImage.setPixelRgba(x, y, 0, 0, 0, 0);
           } else {
-            // Foreground pixel (line/text): visible in fg image, transparent in bg image
-            fgImage.setPixelRgba(x, y, r, g, b, 255);
-            bgImage.setPixelRgba(x, y, 0, 0, 0, 0);
+            // Keep lines, text, red roads, black borders fully opaque
+            outImage.setPixelRgba(x, y, r, g, b, 255);
           }
         }
       }
 
-      await File(fgPath).writeAsBytes(img.encodePng(fgImage));
-      await File(bgPath).writeAsBytes(img.encodePng(bgImage));
-
-      return {'fg': fgPath, 'bg': bgPath};
+      await File(outPath).writeAsBytes(img.encodePng(outImage));
+      return outPath;
     } catch (e) {
       return null;
     }
+  }
+
+  /// Legacy split function — kept for backward compat but now calls processSmartOpacity
+  static Future<Map<String, String>?> _splitSmartOpacityImage(String originalPath) async {
+    final outPath = await _processSmartOpacityImage(originalPath);
+    if (outPath == null) return null;
+    // fg = transparent overlay (lines only), bg = null (not used)
+    return {'fg': outPath, 'bg': outPath};
   }
 
   /// Generate KML string from polygon points
@@ -541,9 +554,9 @@ class KmlEngine {
                     final pngPath = await convertPdfToPng(imgFile.path);
                     if (pngPath != null) {
                       if (smartOpacity) {
-                        final splitResult = await _splitSmartOpacityImage(pngPath);
-                        if (splitResult != null) {
-                          updatedShapes.add(shape.copyWith(imageUrl: splitResult['fg'], bgImageUrl: splitResult['bg']));
+                        final smartPath = await _processSmartOpacityImage(pngPath);
+                        if (smartPath != null) {
+                          updatedShapes.add(shape.copyWith(imageUrl: smartPath));
                           continue;
                         }
                       }
@@ -557,9 +570,9 @@ class KmlEngine {
                   
                   // Normal image (JPG/PNG etc.)
                   if (smartOpacity) {
-                    final splitResult = await _splitSmartOpacityImage(imgFile.path);
-                    if (splitResult != null) {
-                      updatedShapes.add(shape.copyWith(imageUrl: splitResult['fg'], bgImageUrl: splitResult['bg']));
+                    final smartPath = await _processSmartOpacityImage(imgFile.path);
+                    if (smartPath != null) {
+                      updatedShapes.add(shape.copyWith(imageUrl: smartPath));
                       continue;
                     }
                   }
