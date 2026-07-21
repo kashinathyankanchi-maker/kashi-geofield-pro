@@ -30,6 +30,9 @@ import '../../core/models/polygon_model.dart';
 import '../../core/utils/geo_calculator.dart';
 import '../../core/utils/kml_engine.dart';
 import '../../core/utils/pdf_generator.dart';
+import '../../core/models/fire_incident.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'fire_data_service.dart';
 import 'map_controller.dart';
 import 'widgets/draw_toolbar.dart';
 import 'widgets/layer_panel.dart';
@@ -2664,6 +2667,106 @@ $wpPlacemarks
     _positionStream?.cancel();
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _checkFireAlerts() async {
+    final prefs = await SharedPreferences.getInstance();
+    final apiKey = prefs.getString('settings_firms_api_key') ?? '';
+    final radiusKm = prefs.getDouble('settings_fire_alert_radius') ?? 5.0;
+
+    if (apiKey.isEmpty) return; // Feature not enabled
+
+    // To make it efficient, we check a bounding box covering the user's saved polygons.
+    if (_mapController.drawnShapes.isEmpty) return;
+
+    double minLat = 90.0, maxLat = -90.0, minLng = 180.0, maxLng = -180.0;
+    for (final shape in _mapController.drawnShapes) {
+      if (shape.type == DrawMode.polygon) {
+        for (final pt in shape.points) {
+          if (pt.latitude < minLat) minLat = pt.latitude;
+          if (pt.latitude > maxLat) maxLat = pt.latitude;
+          if (pt.longitude < minLng) minLng = pt.longitude;
+          if (pt.longitude > maxLng) maxLng = pt.longitude;
+        }
+      }
+    }
+
+    // Add buffer based on radius (~1 degree per 111km)
+    double buffer = radiusKm / 111.0;
+    minLat -= buffer;
+    maxLat += buffer;
+    minLng -= buffer;
+    maxLng += buffer;
+
+    // Fetch fires
+    final incidents = await FireDataService.fetchActiveFires(apiKey, minLng, minLat, maxLng, maxLat);
+    _mapController.setFireIncidents(incidents);
+
+    if (incidents.isNotEmpty) {
+      // Auto-enable fire layer so user sees them
+      if (!_mapController.showFireLayer) {
+        _mapController.toggleFireLayer();
+      }
+
+      // Check exact distance to polygons
+      final alertFires = <FireIncident>[];
+      for (final fire in incidents) {
+        final firePt = LatLng(fire.latitude, fire.longitude);
+        bool isNear = false;
+        for (final shape in _mapController.drawnShapes) {
+          if (shape.type == DrawMode.polygon) {
+            for (final pt in shape.points) {
+              final dist = const Distance().as(LengthUnit.Kilometer, firePt, pt);
+              if (dist <= radiusKm) {
+                isNear = true;
+                break;
+              }
+            }
+          }
+          if (isNear) break;
+        }
+        if (isNear) alertFires.add(fire);
+      }
+
+      if (alertFires.isNotEmpty) {
+        _showFireAlertDialog(alertFires.length, radiusKm);
+      }
+    }
+  }
+
+  void _showFireAlertDialog(int count, double radiusKm) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.bgCard,
+        title: Row(
+          children: [
+            const Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 28),
+            const SizedBox(width: 10),
+            Text('Fire Alert!', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: Colors.redAccent)),
+          ],
+        ),
+        content: Text(
+          '$count active fire(s) detected within ${radiusKm.toStringAsFixed(1)} km of your saved polygons (satellite data from NASA FIRMS). Please stay alert.',
+          style: const TextStyle(fontSize: 14, color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('DISMISS', style: TextStyle(color: AppTheme.textSecondary)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            onPressed: () {
+              Navigator.pop(ctx);
+              // Open layers panel to show they are rendered
+              setState(() => _showLayerPanel = true);
+            },
+            child: const Text('VIEW ON MAP'),
+          ),
+        ],
+      ),
+    );
   }
 }
 

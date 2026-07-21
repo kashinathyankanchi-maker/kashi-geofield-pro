@@ -5,6 +5,7 @@ import '../../core/utils/geo_calculator.dart';
 import '../../core/utils/kml_engine.dart';
 import '../../core/models/polygon_model.dart';
 import '../../core/database/db_helper.dart';
+import '../../core/models/fire_incident.dart';
 
 enum DrawMode { none, polygon, path, marker }
 
@@ -49,6 +50,11 @@ class MapController extends ChangeNotifier {
   bool showPolygonLayer = true;
   bool showVillageLayer = true;
   bool showKmlLayer = true;
+  bool showFireLayer = false; // Add Fire layer
+
+  // Fire incidents loaded from API
+  List<FireIncident> _fireIncidents = [];
+  List<FireIncident> get fireIncidents => _fireIncidents;
 
   // KML shapes loaded on map
   List<KmlShape> _kmlShapes = [];
@@ -468,6 +474,16 @@ class MapController extends ChangeNotifier {
 
   void togglePolygonLayer() {
     showPolygonLayer = !showPolygonLayer;
+    notifyListeners();
+  }
+
+  void toggleFireLayer() {
+    showFireLayer = !showFireLayer;
+    notifyListeners();
+  }
+
+  void setFireIncidents(List<FireIncident> incidents) {
+    _fireIncidents = incidents;
     notifyListeners();
   }
 

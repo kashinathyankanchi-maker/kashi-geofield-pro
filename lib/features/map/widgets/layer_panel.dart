@@ -123,6 +123,16 @@ class LayerPanel extends StatelessWidget {
                 onToggle: controller.toggleKmlLayer,
               ),
 
+              // Fire Layer
+              _LayerToggle(
+                icon: Icons.local_fire_department,
+                label: 'Active Fires (FIRMS)',
+                color: Colors.redAccent,
+                isVisible: controller.showFireLayer,
+                count: controller.fireIncidents.length,
+                onToggle: controller.toggleFireLayer,
+              ),
+
               const Divider(height: 1, color: AppTheme.borderColor),
 
               // My Shapes List
