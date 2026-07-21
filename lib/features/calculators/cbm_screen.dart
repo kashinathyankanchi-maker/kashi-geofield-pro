@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:image_picker/image_picker.dart';
-import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -31,8 +29,6 @@ class _CbmScreenState extends State<CbmScreen> with TickerProviderStateMixin {
   final List<LogEntry> _entries = [];
   final TextEditingController _girthController = TextEditingController();
   final TextEditingController _lengthController = TextEditingController();
-  bool _isScanning = false;
-  String _scannedRawText = '';
   String _errorMessage = '';
   late AnimationController _animController;
   late Animation<double> _fadeAnim;
@@ -91,270 +87,11 @@ class _CbmScreenState extends State<CbmScreen> with TickerProviderStateMixin {
   void _clearAll() => setState(() {
     _entries.clear();
     _errorMessage = '';
-    _scannedRawText = '';
     _girthController.clear();
     _lengthController.clear();
   });
 
-  // -- OCR with spatial column detection --
-  Future<void> _pickImage(ImageSource src) async {
-    setState(() { _isScanning = true; _errorMessage = ''; _scannedRawText = ''; });
-    try {
-      final img = await ImagePicker().pickImage(source: src, maxWidth: 1080, maxHeight: 1920);
-      if (img == null) { setState(() => _isScanning = false); return; }
-      final rec = TextRecognizer(script: TextRecognitionScript.latin);
-      final result = await rec.processImage(InputImage.fromFilePath(img.path));
-      await rec.close();
-      final raw = result.text;
-      setState(() { _scannedRawText = raw.isEmpty ? '(no text detected)' : raw; });
-      if (raw.trim().isEmpty) {
-        setState(() { _errorMessage = 'No text detected. Try a clearer image.'; _isScanning = false; }); return;
-      }
-      // PRIMARY: use bounding-box x-position to split left (Girth) / right (Length) columns
-      final newEntries = _parseFromBlocks(result);
-      setState(() { _isScanning = false; });
-      if (newEntries.isNotEmpty) {
-        // Show review dialog - user can correct any OCR errors before adding
-        await _showScanReviewDialog(newEntries);
-      } else {
-        setState(() => _errorMessage = 'Could not extract pairs. Review raw text below and add manually.');
-      }
-        } catch (e) {
-      setState(() { _errorMessage = 'Error: $e'; _isScanning = false; });
-    }
-  }
 
-  // -- Post-scan review dialog --
-  // Shows extracted Girth/Length pairs in editable fields.
-  // User can correct any OCR errors before values are added to the table.
-  Future<void> _showScanReviewDialog(List<LogEntry> scanned) async {
-    final gCtrls = scanned.map((e) => TextEditingController(text: e.girth.toStringAsFixed(2))).toList();
-    final lCtrls = scanned.map((e) => TextEditingController(text: e.length.toStringAsFixed(2))).toList();
-
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: const Color(0xFF161B22),
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
-      builder: (ctx) => Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          // Handle
-          const SizedBox(height: 12),
-          Container(width: 40, height: 4,
-              decoration: BoxDecoration(color: const Color(0xFF30363D), borderRadius: BorderRadius.circular(2))),
-          const SizedBox(height: 12),
-          // Title
-          Text('Review Scanned Values',
-              style: TextStyle(fontFamily: 'monospace', color: const Color(0xFFC9D1D9), fontSize: 15, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 4),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Text('OCR may misread handwriting. Edit any wrong values below before adding.',
-                style: TextStyle(fontFamily: 'monospace', color: const Color(0xFF8B949E), fontSize: 11),
-                textAlign: TextAlign.center),
-          ),
-          const SizedBox(height: 12),
-          // Column headers
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Row(children: [
-              const SizedBox(width: 28),
-              Expanded(child: Text('Girth (m)', style: TextStyle(fontFamily: 'monospace', color: const Color(0xFF58A6FF), fontSize: 12, fontWeight: FontWeight.bold))),
-              const SizedBox(width: 8),
-              Expanded(child: Text('Length (m)', style: TextStyle(fontFamily: 'monospace', color: const Color(0xFF58A6FF), fontSize: 12, fontWeight: FontWeight.bold))),
-            ]),
-          ),
-          const SizedBox(height: 6),
-          // Editable rows (scrollable)
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 280),
-            child: ListView.builder(
-              shrinkWrap: true,
-              itemCount: gCtrls.length,
-              itemBuilder: (_, i) => Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 3),
-                child: Row(children: [
-                  SizedBox(width: 28, child: Text('',
-                      style: TextStyle(fontFamily: 'monospace', color: const Color(0xFF8B949E), fontSize: 12))),
-                  Expanded(child: _reviewField(gCtrls[i])),
-                  const SizedBox(width: 8),
-                  Expanded(child: _reviewField(lCtrls[i])),
-                ]),
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          // Confirm button
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: ElevatedButton(
-              onPressed: () {
-                final added = <LogEntry>[];
-                for (int i = 0; i < gCtrls.length; i++) {
-                  final g = double.tryParse(gCtrls[i].text.replaceAll(',', '.'));
-                  final l = double.tryParse(lCtrls[i].text.replaceAll(',', '.'));
-                  if (g != null && l != null && g > 0 && l > 0) added.add(LogEntry(girth: g, length: l));
-                }
-                Navigator.pop(ctx);
-                if (added.isNotEmpty) {
-                  setState(() => _entries.addAll(added));
-                  _animController..reset()..forward();
-                  _snack('Added  log to table!', const Color(0xFF3FB950));
-                }
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF3FB950), foregroundColor: Colors.white,
-                minimumSize: const Size.fromHeight(46),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              ),
-              child: Text('Confirm & Add  Logs',
-                  style: TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.bold, fontSize: 14)),
-            ),
-          ),
-          const SizedBox(height: 16),
-        ]),
-      ),
-    );
-
-    for (final c in gCtrls) c.dispose();
-    for (final c in lCtrls) c.dispose();
-  }
-
-  Widget _reviewField(TextEditingController ctrl) => TextField(
-    controller: ctrl,
-    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-    style: TextStyle(fontFamily: 'monospace', color: const Color(0xFFC9D1D9), fontSize: 13),
-    decoration: InputDecoration(
-      isDense: true,
-      fillColor: const Color(0xFF0D1117), filled: true,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-      enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(6),
-          borderSide: const BorderSide(color: Color(0xFF30363D))),
-      focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(6),
-          borderSide: const BorderSide(color: Color(0xFF58A6FF), width: 1.5)),
-    ),
-  );
-  // OCR noise cleaner - safe version.
-  // Only substitutes letters when the token is MOSTLY numeric (letters <= digits).
-  // This prevents header words like 'Gith','ng','ght' from becoming phantom numbers.
-  String? _cleanOcrNum(String raw) {
-    var s = raw.trim();
-    // MUST contain at least one digit - pure letters/words return null immediately
-    if (!RegExp(r'\d').hasMatch(s)) return null;
-    // Fix dash as decimal separator: 4-00 -> 4.00
-    s = s.replaceAllMapped(RegExp(r'(\d)-(\d)'), (m) => '${m[1]}.${m[2]}');
-    // Only apply substitutions when letters <= digits (token is mostly numeric)
-    final digitCnt  = RegExp(r'\d').allMatches(s).length;
-    final letterCnt = RegExp(r'[A-Za-z]').allMatches(s).length;
-    if (letterCnt > 0 && letterCnt <= digitCnt) {
-      s = s.replaceAllMapped(RegExp(r'[A-Za-z]'), (m) {
-        switch (m[0]!.toLowerCase()) {
-          case 'd': case 'q': return '0'; // 0 misread as D/Q (most common)
-          case 'o':           return '0'; // O/0 confusion
-          case 's':           return '5'; // 5/S confusion
-          case 'i': case 'l': return '1'; // 1/I/l confusion
-          case 'e':           return '';  // leading E (E0.9D -> 0.9D)
-          default:            return '';  // drop other stray letters safely
-        }
-      });
-    }
-    // Remove anything that is not a digit or period
-    s = s.replaceAll(RegExp(r'[^\d.]'), '');
-    // Keep only the first decimal point
-    final dotIdx = s.indexOf('.');
-    if (dotIdx >= 0) {
-      s = s.substring(0, dotIdx + 1) +
-          s.substring(dotIdx + 1).replaceAll('.', '');
-    }
-    if (s.isEmpty || s == '.') return null;
-    return s;
-  }
-  /// Spatial column detection using ML Kit bounding boxes.
-  /// Applies OCR noise cleaning per element, then splits by median x.
-  List<LogEntry> _parseFromBlocks(RecognizedText result) {
-    final headerRe = RegExp(
-        r'(?:girth|length|lenght|lenth|girht|gith|girh)',
-        caseSensitive: false);
-    final List<MapEntry<double, double>> positioned = [];
-    for (final block in result.blocks) {
-      for (final line in block.lines) {
-        for (final element in line.elements) {
-          final raw = element.text.trim();
-          if (headerRe.hasMatch(raw) && !RegExp(r'\d').hasMatch(raw)) continue;
-          final cleaned = _cleanOcrNum(raw);
-          if (cleaned == null) continue;
-          final v = double.tryParse(cleaned);
-          if (v == null || v <= 0 || v > 50) continue;
-          final cx = element.boundingBox.left + element.boundingBox.width / 2;
-          positioned.add(MapEntry(cx, v));
-        }
-      }
-    }
-    if (positioned.length >= 2) {
-      final sorted = positioned.map((e) => e.key).toList()..sort();
-      final medianX = sorted[sorted.length ~/ 2];
-      final girths  = positioned.where((e) => e.key <  medianX).map((e) => e.value).toList();
-      final lengths = positioned.where((e) => e.key >= medianX).map((e) => e.value).toList();
-      if (girths.isNotEmpty && lengths.isNotEmpty) {
-        final count = girths.length < lengths.length ? girths.length : lengths.length;
-        return List.generate(count, (i) => LogEntry(girth: girths[i], length: lengths[i]));
-      }
-    }
-    return _parseTextFallback(result.text);
-  }
-
-  /// Text-only fallback. Applies OCR noise cleaning to every token.
-  List<LogEntry> _parseTextFallback(String rawText) {
-    final entries  = <LogEntry>[];
-    final headerRe = RegExp(r'(?:girth|length|lenght|lenth|girht|gith|girh)', caseSensitive: false);
-    final tokenRe  = RegExp(r'[A-Za-z]*\d[\dA-Za-z.,\-]*');
-    final lines    = rawText.split(RegExp(r'[\n\r]+'));
-
-    List<double> extractNums(String line) {
-      return tokenRe.allMatches(line)
-          .map((m) => _cleanOcrNum(m.group(0)!))
-          .where((s) => s != null)
-          .map((s) => double.tryParse(s!))
-          .where((v) => v != null && v > 0 && v < 50)
-          .cast<double>()
-          .toList();
-    }
-
-    for (final line in lines) {
-      final t = line.trim();
-      if (t.isEmpty || (headerRe.hasMatch(t) && !RegExp(r'\d').hasMatch(t))) continue;
-      final nums = extractNums(t);
-      if (nums.length >= 2) {
-        int s = (nums[0] == nums[0].truncateToDouble() && nums[0] <= 99 && nums.length >= 3) ? 1 : 0;
-        if (s + 1 < nums.length) entries.add(LogEntry(girth: nums[s], length: nums[s + 1]));
-      }
-    }
-    if (entries.isNotEmpty) return entries;
-
-    final allNums = <double>[];
-    for (final line in lines) {
-      final t = line.trim();
-      if (t.isEmpty || (headerRe.hasMatch(t) && !RegExp(r'\d').hasMatch(t))) continue;
-      allNums.addAll(extractNums(t));
-    }
-    if (allNums.length >= 2) {
-      if (allNums.length % 2 == 0) {
-        final half = allNums.length ~/ 2;
-        for (int i = 0; i < half; i++) {
-          entries.add(LogEntry(girth: allNums[i], length: allNums[half + i]));
-        }
-      } else {
-        for (int i = 0; i + 1 < allNums.length; i += 2) {
-          entries.add(LogEntry(girth: allNums[i], length: allNums[i + 1]));
-        }
-      }
-    }
-    return entries;
-  }
   void _snack(String msg, Color c) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(msg, style: TextStyle(fontFamily: 'monospace', color: Colors.white, fontWeight: FontWeight.w600)),
@@ -375,13 +112,10 @@ class _CbmScreenState extends State<CbmScreen> with TickerProviderStateMixin {
             _headerCard(),
             const SizedBox(height: 12),
             if (_entries.isNotEmpty) ...[_totalCard(), const SizedBox(height: 12)],
-            _scannerCard(),
-            const SizedBox(height: 12),
             _manualCard(),
             const SizedBox(height: 12),
             if (_entries.isNotEmpty) _table(),
             if (_errorMessage.isNotEmpty) ...[const SizedBox(height: 10), _errorBox()],
-            if (_scannedRawText.isNotEmpty) ...[const SizedBox(height: 10), _rawBox()],
             const SizedBox(height: 20),
           ],
         ),
@@ -623,52 +357,6 @@ class _CbmScreenState extends State<CbmScreen> with TickerProviderStateMixin {
     ),
   );
 
-  Widget _scannerCard() => Container(
-    padding: const EdgeInsets.all(14),
-    decoration: BoxDecoration(color: cardColor, borderRadius: BorderRadius.circular(10), border: Border.all(color: borderCol)),
-    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Row(children: [
-        const Icon(Icons.document_scanner, size: 18, color: gitBlue), const SizedBox(width: 8),
-        Text('Scan or Upload Log Sheet', style: TextStyle(fontFamily: 'monospace', fontSize: 14, fontWeight: FontWeight.bold, color: textMain)),
-      ]),
-      const SizedBox(height: 4),
-      Text('Supports printed & handwritten pages. All rows extracted automatically.',
-          style: TextStyle(fontFamily: 'monospace', fontSize: 11, color: textMuted)),
-      const SizedBox(height: 6),
-      Row(children: [
-        const Icon(Icons.lightbulb_outline, size: 12, color: gitBlue), const SizedBox(width: 5),
-        Expanded(child: Text('Tip: Write "1.10  5.00" per row, or "Girth: 1.10  Length: 5.00"',
-            style: TextStyle(fontFamily: 'monospace', fontSize: 10, color: textMuted, fontStyle: FontStyle.italic))),
-      ]),
-      const SizedBox(height: 12),
-      if (_isScanning)
-        Center(child: Padding(padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Column(children: [
-            const CircularProgressIndicator(color: gitBlue, strokeWidth: 2.5),
-            const SizedBox(height: 8),
-            Text('Scanning?', style: TextStyle(fontFamily: 'monospace', color: gitBlue, fontSize: 12, fontWeight: FontWeight.bold)),
-          ])))
-      else Row(children: [
-        Expanded(child: ElevatedButton.icon(
-          onPressed: () => _pickImage(ImageSource.camera),
-          icon: const Icon(Icons.camera_alt, size: 17),
-          label: Text('Scan Page', style: TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.w600)),
-          style: ElevatedButton.styleFrom(backgroundColor: btnDark, foregroundColor: textMain,
-            padding: const EdgeInsets.symmetric(vertical: 12), side: const BorderSide(color: borderCol),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-        )),
-        const SizedBox(width: 10),
-        Expanded(child: ElevatedButton.icon(
-          onPressed: () => _pickImage(ImageSource.gallery),
-          icon: const Icon(Icons.upload_file, size: 17),
-          label: Text('Upload Page', style: TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.w600)),
-          style: ElevatedButton.styleFrom(backgroundColor: btnDark, foregroundColor: textMain,
-            padding: const EdgeInsets.symmetric(vertical: 12), side: const BorderSide(color: borderCol),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-        )),
-      ]),
-    ]),
-  );
 
   Widget _manualCard() => Container(
     padding: const EdgeInsets.all(14),
@@ -769,18 +457,7 @@ class _CbmScreenState extends State<CbmScreen> with TickerProviderStateMixin {
     ]),
   );
 
-  Widget _rawBox() => Container(
-    padding: const EdgeInsets.all(10),
-    decoration: BoxDecoration(color: Colors.black.withOpacity(0.4), borderRadius: BorderRadius.circular(8), border: Border.all(color: borderCol)),
-    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-        Text('Detected Raw Text', style: TextStyle(fontFamily: 'monospace', color: textMuted, fontSize: 11, fontWeight: FontWeight.bold)),
-        GestureDetector(onTap: () => setState(() => _scannedRawText = ''), child: const Icon(Icons.close, size: 14, color: textMuted)),
-      ]),
-      const SizedBox(height: 6),
-      Text(_scannedRawText, style: TextStyle(fontFamily: 'monospace', color: textMain, fontSize: 11)),
-    ]),
-  );
 }
+
 
 

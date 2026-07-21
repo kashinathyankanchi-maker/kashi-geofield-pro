@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:collection/collection.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import '../duty_diary/duty_diary_screen.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart' as fmap;
@@ -2640,31 +2639,6 @@ $wpPlacemarks
               }
             }
           }
-        }
-        
-        // --- Fallback: Try OCR if EXIF failed ---
-        try {
-          final textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
-          final RecognizedText recognizedText = await textRecognizer.processImage(InputImage.fromFilePath(photo.path));
-          String text = recognizedText.text;
-          textRecognizer.close();
-          
-          // Regex to find floating point numbers with at least 4 decimal places (typical for GPS)
-          final regex = RegExp(r'(-?\d{1,3}\.\d{4,})');
-          final matches = regex.allMatches(text).toList();
-          
-          if (matches.length >= 2) {
-            final lat = double.tryParse(matches[0].group(1)!) ?? 0.0;
-            final lng = double.tryParse(matches[1].group(1)!) ?? 0.0;
-            if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
-               if (lat != 0.0 || lng != 0.0) {
-                 points.add(LatLng(lat, lng));
-                 continue;
-               }
-            }
-          }
-        } catch (e) {
-           debugPrint('OCR fallback failed for ${photo.path}: $e');
         }
       }
 
