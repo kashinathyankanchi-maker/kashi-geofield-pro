@@ -623,6 +623,42 @@ class MapScreenState extends State<MapScreen> {
   List<fmap.Marker> _buildMarkers() {
     final markers = <fmap.Marker>[];
 
+    // 🔥 Fire incident markers (NASA FIRMS — multi-satellite)
+    if (_mapController.showFireLayer) {
+      for (final fire in _mapController.fireIncidents) {
+        // Color by confidence: red = high, orange = medium, yellow = low
+        final Color fireColor = fire.confidence >= 80
+            ? Colors.red
+            : fire.confidence >= 50
+                ? Colors.orange
+                : Colors.yellow;
+
+        markers.add(fmap.Marker(
+          point: LatLng(fire.latitude, fire.longitude),
+          width: 28,
+          height: 28,
+          child: Tooltip(
+            message: fire.tooltipText,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                // Glow effect
+                Container(
+                  width: 24,
+                  height: 24,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: fireColor.withValues(alpha: 0.3),
+                  ),
+                ),
+                Icon(Icons.local_fire_department, color: fireColor, size: 18),
+              ],
+            ),
+          ),
+        ));
+      }
+    }
+
     // In-progress drawing: numbered dots
     for (int i = 0; i < _mapController.currentPoints.length; i++) {
       final pt = _mapController.currentPoints[i];
