@@ -20,6 +20,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gal/gal.dart';
 import 'package:exif/exif.dart';
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+import 'package:exif/exif.dart';
 import '../../shared/theme.dart';
 import '../../shared/compass_widget.dart';
 import '../../shared/compass_widget.dart';
@@ -2682,8 +2684,43 @@ $wpPlacemarks
       }
 
       if (points.isEmpty) {
-        _showSnackBar('No GPS data found in selected photos', isError: true);
-        return;
+        _showSnackBar('No EXIF GPS found. Scanning text (OCR)...');
+        final textRecognizer = TextRecognizer();
+        final ddmRegex = RegExp(r'([NnSs])\s*(\d{1,2})[^\d]*(\d{1,2}\.\d+)[^\dEewW]*([EeWw])\s*(\d{1,3})[^\d]*(\d{1,2}\.\d+)');
+
+        for (final photo in photos) {
+          final inputImage = InputImage.fromFilePath(photo.path);
+          final recognizedText = await textRecognizer.processImage(inputImage);
+          final matches = ddmRegex.allMatches(recognizedText.text);
+
+          for (final match in matches) {
+            try {
+              final latDir = match.group(1)!.toUpperCase();
+              final latDeg = double.parse(match.group(2)!);
+              final latMin = double.parse(match.group(3)!);
+              
+              final lngDir = match.group(4)!.toUpperCase();
+              final lngDeg = double.parse(match.group(5)!);
+              final lngMin = double.parse(match.group(6)!);
+              
+              double lat = latDeg + (latMin / 60.0);
+              double lng = lngDeg + (lngMin / 60.0);
+              
+              if (latDir == 'S') lat = -lat;
+              if (lngDir == 'W') lng = -lng;
+              
+              if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+                points.add(LatLng(lat, lng));
+              }
+            } catch (_) {}
+          }
+        }
+        await textRecognizer.close();
+
+        if (points.isEmpty) {
+          _showSnackBar('No GPS data or text found in selected photos', isError: true);
+          return;
+        }
       }
 
       _showSnackBar('Added ${points.length} coordinates to map');
