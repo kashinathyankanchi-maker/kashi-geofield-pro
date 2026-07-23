@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:archive/archive.dart';
+import 'package:flutter/foundation.dart'; // compute() for background isolates
 import 'package:image/image.dart' as img;
 import 'package:pdfx/pdfx.dart';
 import 'package:xml/xml.dart';
@@ -147,18 +148,31 @@ class KmlEngine {
   /// creates many intermediate grey/cyan shades that cause a blurry haze.
   static Future<String?> _processSmartOpacityImage(String originalPath) async {
     try {
+      // Run heavy pixel processing in background isolate — keeps UI smooth
+      return await compute(_smartOpacityIsolate, originalPath);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Static isolate entry point (sync I/O only, no async allowed in isolates).
+  static String? _smartOpacityIsolate(String originalPath) {
+    try {
       final ext = originalPath.contains('.') ? originalPath.split('.').last : 'png';
       final pathWithoutExt = originalPath.substring(0, originalPath.length - ext.length - 1);
       final outPath = '${pathWithoutExt}_smart.png';
 
-      final bytes = await File(originalPath).readAsBytes();
+      // Return cached version if already processed
+      final outFile = File(outPath);
+      if (outFile.existsSync() && outFile.lengthSync() > 1024) return outPath;
+
+      final bytes = File(originalPath).readAsBytesSync();
       final srcImage = img.decodeImage(bytes);
       if (srcImage == null) return null;
 
       final w = srcImage.width;
       final h = srcImage.height;
-
-      // RGBA output — JPEG/3-channel images don't support alpha
+      // RGBA output
       final outImage = img.Image(width: w, height: h, numChannels: 4);
 
       for (int y = 0; y < h; y++) {
@@ -167,33 +181,24 @@ class KmlEngine {
           final r = sp.r.toInt();
           final g = sp.g.toInt();
           final b = sp.b.toInt();
-
-          // Perceived luminance (standard formula)
           final luminance = 0.299 * r + 0.587 * g + 0.114 * b;
-
-          // Red road / boundary pixels: high red, low green and blue
           final isRed = r > 140 && g < 110 && b < 110 && (r - g) > 50;
-
           if (isRed) {
-            // Red roads / boundaries — fully opaque
             outImage.setPixelRgba(x, y, r, g, b, 255);
           } else if (luminance < 60) {
-            // Definitely a dark line or text — fully opaque
             outImage.setPixelRgba(x, y, r, g, b, 255);
           } else if (luminance < 100) {
-            // Very narrow anti-aliasing ramp — only the immediate edge pixels
             final alpha = ((100 - luminance) / 40 * 255).clamp(0, 255).toInt();
             outImage.setPixelRgba(x, y, r, g, b, alpha);
           } else {
-            // Everything else (white, grey, cyan, light colours) — fully transparent
             outImage.setPixelRgba(x, y, 0, 0, 0, 0);
           }
         }
       }
 
-      await File(outPath).writeAsBytes(img.encodePng(outImage));
+      File(outPath).writeAsBytesSync(img.encodePng(outImage));
       return outPath;
-    } catch (e) {
+    } catch (_) {
       return null;
     }
   }
@@ -724,14 +729,48 @@ class KmlEngine {
       final lowerPath = filePath.toLowerCase();
 
       if (lowerPath.endsWith('.kmz')) {
-        final bytes = await file.readAsBytes();
         final kmzBaseName = file.uri.pathSegments.last.split('.').first;
         final extractPath = '${file.parent.path}/$kmzBaseName';
         final extractDir = Directory(extractPath);
+
+        // ⚡ Cache check: reuse already-extracted KML files (2nd load is instant)
+        if (extractDir.existsSync()) {
+          final cachedKmls = extractDir
+              .listSync()
+              .whereType<File>()
+              .where((f) => f.path.toLowerCase().endsWith('.kml'))
+              .toList();
+          if (cachedKmls.isNotEmpty) {
+            final shapes = <KmlShape>[];
+            for (final kmlFile in cachedKmls) {
+              shapes.addAll(parseKml(await kmlFile.readAsString()));
+            }
+            if (shapes.isNotEmpty) return shapes;
+          }
+        }
+
+        final bytes = await file.readAsBytes();
         if (!await extractDir.exists()) {
           await extractDir.create(recursive: true);
         }
-        return await parseKmz(bytes.toList(), extractDir: extractPath, smartOpacity: smartOpacity);
+        final shapes = await parseKmz(bytes.toList(),
+            extractDir: extractPath, smartOpacity: smartOpacity);
+
+        // Save extracted KML files to disk cache for future fast loads
+        try {
+          final archive = ZipDecoder().decodeBytes(bytes);
+          for (final entry in archive.files) {
+            if (!entry.isFile) continue;
+            if (!entry.name.toLowerCase().endsWith('.kml')) continue;
+            final raw = entry.content;
+            if (raw is List<int>) {
+              final kmlFile = File('$extractPath/${entry.name.split('/').last}');
+              if (!kmlFile.existsSync()) kmlFile.writeAsBytesSync(raw);
+            }
+          }
+        } catch (_) {}
+
+        return shapes;
       } else if (lowerPath.endsWith('.kml')) {
         final content = await file.readAsString();
         return parseKml(content);
