@@ -2687,6 +2687,7 @@ $wpPlacemarks
         _showSnackBar('No EXIF GPS found. Scanning text (OCR)...');
         final textRecognizer = TextRecognizer();
         final ddmRegex = RegExp(r'([NnSs])\s*(\d{1,2})[^\d]*(\d{1,2}\.\d+)[^\dEewW]*([EeWw])\s*(\d{1,3})[^\d]*(\d{1,2}\.\d+)');
+        final ddRegex = RegExp(r'(-?\d{1,2}\.\d{4,8})[^\d\.\-]*(-?\d{1,3}\.\d{4,8})');
 
         for (final photo in photos) {
           final inputImage = InputImage.fromFilePath(photo.path);
@@ -2711,6 +2712,19 @@ $wpPlacemarks
               
               if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
                 points.add(LatLng(lat, lng));
+              }
+            } catch (_) {}
+          }
+
+          final ddMatches = ddRegex.allMatches(recognizedText.text);
+          for (final match in ddMatches) {
+            try {
+              final lat = double.parse(match.group(1)!);
+              final lng = double.parse(match.group(2)!);
+              if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+                if (lat != 0.0 && lng != 0.0) {
+                  points.add(LatLng(lat, lng));
+                }
               }
             } catch (_) {}
           }

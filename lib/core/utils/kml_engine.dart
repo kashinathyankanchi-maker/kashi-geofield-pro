@@ -742,8 +742,26 @@ class KmlEngine {
               .toList();
           if (cachedKmls.isNotEmpty) {
             final shapes = <KmlShape>[];
+            final allFiles = extractDir.listSync().whereType<File>().toList();
             for (final kmlFile in cachedKmls) {
-              shapes.addAll(parseKml(await kmlFile.readAsString()));
+              final parsedShapes = parseKml(await kmlFile.readAsString());
+              for (var i = 0; i < parsedShapes.length; i++) {
+                if (parsedShapes[i].type == 'overlay' && parsedShapes[i].imageUrl != null) {
+                  final hrefFilename = parsedShapes[i].imageUrl!.replaceAll('\\', '/').split('/').last.toLowerCase();
+                  File? matchedFile;
+                  for (final f in allFiles) {
+                    final lowerF = f.path.toLowerCase();
+                    if (lowerF.endsWith(hrefFilename) || (smartOpacity && lowerF.endsWith('${hrefFilename.split('.').first}_smart.png'))) {
+                      matchedFile = f;
+                      if (lowerF.endsWith('_smart.png')) break;
+                    }
+                  }
+                  if (matchedFile != null) {
+                    parsedShapes[i] = parsedShapes[i].copyWith(imageUrl: matchedFile.path);
+                  }
+                }
+              }
+              shapes.addAll(parsedShapes);
             }
             if (shapes.isNotEmpty) return shapes;
           }
