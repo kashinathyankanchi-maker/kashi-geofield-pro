@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:archive/archive.dart';
 import 'package:flutter/foundation.dart'; // compute() for background isolates
 import 'package:image/image.dart' as img;
@@ -720,7 +721,7 @@ class KmlEngine {
   }
 
   /// Generate a geo-referenced KMZ from an image + bounding box.
-  /// The KMZ contains a KML with a GroundOverlay and the image file.
+  /// Strictly formatted for Google Earth (Mobile/Desktop/Web) & GIS software compatibility.
   static List<int> generateGeoReferencedKmz({
     required List<int> imageBytes,
     required String imageFileName,
@@ -730,29 +731,39 @@ class KmlEngine {
     required double east,
     required double west,
   }) {
+    final n = math.max(north, south);
+    final s = math.min(north, south);
+    final e = math.max(east, west);
+    final w = math.min(east, west);
+    const safeImgName = 'overlay.png';
+
     final kml = '''<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2">
-<Document>
+<Folder>
   <name>$name</name>
   <GroundOverlay>
     <name>$name</name>
+    <color>ffffffff</color>
+    <drawOrder>1</drawOrder>
     <Icon>
-      <href>files/$imageFileName</href>
+      <href>files/$safeImgName</href>
+      <viewBoundScale>0.75</viewBoundScale>
     </Icon>
     <LatLonBox>
-      <north>$north</north>
-      <south>$south</south>
-      <east>$east</east>
-      <west>$west</west>
+      <north>$n</north>
+      <south>$s</south>
+      <east>$e</east>
+      <west>$w</west>
+      <rotation>0</rotation>
     </LatLonBox>
   </GroundOverlay>
-</Document>
+</Folder>
 </kml>''';
 
     final archive = Archive();
     final kmlBytes = utf8.encode(kml);
     archive.addFile(ArchiveFile('doc.kml', kmlBytes.length, kmlBytes));
-    archive.addFile(ArchiveFile('files/$imageFileName', imageBytes.length, imageBytes));
+    archive.addFile(ArchiveFile('files/$safeImgName', imageBytes.length, imageBytes));
     return ZipEncoder().encode(archive)!;
   }
 
