@@ -1,10 +1,14 @@
+import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:pdfx/pdfx.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../shared/theme.dart';
+import '../../core/utils/kml_engine.dart';
 
 /// Result of geo-referencing a PDF map image
 class GeoReferencedImage {
@@ -245,6 +249,56 @@ class _GeoReferenceScreenState extends State<GeoReferenceScreen> {
     );
   }
 
+  Future<void> _exportAsKmz() async {
+    final ref = _computeGeoReference();
+    if (ref == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Need at least 2 well-separated points')),
+        );
+      }
+      return;
+    }
+
+    try {
+      // Generate KMZ with GroundOverlay
+      final imgName = widget.fileName.replaceAll('.pdf', '.png').replaceAll('.PDF', '.png');
+      final kmzBytes = KmlEngine.generateGeoReferencedKmz(
+        imageBytes: ref.imageBytes.toList(),
+        imageFileName: imgName,
+        name: widget.fileName.replaceAll(RegExp(r'\.[^.]+$'), ''),
+        north: ref.topLeft.latitude,
+        south: ref.bottomRight.latitude,
+        east: ref.bottomRight.longitude,
+        west: ref.topLeft.longitude,
+      );
+
+      // Save to temp and share
+      final dir = await getTemporaryDirectory();
+      final safeName = widget.fileName.replaceAll(RegExp(r'[^\w\s-]'), '_');
+      final kmzFile = File('${dir.path}/${safeName}.kmz');
+      await kmzFile.writeAsBytes(kmzBytes);
+
+      await Share.shareXFiles(
+        [XFile(kmzFile.path, mimeType: 'application/vnd.google-earth.kmz')],
+        subject: '${widget.fileName} - Geo-Referenced KMZ',
+        text: 'Geo-referenced KMZ file',
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('KMZ file exported successfully!')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Export failed: $e')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -253,7 +307,15 @@ class _GeoReferenceScreenState extends State<GeoReferenceScreen> {
         title: Text(widget.fileName, style: const TextStyle(fontSize: 15)),
         backgroundColor: AppTheme.bgSecondary,
         actions: [
-          if (_gcps.length >= 2)
+          if (_gcps.length >= 2) ...[
+            // Export as KMZ file
+            TextButton.icon(
+              onPressed: _exportAsKmz,
+              icon: const Icon(Icons.save_alt, color: Colors.orangeAccent, size: 20),
+              label: const Text('KMZ',
+                  style: TextStyle(color: Colors.orangeAccent, fontWeight: FontWeight.bold, fontSize: 13)),
+            ),
+            // Apply to map overlay
             TextButton.icon(
               onPressed: () {
                 final result = _computeGeoReference();
@@ -265,10 +327,11 @@ class _GeoReferenceScreenState extends State<GeoReferenceScreen> {
                   );
                 }
               },
-              icon: const Icon(Icons.check_circle, color: Colors.greenAccent),
+              icon: const Icon(Icons.check_circle, color: Colors.greenAccent, size: 20),
               label: const Text('Apply',
-                  style: TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold)),
+                  style: TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold, fontSize: 13)),
             ),
+          ],
         ],
       ),
       body: Column(

@@ -719,6 +719,43 @@ class KmlEngine {
     return ZipEncoder().encode(archive)!;
   }
 
+  /// Generate a geo-referenced KMZ from an image + bounding box.
+  /// The KMZ contains a KML with a GroundOverlay and the image file.
+  static List<int> generateGeoReferencedKmz({
+    required List<int> imageBytes,
+    required String imageFileName,
+    required String name,
+    required double north,
+    required double south,
+    required double east,
+    required double west,
+  }) {
+    final kml = '''<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+<Document>
+  <name>$name</name>
+  <GroundOverlay>
+    <name>$name</name>
+    <Icon>
+      <href>files/$imageFileName</href>
+    </Icon>
+    <LatLonBox>
+      <north>$north</north>
+      <south>$south</south>
+      <east>$east</east>
+      <west>$west</west>
+    </LatLonBox>
+  </GroundOverlay>
+</Document>
+</kml>''';
+
+    final archive = Archive();
+    final kmlBytes = utf8.encode(kml);
+    archive.addFile(ArchiveFile('doc.kml', kmlBytes.length, kmlBytes));
+    archive.addFile(ArchiveFile('files/$imageFileName', imageBytes.length, imageBytes));
+    return ZipEncoder().encode(archive)!;
+  }
+
   /// Parse KML or KMZ from file path
   static Future<List<KmlShape>> parseFile(String filePath, {bool smartOpacity = false}) async {
     try {

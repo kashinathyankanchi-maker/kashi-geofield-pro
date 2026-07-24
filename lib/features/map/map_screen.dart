@@ -2214,6 +2214,14 @@ $wpPlacemarks
                       onTap: _importKmlFile,
                     ),
                     const SizedBox(height: 6),
+                    // PDF to Geo-Referenced KMZ
+                    _MapFab(
+                      icon: Icons.picture_as_pdf_rounded,
+                      tooltip: 'PDF → Geo KMZ',
+                      color: const Color(0xFFFF7043), // deep orange
+                      onTap: _importPdfMap,
+                    ),
+                    const SizedBox(height: 6),
                     // Manual lat/lng entry
                     _MapFab(
                       icon: Icons.pin_drop_rounded,
