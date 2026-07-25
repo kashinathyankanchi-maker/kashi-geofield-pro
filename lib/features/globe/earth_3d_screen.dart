@@ -8,6 +8,7 @@ import 'package:flutter_earth_globe/globe_coordinates.dart';
 import 'package:flutter_earth_globe/point.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
+import 'package:latlong2/latlong.dart';
 
 import '../../core/database/db_helper.dart';
 import '../../shared/theme.dart';
@@ -62,8 +63,10 @@ class _Earth3dScreenState extends State<Earth3dScreen> {
       rotationSpeed: 0.02,
       isZoomEnabled: true,
       zoom: 1.0,
-      maxZoom: 3.5,
+      maxZoom: 15.0,
       minZoom: 0.5,
+      zoomToMousePosition: true,
+      zoomSensitivity: 1.2,
       showAtmosphere: true,
       atmosphereColor: const Color.fromARGB(255, 57, 123, 185),
       atmosphereBlur: 35.0,
@@ -441,6 +444,34 @@ class _Earth3dScreenState extends State<Earth3dScreen> {
                           ),
                         ),
                       ],
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        icon: const Icon(Icons.map_rounded, size: 16, color: Colors.black),
+                        label: const Text(
+                          'VIEW ON 2D FIELD MAP',
+                          style: TextStyle(
+                            color: Colors.black,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF00E5FF),
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        onPressed: () {
+                          Navigator.pop(
+                            context,
+                            LatLng(_selectedPlace!.lat, _selectedPlace!.lng),
+                          );
+                        },
+                      ),
                     ),
                   ],
                 ),

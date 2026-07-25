@@ -51,7 +51,6 @@ class MapController extends ChangeNotifier {
   bool showVillageLayer = true;
   bool showKmlLayer = true;
   bool showFireLayer = false; // Add Fire layer
-  bool is3dTilt = false; // 3D Perspective Tilt Mode
 
   // Fire incidents loaded from API
   List<FireIncident> _fireIncidents = [];
@@ -360,6 +359,7 @@ class MapController extends ChangeNotifier {
     if (idx >= 0) {
       _drawnShapes[idx].name = newName;
       notifyListeners();
+      _autoSaveShape(_drawnShapes[idx]);
     }
   }
 
@@ -368,12 +368,13 @@ class MapController extends ChangeNotifier {
     if (idx >= 0) {
       _drawnShapes[idx].color = color;
       notifyListeners();
+      _autoSaveShape(_drawnShapes[idx]);
     }
   }
 
   // ── Persistence ────────────────────────────────────────────────────────────
 
-  /// Auto-save a shape to DB immediately after creation
+  /// Auto-save a shape to DB immediately after creation or edit
   Future<void> _autoSaveShape(DrawnShape shape) async {
     try {
       final coordList = shape.points
@@ -382,6 +383,7 @@ class MapController extends ChangeNotifier {
 
       final colorHex = '#${shape.color.toARGB32().toRadixString(16).padLeft(8, '0').substring(2)}';
       final model = PolygonModel(
+        id: shape.dbId,
         name: shape.name,
         coordinates: jsonEncode(coordList),
         areaHectares: shape.areaHectares,
@@ -389,8 +391,12 @@ class MapController extends ChangeNotifier {
         color: colorHex,
         createdAt: DateTime.now().toIso8601String(),
       );
-      final id = await DbHelper().insertPolygon(model);
-      shape.dbId = id;
+      if (shape.dbId != null) {
+        await DbHelper().updatePolygon(model);
+      } else {
+        final id = await DbHelper().insertPolygon(model);
+        shape.dbId = id;
+      }
     } catch (e) {
       // Silent — persistence failure should not crash the app
     }
@@ -410,9 +416,9 @@ class MapController extends ChangeNotifier {
             .toList();
         if (pts.isEmpty) continue;
 
-        // Determine type from name prefix
-        final isPath = poly.name.startsWith('Path') || poly.name.startsWith('GPS Track');
-        final isMarker = poly.name.startsWith('Marker') && pts.length == 1;
+        // Determine type from geometry and name
+        final isMarker = pts.length == 1 || poly.name.startsWith('Marker') || poly.name.startsWith('Point') || poly.name.startsWith('Waypoint');
+        final isPath = !isMarker && (pts.length == 2 || poly.name.startsWith('Path') || poly.name.startsWith('GPS Track') || poly.name.startsWith('Track') || (poly.areaHectares == 0.0 && pts.length > 2));
 
         Color color = const Color(0xFF2EA043);
         try {
@@ -510,11 +516,6 @@ class MapController extends ChangeNotifier {
       _mapStyle = style;
       notifyListeners();
     }
-  }
-
-  void toggle3dTilt() {
-    is3dTilt = !is3dTilt;
-    notifyListeners();
   }
 
   void toggleOfflineDownloadMode() {

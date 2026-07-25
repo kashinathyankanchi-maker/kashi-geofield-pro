@@ -1813,13 +1813,8 @@ $wpPlacemarks
               Positioned.fill(
                 child: Screenshot(
                   controller: _screenshotController,
-                  child: Transform(
-                    alignment: Alignment.center,
-                    transform: Matrix4.identity()
-                      ..setEntry(3, 2, 0.001) // perspective depth
-                      ..rotateX(_mapController.is3dTilt ? 0.75 : 0.0), // ~43 degree horizon tilt
-                    child: fmap.FlutterMap(
-                      mapController: _flutterMapController,
+                  child: fmap.FlutterMap(
+                    mapController: _flutterMapController,
                     options: fmap.MapOptions(
                       initialCenter: const LatLng(26.9124, 75.7873),
                       initialZoom: 13,
@@ -1921,7 +1916,6 @@ $wpPlacemarks
                         ),
                     ],
                   ),
-                ),
                 ),
               ),
 
@@ -2157,33 +2151,20 @@ $wpPlacemarks
                       isLoading: _loadingLocation,
                     ),
                     const SizedBox(height: 6),
-                    // 3D Perspective Tilt Mode
-                    _MapFab(
-                      icon: _mapController.is3dTilt
-                          ? Icons.view_in_ar_rounded
-                          : Icons.threed_rotation_rounded,
-                      tooltip: _mapController.is3dTilt ? '2D Top-Down View' : '3D Horizon Tilt',
-                      color: _mapController.is3dTilt
-                          ? const Color(0xFFE040FB) // neon purple active
-                          : const Color(0xFFAB47BC), // professional purple
-                      onTap: () {
-                        _mapController.toggle3dTilt();
-                        _showSnackBar(_mapController.is3dTilt
-                            ? '3D Horizon Tilt Mode Enabled'
-                            : '2D Top-Down View Restored');
-                      },
-                    ),
-                    const SizedBox(height: 6),
-                    // 3D Earth Globe Mode
+                    // 3D Google Earth Map Mode
                     _MapFab(
                       icon: Icons.public_rounded,
-                      tooltip: '3D Google Earth Globe',
+                      tooltip: '3D Google Earth Map',
                       color: const Color(0xFF00E5FF), // neon cyan globe
-                      onTap: () {
-                        Navigator.push(
+                      onTap: () async {
+                        final selectedCoord = await Navigator.push<LatLng>(
                           context,
                           MaterialPageRoute(builder: (_) => const Earth3dScreen()),
                         );
+                        if (selectedCoord != null && mounted) {
+                          _flutterMapController.move(selectedCoord, 16);
+                          _showSnackBar('Zoomed to selected 3D location on 2D Map');
+                        }
                       },
                     ),
                     const SizedBox(height: 6),
