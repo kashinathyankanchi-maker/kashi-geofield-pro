@@ -69,6 +69,7 @@ dependencies:
   speech_to_text: ^7.4.0
   flutter_compass: ^0.8.1
   flutter_earth_globe: ^2.2.1
+  webview_flutter: ^4.14.1
 dependency_overrides:
   flutter_plugin_android_lifecycle: 2.0.21
 

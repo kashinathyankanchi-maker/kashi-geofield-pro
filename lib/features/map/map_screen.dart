@@ -8,7 +8,6 @@ import '../duty_diary/duty_diary_screen.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart' as fmap;
 import 'package:latlong2/latlong.dart';
-import 'dart:math' as math;
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:screenshot/screenshot.dart';
@@ -17,13 +16,11 @@ import 'package:share_plus/share_plus.dart';
 import 'package:printing/printing.dart';
 import 'dart:ui' as ui;
 import 'package:image_picker/image_picker.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:gal/gal.dart';
 import 'package:exif/exif.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import '../../shared/theme.dart';
-import '../globe/earth_3d_screen.dart';
-import '../../shared/compass_widget.dart';
+import '../globe/terrain_3d_screen.dart';
 import '../../core/database/db_helper.dart';
 import '../../core/models/kml_file_model.dart';
 import '../../core/models/village_model.dart';
@@ -2151,15 +2148,21 @@ $wpPlacemarks
                       isLoading: _loadingLocation,
                     ),
                     const SizedBox(height: 6),
-                    // 3D Google Earth Map Mode
+                    // 3D Google Earth Terrain Map Mode
                     _MapFab(
-                      icon: Icons.public_rounded,
-                      tooltip: '3D Google Earth Map',
+                      icon: Icons.terrain_rounded,
+                      tooltip: '3D Google Earth Terrain Map',
                       color: const Color(0xFF00E5FF), // neon cyan globe
                       onTap: () async {
                         final selectedCoord = await Navigator.push<LatLng>(
                           context,
-                          MaterialPageRoute(builder: (_) => const Earth3dScreen()),
+                          MaterialPageRoute(
+                            builder: (_) => Terrain3dScreen(
+                              initialCenter: _mapController.selectedShape?.points.isNotEmpty == true
+                                  ? _mapController.selectedShape!.points.first
+                                  : _currentPosition,
+                            ),
+                          ),
                         );
                         if (selectedCoord != null && mounted) {
                           _flutterMapController.move(selectedCoord, 16);
