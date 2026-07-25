@@ -51,6 +51,7 @@ class MapController extends ChangeNotifier {
   bool showVillageLayer = true;
   bool showKmlLayer = true;
   bool showFireLayer = false; // Add Fire layer
+  bool is3dTilt = false; // 3D Perspective Tilt Mode
 
   // Fire incidents loaded from API
   List<FireIncident> _fireIncidents = [];
@@ -509,6 +510,11 @@ class MapController extends ChangeNotifier {
       _mapStyle = style;
       notifyListeners();
     }
+  }
+
+  void toggle3dTilt() {
+    is3dTilt = !is3dTilt;
+    notifyListeners();
   }
 
   void toggleOfflineDownloadMode() {

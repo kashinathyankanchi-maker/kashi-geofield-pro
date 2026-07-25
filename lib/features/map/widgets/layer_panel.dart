@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../map_controller.dart';
 import '../../../shared/theme.dart';
+import '../../globe/earth_3d_screen.dart';
 
 class LayerPanel extends StatelessWidget {
   final MapController controller;
@@ -25,7 +26,7 @@ class LayerPanel extends StatelessWidget {
             border: Border.all(color: AppTheme.borderColor),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.3),
+                color: Colors.black.withValues(alpha: 0.3),
                 blurRadius: 12,
                 offset: const Offset(0, 4),
               ),
@@ -79,7 +80,7 @@ class LayerPanel extends StatelessWidget {
                           backgroundColor: WidgetStateProperty.resolveWith<Color>(
                             (Set<WidgetState> states) {
                               if (states.contains(WidgetState.selected)) {
-                                return AppTheme.greenPrimary.withOpacity(0.2);
+                                return AppTheme.greenPrimary.withValues(alpha: 0.2);
                               }
                               return Colors.transparent;
                             },
@@ -88,6 +89,50 @@ class LayerPanel extends StatelessWidget {
                       ),
                     ),
                   ],
+                ),
+              ),
+              // 3D Google Earth Mode Launch Button
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                child: InkWell(
+                  onTap: () {
+                    onClose();
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const Earth3dScreen()),
+                    );
+                  },
+                  borderRadius: BorderRadius.circular(10),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          const Color(0xFF00E5FF).withValues(alpha: 0.2),
+                          const Color(0xFF2979FF).withValues(alpha: 0.2),
+                        ],
+                      ),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFF00E5FF), width: 1.2),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.public_rounded, color: Color(0xFF00E5FF), size: 18),
+                        SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'Launch 3D Google Earth Mode',
+                            style: TextStyle(
+                              color: AppTheme.textPrimary,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                        Icon(Icons.arrow_forward_ios_rounded, color: Color(0xFF00E5FF), size: 12),
+                      ],
+                    ),
+                  ),
                 ),
               ),
               const Divider(height: 1, color: AppTheme.borderColor),

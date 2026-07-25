@@ -21,9 +21,8 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:gal/gal.dart';
 import 'package:exif/exif.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
-import 'package:exif/exif.dart';
 import '../../shared/theme.dart';
-import '../../shared/compass_widget.dart';
+import '../globe/earth_3d_screen.dart';
 import '../../shared/compass_widget.dart';
 import '../../core/database/db_helper.dart';
 import '../../core/models/kml_file_model.dart';
@@ -1814,8 +1813,13 @@ $wpPlacemarks
               Positioned.fill(
                 child: Screenshot(
                   controller: _screenshotController,
-                  child: fmap.FlutterMap(
-                    mapController: _flutterMapController,
+                  child: Transform(
+                    alignment: Alignment.center,
+                    transform: Matrix4.identity()
+                      ..setEntry(3, 2, 0.001) // perspective depth
+                      ..rotateX(_mapController.is3dTilt ? 0.75 : 0.0), // ~43 degree horizon tilt
+                    child: fmap.FlutterMap(
+                      mapController: _flutterMapController,
                     options: fmap.MapOptions(
                       initialCenter: const LatLng(26.9124, 75.7873),
                       initialZoom: 13,
@@ -1917,6 +1921,7 @@ $wpPlacemarks
                         ),
                     ],
                   ),
+                ),
                 ),
               ),
 
@@ -2150,6 +2155,36 @@ $wpPlacemarks
                       color: const Color(0xFF39D353), // bright green location
                       onTap: _loadingLocation ? null : _goToCurrentLocation,
                       isLoading: _loadingLocation,
+                    ),
+                    const SizedBox(height: 6),
+                    // 3D Perspective Tilt Mode
+                    _MapFab(
+                      icon: _mapController.is3dTilt
+                          ? Icons.view_in_ar_rounded
+                          : Icons.threed_rotation_rounded,
+                      tooltip: _mapController.is3dTilt ? '2D Top-Down View' : '3D Horizon Tilt',
+                      color: _mapController.is3dTilt
+                          ? const Color(0xFFE040FB) // neon purple active
+                          : const Color(0xFFAB47BC), // professional purple
+                      onTap: () {
+                        _mapController.toggle3dTilt();
+                        _showSnackBar(_mapController.is3dTilt
+                            ? '3D Horizon Tilt Mode Enabled'
+                            : '2D Top-Down View Restored');
+                      },
+                    ),
+                    const SizedBox(height: 6),
+                    // 3D Earth Globe Mode
+                    _MapFab(
+                      icon: Icons.public_rounded,
+                      tooltip: '3D Google Earth Globe',
+                      color: const Color(0xFF00E5FF), // neon cyan globe
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => const Earth3dScreen()),
+                        );
+                      },
                     ),
                     const SizedBox(height: 6),
                     // Download offline
