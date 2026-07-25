@@ -739,15 +739,16 @@ class KmlEngine {
 
     final kml = '''<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2">
-<Folder>
+<Document>
   <name>$name</name>
   <GroundOverlay>
     <name>$name</name>
     <color>ffffffff</color>
     <drawOrder>1</drawOrder>
+    <altitude>0</altitude>
+    <altitudeMode>clampToGround</altitudeMode>
     <Icon>
-      <href>files/$safeImgName</href>
-      <viewBoundScale>0.75</viewBoundScale>
+      <href>$safeImgName</href>
     </Icon>
     <LatLonBox>
       <north>$n</north>
@@ -757,13 +758,13 @@ class KmlEngine {
       <rotation>0</rotation>
     </LatLonBox>
   </GroundOverlay>
-</Folder>
+</Document>
 </kml>''';
 
     final archive = Archive();
     final kmlBytes = utf8.encode(kml);
     archive.addFile(ArchiveFile('doc.kml', kmlBytes.length, kmlBytes));
-    archive.addFile(ArchiveFile('files/$safeImgName', imageBytes.length, imageBytes));
+    archive.addFile(ArchiveFile(safeImgName, imageBytes.length, imageBytes));
     return ZipEncoder().encode(archive)!;
   }
 

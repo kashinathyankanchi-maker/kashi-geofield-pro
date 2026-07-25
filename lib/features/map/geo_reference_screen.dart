@@ -11,7 +11,6 @@ import 'package:pdfx/pdfx.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../shared/theme.dart';
 import '../../core/utils/kml_engine.dart';
-import 'offline_tile_provider.dart';
 
 /// Result of geo-referencing a PDF map image
 class GeoReferencedImage {
@@ -40,7 +39,7 @@ class _GCP {
 }
 
 /// Screen that lets user geo-reference a PDF image by placing control points
-/// with Satellite Map Overlay and Opacity Controls.
+/// with Zoomable PDF, Satellite Map Overlay, and Opacity Controls.
 class GeoReferenceScreen extends StatefulWidget {
   final String pdfPath;
   final String fileName;
@@ -235,6 +234,7 @@ class _GeoReferenceScreenState extends State<GeoReferenceScreen>
   }
 
   Future<LatLng?> _pickOnSatelliteMap() async {
+    final ref = _computeGeoReference();
     LatLng? selected;
     await showDialog<void>(
       context: context,
@@ -268,6 +268,35 @@ class _GeoReferenceScreenState extends State<GeoReferenceScreen>
                     tileProvider: fmap.NetworkTileProvider(),
                     userAgentPackageName: 'com.kashi.kashi_geofield_pro',
                   ),
+                  if (_imageBytes != null)
+                    fmap.OverlayImageLayer(
+                      overlayImages: [
+                        if (ref != null)
+                          fmap.OverlayImage(
+                            bounds: fmap.LatLngBounds(ref.bottomRight, ref.topLeft),
+                            imageProvider: MemoryImage(_imageBytes!),
+                            opacity: _pdfOpacity,
+                          )
+                        else if (_gcps.isNotEmpty)
+                          fmap.OverlayImage(
+                            bounds: fmap.LatLngBounds(
+                              LatLng(_gcps.first.geo.latitude - 0.005, _gcps.first.geo.longitude - 0.005),
+                              LatLng(_gcps.first.geo.latitude + 0.005, _gcps.first.geo.longitude + 0.005),
+                            ),
+                            imageProvider: MemoryImage(_imageBytes!),
+                            opacity: _pdfOpacity,
+                          )
+                        else
+                          fmap.OverlayImage(
+                            bounds: fmap.LatLngBounds(
+                              const LatLng(14.96 - 0.005, 74.71 - 0.005),
+                              const LatLng(14.96 + 0.005, 74.71 + 0.005),
+                            ),
+                            imageProvider: MemoryImage(_imageBytes!),
+                            opacity: _pdfOpacity,
+                          ),
+                      ],
+                    ),
                   fmap.MarkerLayer(
                     markers: _gcps
                         .map((g) => fmap.Marker(
@@ -507,8 +536,8 @@ class _GeoReferenceScreenState extends State<GeoReferenceScreen>
                 Expanded(
                   child: Text(
                     _gcps.isEmpty
-                        ? 'Tap "Add Point" then tap on PDF to set control points'
-                        : '${_gcps.length} control point(s) placed. Adjust opacity to check fit.',
+                        ? 'Pinch to Zoom PDF. Tap "Add Point" then tap on PDF to mark GCPs.'
+                        : '${_gcps.length} control point(s) placed. Check alignment on Satellite map.',
                     style: const TextStyle(color: Colors.white, fontSize: 11),
                   ),
                 ),
@@ -542,60 +571,73 @@ class _GeoReferenceScreenState extends State<GeoReferenceScreen>
                     : IndexedStack(
                         index: _activeViewIndex,
                         children: [
-                          // 0: PDF Image View
-                          LayoutBuilder(
-                            builder: (context, constraints) {
-                              return GestureDetector(
-                                onTapDown: (details) =>
-                                    _onImageTap(details, constraints),
-                                child: Stack(
-                                  children: [
-                                    Image.memory(
-                                      _imageBytes!,
-                                      width: constraints.maxWidth,
-                                      height: constraints.maxHeight,
-                                      fit: BoxFit.contain,
-                                    ),
-                                    ..._gcps.asMap().entries.map((entry) {
-                                      final idx = entry.key;
-                                      final gcp = entry.value;
-                                      final sx =
-                                          constraints.maxWidth / _imgWidth;
-                                      final sy =
-                                          constraints.maxHeight / _imgHeight;
-                                      return Positioned(
-                                        left: gcp.pixel.dx * sx - 12,
-                                        top: gcp.pixel.dy * sy - 24,
-                                        child: Column(
-                                          children: [
-                                            Container(
-                                              padding: const EdgeInsets
-                                                  .symmetric(
-                                                  horizontal: 4, vertical: 2),
-                                              decoration: BoxDecoration(
-                                                color: Colors.red,
-                                                borderRadius:
-                                                    BorderRadius.circular(4),
+                          // 0: Zoomable PDF Image View
+                          InteractiveViewer(
+                            minScale: 0.5,
+                            maxScale: 20.0,
+                            child: Center(
+                              child: AspectRatio(
+                                aspectRatio: _imgWidth > 0 && _imgHeight > 0
+                                    ? _imgWidth / _imgHeight
+                                    : 1.0,
+                                child: LayoutBuilder(
+                                  builder: (context, constraints) {
+                                    return GestureDetector(
+                                      onTapDown: (details) =>
+                                          _onImageTap(details, constraints),
+                                      child: Stack(
+                                        children: [
+                                          Image.memory(
+                                            _imageBytes!,
+                                            width: constraints.maxWidth,
+                                            height: constraints.maxHeight,
+                                            fit: BoxFit.fill,
+                                          ),
+                                          ..._gcps.asMap().entries.map((entry) {
+                                            final idx = entry.key;
+                                            final gcp = entry.value;
+                                            final sx = constraints.maxWidth /
+                                                (_imgWidth > 0 ? _imgWidth : 1);
+                                            final sy = constraints.maxHeight /
+                                                (_imgHeight > 0 ? _imgHeight : 1);
+                                            return Positioned(
+                                              left: gcp.pixel.dx * sx - 12,
+                                              top: gcp.pixel.dy * sy - 24,
+                                              child: Column(
+                                                children: [
+                                                  Container(
+                                                    padding: const EdgeInsets
+                                                        .symmetric(
+                                                        horizontal: 4,
+                                                        vertical: 2),
+                                                    decoration: BoxDecoration(
+                                                      color: Colors.red,
+                                                      borderRadius:
+                                                          BorderRadius.circular(4),
+                                                    ),
+                                                    child: Text(
+                                                      'P${idx + 1}',
+                                                      style: const TextStyle(
+                                                          color: Colors.white,
+                                                          fontSize: 9,
+                                                          fontWeight:
+                                                              FontWeight.bold),
+                                                    ),
+                                                  ),
+                                                  const Icon(Icons.push_pin,
+                                                      color: Colors.red,
+                                                      size: 20),
+                                                ],
                                               ),
-                                              child: Text(
-                                                'P${idx + 1}',
-                                                style: const TextStyle(
-                                                    color: Colors.white,
-                                                    fontSize: 9,
-                                                    fontWeight:
-                                                        FontWeight.bold),
-                                              ),
-                                            ),
-                                            const Icon(Icons.push_pin,
-                                                color: Colors.red, size: 20),
-                                          ],
-                                        ),
-                                      );
-                                    }),
-                                  ],
+                                            );
+                                          }),
+                                        ],
+                                      ),
+                                    );
+                                  },
                                 ),
-                              );
-                            },
+                              ),
+                            ),
                           ),
 
                           // 1: Satellite Map Layer with PDF Overlaid & Opacity
@@ -624,15 +666,36 @@ class _GeoReferenceScreenState extends State<GeoReferenceScreen>
                                 userAgentPackageName:
                                     'com.kashi.kashi_geofield_pro',
                               ),
-                              if (ref != null)
+                              if (_imageBytes != null)
                                 fmap.OverlayImageLayer(
                                   overlayImages: [
-                                    fmap.OverlayImage(
-                                      bounds: fmap.LatLngBounds(
-                                          ref.bottomRight, ref.topLeft),
-                                      imageProvider: MemoryImage(_imageBytes!),
-                                      opacity: _pdfOpacity,
-                                    ),
+                                    if (ref != null)
+                                      fmap.OverlayImage(
+                                        bounds: fmap.LatLngBounds(
+                                            ref.bottomRight, ref.topLeft),
+                                        imageProvider: MemoryImage(_imageBytes!),
+                                        opacity: _pdfOpacity,
+                                      )
+                                    else if (_gcps.isNotEmpty)
+                                      fmap.OverlayImage(
+                                        bounds: fmap.LatLngBounds(
+                                          LatLng(_gcps.first.geo.latitude - 0.005,
+                                              _gcps.first.geo.longitude - 0.005),
+                                          LatLng(_gcps.first.geo.latitude + 0.005,
+                                              _gcps.first.geo.longitude + 0.005),
+                                        ),
+                                        imageProvider: MemoryImage(_imageBytes!),
+                                        opacity: _pdfOpacity,
+                                      )
+                                    else
+                                      fmap.OverlayImage(
+                                        bounds: fmap.LatLngBounds(
+                                          const LatLng(14.96 - 0.005, 74.71 - 0.005),
+                                          const LatLng(14.96 + 0.005, 74.71 + 0.005),
+                                        ),
+                                        imageProvider: MemoryImage(_imageBytes!),
+                                        opacity: _pdfOpacity,
+                                      ),
                                   ],
                                 ),
                               fmap.MarkerLayer(
