@@ -2112,7 +2112,7 @@ $wpPlacemarks
               // ── Right: Map controls ──────────────────────────────────────────
               Positioned(
                 right: 10,
-                top: 100,
+                top: 140,
                 bottom: 10,
                 child: SingleChildScrollView(
                   physics: const BouncingScrollPhysics(),
@@ -2288,7 +2288,7 @@ $wpPlacemarks
               if (_showLayerPanel)
                 Positioned(
                   right: 75,
-                  top: 100,
+                  top: 140,
                   child: LayerPanel(
                     controller: _mapController,
                     onClose: () => setState(() => _showLayerPanel = false),
@@ -3025,8 +3025,8 @@ class _MapFab extends StatelessWidget {
       child: GestureDetector(
         onTap: onTap,
         child: Container(
-          width: 44,
-          height: 44,
+          width: 42,
+          height: 42,
           decoration: BoxDecoration(
             color: AppTheme.bgSecondary.withValues(alpha: 0.9),
             borderRadius: BorderRadius.circular(6),
@@ -3042,8 +3042,8 @@ class _MapFab extends StatelessWidget {
           child: isLoading
               ? Center(
                   child: SizedBox(
-                    width: 20,
-                    height: 20,
+                    width: 18,
+                    height: 18,
                     child: CircularProgressIndicator(
                       color: effectiveColor,
                       strokeWidth: 2,
@@ -3055,10 +3055,10 @@ class _MapFab extends StatelessWidget {
                   children: [
                     Icon(
                       icon,
-                      size: 18,
+                      size: 16,
                       color: effectiveColor,
                     ),
-                    const SizedBox(height: 2),
+                    const SizedBox(height: 1.5),
                     Text(
                       label,
                       style: TextStyle(
