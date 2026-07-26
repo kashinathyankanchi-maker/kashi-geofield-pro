@@ -2111,10 +2111,13 @@ $wpPlacemarks
 
               // ── Right: Map controls ──────────────────────────────────────────
               Positioned(
-                right: 12,
-                top: 150,
-                child: Column(
-                  children: [
+                right: 10,
+                top: 100,
+                bottom: 10,
+                child: SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  child: Column(
+                    children: [
                     // Zoom in
                     _MapFab(
                       icon: Icons.add,
@@ -2278,13 +2281,14 @@ $wpPlacemarks
                     ),
                   ],
                 ),
+                ),
               ),
 
               // ── Layer panel ──────────────────────────────────────────────────
               if (_showLayerPanel)
                 Positioned(
                   right: 75,
-                  top: 150,
+                  top: 100,
                   child: LayerPanel(
                     controller: _mapController,
                     onClose: () => setState(() => _showLayerPanel = false),
@@ -3021,8 +3025,8 @@ class _MapFab extends StatelessWidget {
       child: GestureDetector(
         onTap: onTap,
         child: Container(
-          width: 52,
-          height: 52,
+          width: 44,
+          height: 44,
           decoration: BoxDecoration(
             color: AppTheme.bgSecondary.withValues(alpha: 0.9),
             borderRadius: BorderRadius.circular(6),
@@ -3051,15 +3055,15 @@ class _MapFab extends StatelessWidget {
                   children: [
                     Icon(
                       icon,
-                      size: 20,
+                      size: 18,
                       color: effectiveColor,
                     ),
-                    const SizedBox(height: 3),
+                    const SizedBox(height: 2),
                     Text(
                       label,
                       style: TextStyle(
                         color: effectiveColor,
-                        fontSize: 8,
+                        fontSize: 7.5,
                         fontWeight: FontWeight.w700,
                         letterSpacing: 0.5,
                         fontFamily: 'monospace',
