@@ -2179,7 +2179,7 @@ $wpPlacemarks
                       icon: Icons.download_rounded,
                       tooltip: 'Download Area',
                       color: const Color(0xFF29B6F6), // tactical blue
-                      onTap: _onDownloadMapArea,
+                      onTap: () => setState(() => _mapController.toggleOfflineDownloadMode()),
                     ),
                     const SizedBox(height: 6),
                     // GPS Track Start/Stop
@@ -2334,8 +2334,16 @@ $wpPlacemarks
               _LiveDrawingMeasurementCard(controller: _mapController),
               if (_mapController.isOfflineDownloadMode)
                 _OfflineOverlay(
-                  onCancel: _mapController.toggleOfflineDownloadMode,
+                  onCancel: () => setState(() => _mapController.toggleOfflineDownloadMode()),
                   onDownload: _onDownloadMapArea,
+                  onZoomIn: () {
+                    final c = _flutterMapController.camera;
+                    _flutterMapController.move(c.center, c.zoom + 1);
+                  },
+                  onZoomOut: () {
+                    final c = _flutterMapController.camera;
+                    _flutterMapController.move(c.center, c.zoom - 1);
+                  },
                 ),
             ],
           ),
@@ -3701,91 +3709,134 @@ class _ShapesListSheet extends StatelessWidget {
 class _OfflineOverlay extends StatelessWidget {
   final VoidCallback onCancel;
   final VoidCallback onDownload;
+  final VoidCallback onZoomIn;
+  final VoidCallback onZoomOut;
 
   const _OfflineOverlay({
     required this.onCancel,
     required this.onDownload,
+    required this.onZoomIn,
+    required this.onZoomOut,
   });
 
   @override
   Widget build(BuildContext context) {
     return Positioned.fill(
-      child: Container(
-        color: Colors.black.withValues(alpha: 0.45),
-        child: SafeArea(
-          child: Column(
-            children: [
-              const SizedBox(height: 16),
-              Container(
-                margin: const EdgeInsets.symmetric(horizontal: 24),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                decoration: BoxDecoration(
-                  color: AppTheme.bgCard,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: AppTheme.borderColor),
-                ),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.download_rounded,
-                        color: AppTheme.greenAccent, size: 18),
-                    SizedBox(width: 8),
-                    Text('Pan & zoom to frame the download area',
-                        style: TextStyle(
-                            color: AppTheme.textPrimary,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 13)),
-                  ],
-                ),
-              ),
-              const Spacer(),
-              Center(
-                child: Container(
-                  width: MediaQuery.of(context).size.width * 0.75,
-                  height: MediaQuery.of(context).size.width * 0.75,
+      child: Stack(
+        children: [
+          // Semi-transparent background that passes all gestures through to the map
+          IgnorePointer(
+            ignoring: true,
+            child: Container(
+              color: Colors.black.withValues(alpha: 0.45),
+            ),
+          ),
+          // Interactive controls and visual frame
+          SafeArea(
+            child: Column(
+              children: [
+                const SizedBox(height: 16),
+                Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 24),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                   decoration: BoxDecoration(
-                    border: Border.all(color: AppTheme.greenAccent, width: 2.5),
-                    borderRadius: BorderRadius.circular(16),
+                    color: AppTheme.bgCard,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: AppTheme.borderColor),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.download_rounded,
+                          color: AppTheme.greenAccent, size: 18),
+                      SizedBox(width: 8),
+                      Text('Pan & zoom to frame the download area',
+                          style: TextStyle(
+                              color: AppTheme.textPrimary,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13)),
+                    ],
                   ),
                 ),
-              ),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: AppTheme.bgCard,
-                  borderRadius:
-                      const BorderRadius.vertical(top: Radius.circular(20)),
-                  border: Border(top: BorderSide(color: AppTheme.borderColor)),
-                ),
-                child: Row(
+                const Spacer(),
+                // Center framing box (ignores touches so user can pan/zoom through it) and right-side zoom buttons
+                Stack(
+                  alignment: Alignment.center,
                   children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: onCancel,
-                        icon: const Icon(Icons.close_rounded),
-                        label: const Text('Cancel'),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: onDownload,
-                        icon: const Icon(Icons.download_rounded),
-                        label: const Text('Download'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppTheme.greenPrimary,
-                          foregroundColor: Colors.white,
+                    IgnorePointer(
+                      ignoring: true,
+                      child: Container(
+                        width: MediaQuery.of(context).size.width * 0.75,
+                        height: MediaQuery.of(context).size.width * 0.75,
+                        decoration: BoxDecoration(
+                          border: Border.all(color: AppTheme.greenAccent, width: 2.5),
+                          borderRadius: BorderRadius.circular(16),
                         ),
                       ),
                     ),
+                    Positioned(
+                      right: 16,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          FloatingActionButton.small(
+                            heroTag: "offline_zoom_in",
+                            backgroundColor: AppTheme.bgCard,
+                            foregroundColor: AppTheme.greenAccent,
+                            onPressed: onZoomIn,
+                            child: const Icon(Icons.add),
+                          ),
+                          const SizedBox(height: 12),
+                          FloatingActionButton.small(
+                            heroTag: "offline_zoom_out",
+                            backgroundColor: AppTheme.bgCard,
+                            foregroundColor: AppTheme.greenAccent,
+                            onPressed: onZoomOut,
+                            child: const Icon(Icons.remove),
+                          ),
+                        ],
+                      ),
+                    ),
                   ],
                 ),
-              ),
-            ],
+                const Spacer(),
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: AppTheme.bgCard,
+                    borderRadius:
+                        const BorderRadius.vertical(top: Radius.circular(20)),
+                    border: Border(top: BorderSide(color: AppTheme.borderColor)),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: onCancel,
+                          icon: const Icon(Icons.close_rounded),
+                          label: const Text('Cancel'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: onDownload,
+                          icon: const Icon(Icons.download_rounded),
+                          label: const Text('Download'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.greenPrimary,
+                            foregroundColor: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
