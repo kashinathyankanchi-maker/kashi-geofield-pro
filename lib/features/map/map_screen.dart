@@ -2164,6 +2164,8 @@ $wpPlacemarks
                               initialCenter: _mapController.selectedShape?.points.isNotEmpty == true
                                   ? _mapController.selectedShape!.points.first
                                   : _currentPosition,
+                              drawnShapes: _mapController.drawnShapes,
+                              kmlShapes: _mapController.kmlShapes,
                             ),
                           ),
                         );

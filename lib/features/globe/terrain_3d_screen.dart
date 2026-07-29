@@ -1,16 +1,29 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:path_provider/path_provider.dart';
 import '../../core/database/db_helper.dart';
+import '../../core/utils/kml_engine.dart';
+import '../../features/map/map_controller.dart';
+import '../../features/offline_maps/offline_maps_screen.dart';
 import '../../shared/theme.dart';
 import 'earth_3d_screen.dart';
 
 class Terrain3dScreen extends StatefulWidget {
   final LatLng? initialCenter;
   final String? initialTitle;
+  final List<DrawnShape>? drawnShapes;
+  final List<KmlShape>? kmlShapes;
 
-  const Terrain3dScreen({super.key, this.initialCenter, this.initialTitle});
+  const Terrain3dScreen({
+    super.key,
+    this.initialCenter,
+    this.initialTitle,
+    this.drawnShapes,
+    this.kmlShapes,
+  });
 
   @override
   State<Terrain3dScreen> createState() => _Terrain3dScreenState();
@@ -19,18 +32,133 @@ class Terrain3dScreen extends StatefulWidget {
 class _Terrain3dScreenState extends State<Terrain3dScreen> {
   late final WebViewController _webController;
   bool _isLoading = true;
-  bool _is3dPitch = true; // starts in 3D tilted terrain mode
+  bool _is3dPitch = true;
   String _selectedFilter = 'all';
 
   List<_TerrainItem> _allPlaces = [];
   _TerrainItem? _selectedPlace;
 
+  // Local tile server for offline support
+  HttpServer? _tileServer;
+  int _tileServerPort = 0;
+  bool _isOfflineMode = false;
+
   @override
   void initState() {
     super.initState();
-    _loadDatabasePlaces();
-    _initWebView();
+    _startTileServer().then((_) {
+      _loadDatabasePlaces();
+      _initWebView();
+    });
   }
+
+  @override
+  void dispose() {
+    _tileServer?.close(force: true);
+    super.dispose();
+  }
+
+  // ── Local Tile Server for Offline Support ─────────────────────────────────
+
+  Future<void> _startTileServer() async {
+    try {
+      _tileServer = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      _tileServerPort = _tileServer!.port;
+
+      final docsDir = await getApplicationDocumentsDirectory();
+      final offlineBase = '${docsDir.path}/offline_tiles';
+
+      _tileServer!.listen((request) async {
+        try {
+          final segments = request.uri.pathSegments;
+          // URL pattern: /{type}/{z}/{x}/{y}.png
+          if (segments.length >= 4) {
+            final type = segments[0]; // 'sat', 'dem'
+            final z = segments[1];
+            final x = segments[2];
+            final yFile = segments[3]; // 'y.png'
+            final y = yFile.replaceAll('.png', '');
+
+            // Try local cache first
+            final localPath = '$offlineBase/$type/$z/$x/$y.png';
+            final localFile = File(localPath);
+            if (await localFile.exists()) {
+              final bytes = await localFile.readAsBytes();
+              request.response
+                ..statusCode = HttpStatus.ok
+                ..headers.contentType = ContentType('image', 'png')
+                ..headers.set('Access-Control-Allow-Origin', '*')
+                ..add(bytes);
+              await request.response.close();
+              return;
+            }
+
+            // Fallback to network
+            String networkUrl;
+            if (type == 'sat') {
+              networkUrl = 'https://mt${int.parse(x) % 4}.google.com/vt/lyrs=s&x=$x&y=$y&z=$z';
+            } else if (type == 'dem') {
+              networkUrl = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/$z/$x/$y.png';
+            } else {
+              networkUrl = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/$z/$y/$x';
+            }
+
+            // Proxy the network request
+            try {
+              final client = HttpClient();
+              client.connectionTimeout = const Duration(seconds: 10);
+              final netReq = await client.getUrl(Uri.parse(networkUrl));
+              netReq.headers.set('User-Agent', 'KashiGeoFieldPro/1.0');
+              final netResp = await netReq.close();
+
+              if (netResp.statusCode == 200) {
+                final bytes = <int>[];
+                await for (final chunk in netResp) {
+                  bytes.addAll(chunk);
+                }
+
+                // Cache the tile for future offline use
+                try {
+                  final cacheFile = File(localPath);
+                  await cacheFile.parent.create(recursive: true);
+                  await cacheFile.writeAsBytes(bytes);
+                } catch (_) {}
+
+                request.response
+                  ..statusCode = HttpStatus.ok
+                  ..headers.contentType = ContentType('image', 'png')
+                  ..headers.set('Access-Control-Allow-Origin', '*')
+                  ..add(bytes);
+                await request.response.close();
+                return;
+              }
+            } catch (_) {
+              // Network failed — offline mode
+              if (mounted && !_isOfflineMode) {
+                setState(() => _isOfflineMode = true);
+              }
+            }
+          }
+
+          request.response
+            ..statusCode = HttpStatus.notFound
+            ..headers.set('Access-Control-Allow-Origin', '*');
+          await request.response.close();
+        } catch (_) {
+          try {
+            request.response.statusCode = HttpStatus.internalServerError;
+            await request.response.close();
+          } catch (_) {}
+        }
+      });
+    } catch (e) {
+      debugPrint('Tile server failed: $e');
+      // Fallback: use direct URLs
+      _tileServerPort = 0;
+    }
+  }
+
+  // ── Load Database Places ──────────────────────────────────────────────────
 
   Future<void> _loadDatabasePlaces() async {
     try {
@@ -41,6 +169,7 @@ class _Terrain3dScreenState extends State<Terrain3dScreen> {
 
       final List<_TerrainItem> items = [];
 
+      // Villages
       for (final v in vList) {
         try {
           final List<dynamic> coords = jsonDecode(v.coordinates);
@@ -67,6 +196,7 @@ class _Terrain3dScreenState extends State<Terrain3dScreen> {
         } catch (_) {}
       }
 
+      // User polygons
       for (final p in pList) {
         try {
           final List<dynamic> coords = jsonDecode(p.coordinates);
@@ -93,6 +223,46 @@ class _Terrain3dScreenState extends State<Terrain3dScreen> {
         } catch (_) {}
       }
 
+      // Markers from DrawnShapes
+      if (widget.drawnShapes != null) {
+        for (final shape in widget.drawnShapes!) {
+          if (shape.type == DrawMode.marker && shape.points.isNotEmpty) {
+            final pt = shape.points.first;
+            items.add(_TerrainItem(
+              id: 'm_${shape.id}',
+              title: shape.name,
+              subtitle: '${pt.latitude.toStringAsFixed(6)}, ${pt.longitude.toStringAsFixed(6)}',
+              lat: pt.latitude,
+              lng: pt.longitude,
+              type: 'marker',
+              areaHectares: 0,
+              coordsJson: jsonEncode([{'lat': pt.latitude, 'lng': pt.longitude}]),
+              color: '#${shape.color.toARGB32().toRadixString(16).padLeft(8, '0').substring(2)}',
+            ));
+          } else if (shape.type == DrawMode.path && shape.points.length >= 2) {
+            double lat = 0, lng = 0;
+            for (final pt in shape.points) {
+              lat += pt.latitude;
+              lng += pt.longitude;
+            }
+            lat /= shape.points.length;
+            lng /= shape.points.length;
+            items.add(_TerrainItem(
+              id: 'path_${shape.id}',
+              title: shape.name,
+              subtitle: 'Path: ${shape.perimeterMeters.toStringAsFixed(0)} m',
+              lat: lat,
+              lng: lng,
+              type: 'path',
+              areaHectares: 0,
+              coordsJson: jsonEncode(shape.points.map((p) => {'lat': p.latitude, 'lng': p.longitude}).toList()),
+              color: '#${shape.color.toARGB32().toRadixString(16).padLeft(8, '0').substring(2)}',
+            ));
+          }
+        }
+      }
+
+      // KML file entries
       for (final k in kList) {
         if (k.isVisible) {
           items.add(_TerrainItem(
@@ -121,6 +291,8 @@ class _Terrain3dScreenState extends State<Terrain3dScreen> {
     } catch (_) {}
   }
 
+  // ── WebView Init ──────────────────────────────────────────────────────────
+
   void _initWebView() {
     final lat = widget.initialCenter?.latitude ?? (_allPlaces.isNotEmpty ? _allPlaces.first.lat : 20.5937);
     final lng = widget.initialCenter?.longitude ?? (_allPlaces.isNotEmpty ? _allPlaces.first.lng : 78.9629);
@@ -143,7 +315,17 @@ class _Terrain3dScreenState extends State<Terrain3dScreen> {
       ..loadHtmlString(htmlContent, baseUrl: 'https://localhost/');
   }
 
+  // ── MapLibre GL JS HTML ───────────────────────────────────────────────────
+
   String _buildMapLibreHtml(double centerLat, double centerLng) {
+    // Use local tile server if available, otherwise direct URLs
+    final satTileUrl = _tileServerPort > 0
+        ? 'http://127.0.0.1:$_tileServerPort/sat/{z}/{x}/{y}.png'
+        : 'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}';
+    final demTileUrl = _tileServerPort > 0
+        ? 'http://127.0.0.1:$_tileServerPort/dem/{z}/{x}/{y}.png'
+        : 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
+
     return '''
 <!DOCTYPE html>
 <html>
@@ -151,13 +333,23 @@ class _Terrain3dScreenState extends State<Terrain3dScreen> {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>3D Google Earth Terrain</title>
-    <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
-    <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
+    <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+    <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
     <style>
         body { margin: 0; padding: 0; background-color: #000; overflow: hidden; font-family: sans-serif; }
         #map { position: absolute; top: 0; bottom: 0; width: 100%; height: 100%; }
         .maplibregl-ctrl-attribution { display: none !important; }
         .maplibregl-ctrl-logo { display: none !important; }
+        .maplibregl-popup-content {
+            background: rgba(0,0,0,0.85);
+            color: #00E5FF;
+            border: 1px solid #00E5FF;
+            border-radius: 8px;
+            padding: 6px 10px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .maplibregl-popup-tip { border-top-color: rgba(0,0,0,0.85) !important; }
     </style>
 </head>
 <body>
@@ -167,22 +359,27 @@ class _Terrain3dScreenState extends State<Terrain3dScreen> {
             container: 'map',
             style: {
                 version: 8,
+                glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
                 sources: {
                     'satellite-tiles': {
                         type: 'raster',
-                        tiles: [
-                            'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-                            'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}'
-                        ],
-                        tileSize: 256
+                        tiles: ['$satTileUrl'],
+                        tileSize: 256,
+                        maxzoom: 20
                     },
                     'terrain-dem': {
                         type: 'raster-dem',
-                        tiles: [
-                            'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'
-                        ],
+                        tiles: ['$demTileUrl'],
                         encoding: 'terrarium',
-                        tileSize: 256
+                        tileSize: 256,
+                        maxzoom: 15
+                    },
+                    'hillshade-dem': {
+                        type: 'raster-dem',
+                        tiles: ['$demTileUrl'],
+                        encoding: 'terrarium',
+                        tileSize: 256,
+                        maxzoom: 15
                     }
                 },
                 layers: [
@@ -192,11 +389,32 @@ class _Terrain3dScreenState extends State<Terrain3dScreen> {
                         source: 'satellite-tiles',
                         minzoom: 0,
                         maxzoom: 22
+                    },
+                    {
+                        id: 'hillshade-layer',
+                        type: 'hillshade',
+                        source: 'hillshade-dem',
+                        paint: {
+                            'hillshade-exaggeration': 0.4,
+                            'hillshade-shadow-color': '#000000',
+                            'hillshade-highlight-color': '#ffffff',
+                            'hillshade-illumination-direction': 315,
+                            'hillshade-illumination-anchor': 'viewport'
+                        }
                     }
                 ],
                 terrain: {
                     source: 'terrain-dem',
-                    exaggeration: 1.5
+                    exaggeration: 1.8
+                },
+                sky: {
+                    'sky-color': '#199EF3',
+                    'sky-horizon-blend': 0.5,
+                    'horizon-color': '#ffffff',
+                    'horizon-fog-blend': 0.1,
+                    'fog-color': '#0e1117',
+                    'fog-ground-blend': 0.5,
+                    'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 0, 1, 10, 1, 12, 0]
                 }
             },
             center: [$centerLng, $centerLat],
@@ -209,36 +427,180 @@ class _Terrain3dScreenState extends State<Terrain3dScreen> {
 
         map.addControl(new maplibregl.NavigationControl({
             showCompass: true,
-            showZoom: false,
+            showZoom: true,
             visualizePitch: true
         }), 'top-right');
 
         map.on('load', () => {
+            // Fog for atmospheric depth
+            if (map.setFog) {
+                map.setFog({
+                    range: [2, 12],
+                    color: 'rgba(186, 210, 235, 0.15)',
+                    'horizon-blend': 0.1
+                });
+            }
+
+            // ── User polygons source & layers ───────────────────────────
             map.addSource('user-polygons', {
                 type: 'geojson',
-                data: {
-                    type: 'FeatureCollection',
-                    features: []
-                }
+                data: { type: 'FeatureCollection', features: [] }
             });
-
             map.addLayer({
                 id: 'user-polygons-fill',
                 type: 'fill',
                 source: 'user-polygons',
                 paint: {
                     'fill-color': ['get', 'color'],
-                    'fill-opacity': 0.35
+                    'fill-opacity': 0.3
                 }
             });
-
             map.addLayer({
                 id: 'user-polygons-line',
                 type: 'line',
                 source: 'user-polygons',
                 paint: {
                     'line-color': ['get', 'color'],
-                    'line-width': 3
+                    'line-width': 3,
+                    'line-opacity': 0.9
+                }
+            });
+            map.addLayer({
+                id: 'user-polygons-label',
+                type: 'symbol',
+                source: 'user-polygons',
+                layout: {
+                    'text-field': ['get', 'title'],
+                    'text-size': 12,
+                    'text-anchor': 'center',
+                    'text-allow-overlap': false
+                },
+                paint: {
+                    'text-color': '#ffffff',
+                    'text-halo-color': '#000000',
+                    'text-halo-width': 1.5
+                }
+            });
+
+            // ── Paths / polylines source & layers ───────────────────────
+            map.addSource('user-paths', {
+                type: 'geojson',
+                data: { type: 'FeatureCollection', features: [] }
+            });
+            map.addLayer({
+                id: 'user-paths-line',
+                type: 'line',
+                source: 'user-paths',
+                paint: {
+                    'line-color': ['get', 'color'],
+                    'line-width': 4,
+                    'line-opacity': 0.85,
+                    'line-dasharray': [2, 1]
+                }
+            });
+            map.addLayer({
+                id: 'user-paths-label',
+                type: 'symbol',
+                source: 'user-paths',
+                layout: {
+                    'symbol-placement': 'line-center',
+                    'text-field': ['get', 'title'],
+                    'text-size': 11,
+                    'text-anchor': 'center'
+                },
+                paint: {
+                    'text-color': '#FFD740',
+                    'text-halo-color': '#000000',
+                    'text-halo-width': 1.5
+                }
+            });
+
+            // ── Markers source & layers ─────────────────────────────────
+            map.addSource('user-markers', {
+                type: 'geojson',
+                data: { type: 'FeatureCollection', features: [] }
+            });
+            map.addLayer({
+                id: 'user-markers-circle',
+                type: 'circle',
+                source: 'user-markers',
+                paint: {
+                    'circle-radius': 8,
+                    'circle-color': ['get', 'color'],
+                    'circle-stroke-width': 3,
+                    'circle-stroke-color': '#ffffff',
+                    'circle-opacity': 0.9
+                }
+            });
+            map.addLayer({
+                id: 'user-markers-label',
+                type: 'symbol',
+                source: 'user-markers',
+                layout: {
+                    'text-field': ['get', 'title'],
+                    'text-size': 13,
+                    'text-offset': [0, 1.8],
+                    'text-anchor': 'top',
+                    'text-allow-overlap': false
+                },
+                paint: {
+                    'text-color': '#00E5FF',
+                    'text-halo-color': '#000000',
+                    'text-halo-width': 2
+                }
+            });
+            // Glow ring behind markers
+            map.addLayer({
+                id: 'user-markers-glow',
+                type: 'circle',
+                source: 'user-markers',
+                paint: {
+                    'circle-radius': 14,
+                    'circle-color': ['get', 'color'],
+                    'circle-opacity': 0.15,
+                    'circle-blur': 1
+                }
+            }, 'user-markers-circle');
+
+            // ── KML shapes source & layers ──────────────────────────────
+            map.addSource('kml-shapes', {
+                type: 'geojson',
+                data: { type: 'FeatureCollection', features: [] }
+            });
+            map.addLayer({
+                id: 'kml-shapes-fill',
+                type: 'fill',
+                source: 'kml-shapes',
+                filter: ['==', ['geometry-type'], 'Polygon'],
+                paint: {
+                    'fill-color': ['get', 'color'],
+                    'fill-opacity': 0.25
+                }
+            });
+            map.addLayer({
+                id: 'kml-shapes-line',
+                type: 'line',
+                source: 'kml-shapes',
+                paint: {
+                    'line-color': ['get', 'color'],
+                    'line-width': 2.5,
+                    'line-opacity': 0.8
+                }
+            });
+            map.addLayer({
+                id: 'kml-shapes-label',
+                type: 'symbol',
+                source: 'kml-shapes',
+                layout: {
+                    'text-field': ['get', 'title'],
+                    'text-size': 11,
+                    'text-anchor': 'center',
+                    'text-allow-overlap': false
+                },
+                paint: {
+                    'text-color': '#FF8A65',
+                    'text-halo-color': '#000000',
+                    'text-halo-width': 1.5
                 }
             });
         });
@@ -248,6 +610,33 @@ class _Terrain3dScreenState extends State<Terrain3dScreen> {
                 try {
                     const data = JSON.parse(geojsonStr);
                     map.getSource('user-polygons').setData(data);
+                } catch(e) {}
+            }
+        }
+
+        function updatePaths(geojsonStr) {
+            if (map && map.getSource('user-paths')) {
+                try {
+                    const data = JSON.parse(geojsonStr);
+                    map.getSource('user-paths').setData(data);
+                } catch(e) {}
+            }
+        }
+
+        function updateMarkers(geojsonStr) {
+            if (map && map.getSource('user-markers')) {
+                try {
+                    const data = JSON.parse(geojsonStr);
+                    map.getSource('user-markers').setData(data);
+                } catch(e) {}
+            }
+        }
+
+        function updateKmlShapes(geojsonStr) {
+            if (map && map.getSource('kml-shapes')) {
+                try {
+                    const data = JSON.parse(geojsonStr);
+                    map.getSource('kml-shapes').setData(data);
                 } catch(e) {}
             }
         }
@@ -280,17 +669,25 @@ class _Terrain3dScreenState extends State<Terrain3dScreen> {
                 map.resetNorthPitch({ duration: 1000 });
             }
         }
+
+        function setTerrainExaggeration(val) {
+            if (map && map.setTerrain) {
+                map.setTerrain({ source: 'terrain-dem', exaggeration: val });
+            }
+        }
     </script>
 </body>
 </html>
 ''';
   }
 
-  void _injectGeoJsonToMap() {
-    if (_allPlaces.isEmpty) return;
-    try {
-      final List<Map<String, dynamic>> features = [];
+  // ── GeoJSON Injection ─────────────────────────────────────────────────────
 
+  void _injectGeoJsonToMap() {
+    if (_allPlaces.isEmpty && (widget.kmlShapes == null || widget.kmlShapes!.isEmpty)) return;
+    try {
+      // ── Polygons (villages + user polygons) ───────────────────────────
+      final List<Map<String, dynamic>> polygonFeatures = [];
       for (final place in _allPlaces) {
         if (place.type == 'village' || place.type == 'polygon') {
           try {
@@ -300,8 +697,7 @@ class _Terrain3dScreenState extends State<Terrain3dScreen> {
                   .map((c) => [(c['lng'] as num).toDouble(), (c['lat'] as num).toDouble()])
                   .toList();
               ring.add(ring.first); // close polygon
-
-              features.add({
+              polygonFeatures.add({
                 'type': 'Feature',
                 'properties': {
                   'id': place.id,
@@ -317,16 +713,111 @@ class _Terrain3dScreenState extends State<Terrain3dScreen> {
           } catch (_) {}
         }
       }
-
-      final geoJson = {
+      final polyJson = jsonEncode({
         'type': 'FeatureCollection',
-        'features': features,
-      };
+        'features': polygonFeatures,
+      }).replaceAll("'", "\\'");
+      _webController.runJavaScript("updateGeoJson('$polyJson');");
 
-      final jsonString = jsonEncode(geoJson).replaceAll("'", "\\'");
-      _webController.runJavaScript("updateGeoJson('$jsonString');");
+      // ── Paths (user paths + GPS tracks) ───────────────────────────────
+      final List<Map<String, dynamic>> pathFeatures = [];
+      for (final place in _allPlaces) {
+        if (place.type == 'path') {
+          try {
+            final List<dynamic> coords = jsonDecode(place.coordsJson);
+            if (coords.length >= 2) {
+              final List<List<double>> line = coords
+                  .map((c) => [(c['lng'] as num).toDouble(), (c['lat'] as num).toDouble()])
+                  .toList();
+              pathFeatures.add({
+                'type': 'Feature',
+                'properties': {
+                  'id': place.id,
+                  'title': place.title,
+                  'color': place.color,
+                },
+                'geometry': {
+                  'type': 'LineString',
+                  'coordinates': line,
+                }
+              });
+            }
+          } catch (_) {}
+        }
+      }
+      final pathJson = jsonEncode({
+        'type': 'FeatureCollection',
+        'features': pathFeatures,
+      }).replaceAll("'", "\\'");
+      _webController.runJavaScript("updatePaths('$pathJson');");
+
+      // ── Markers ───────────────────────────────────────────────────────
+      final List<Map<String, dynamic>> markerFeatures = [];
+      for (final place in _allPlaces) {
+        if (place.type == 'marker') {
+          markerFeatures.add({
+            'type': 'Feature',
+            'properties': {
+              'id': place.id,
+              'title': place.title,
+              'color': place.color,
+            },
+            'geometry': {
+              'type': 'Point',
+              'coordinates': [place.lng, place.lat],
+            }
+          });
+        }
+      }
+      final markerJson = jsonEncode({
+        'type': 'FeatureCollection',
+        'features': markerFeatures,
+      }).replaceAll("'", "\\'");
+      _webController.runJavaScript("updateMarkers('$markerJson');");
+
+      // ── KML Shapes ────────────────────────────────────────────────────
+      if (widget.kmlShapes != null && widget.kmlShapes!.isNotEmpty) {
+        final List<Map<String, dynamic>> kmlFeatures = [];
+        for (final shape in widget.kmlShapes!) {
+          if (shape.coordinates.length >= 2) {
+            final coords = shape.coordinates
+                .map((c) => [c['lng'] ?? c['longitude'] ?? 0.0, c['lat'] ?? c['latitude'] ?? 0.0])
+                .toList();
+
+            if (shape.type == 'polygon' && coords.length >= 3) {
+              final ring = List<List<double>>.from(coords.map((c) => [c[0], c[1]]));
+              ring.add(ring.first);
+              kmlFeatures.add({
+                'type': 'Feature',
+                'properties': {'title': shape.name, 'color': shape.color},
+                'geometry': {'type': 'Polygon', 'coordinates': [ring]},
+              });
+            } else if (shape.type == 'path' || shape.type == 'line') {
+              kmlFeatures.add({
+                'type': 'Feature',
+                'properties': {'title': shape.name, 'color': shape.color},
+                'geometry': {'type': 'LineString', 'coordinates': coords},
+              });
+            }
+          } else if (shape.coordinates.length == 1 && shape.type == 'marker') {
+            final c = shape.coordinates.first;
+            kmlFeatures.add({
+              'type': 'Feature',
+              'properties': {'title': shape.name, 'color': shape.color},
+              'geometry': {'type': 'Point', 'coordinates': [c['lng'] ?? c['longitude'] ?? 0.0, c['lat'] ?? c['latitude'] ?? 0.0]},
+            });
+          }
+        }
+        final kmlJson = jsonEncode({
+          'type': 'FeatureCollection',
+          'features': kmlFeatures,
+        }).replaceAll("'", "\\'");
+        _webController.runJavaScript("updateKmlShapes('$kmlJson');");
+      }
     } catch (_) {}
   }
+
+  // ── Actions ───────────────────────────────────────────────────────────────
 
   void _onPlaceSelected(_TerrainItem place) {
     setState(() => _selectedPlace = place);
@@ -348,10 +839,21 @@ class _Terrain3dScreenState extends State<Terrain3dScreen> {
     _webController.runJavaScript("resetNorth();");
   }
 
+  void _onDownload3dArea() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const OfflineMapsScreen(),
+      ),
+    );
+  }
+
   List<_TerrainItem> get _filteredPlaces {
     if (_selectedFilter == 'all') return _allPlaces;
     return _allPlaces.where((p) => p.type == _selectedFilter).toList();
   }
+
+  // ── UI Build ──────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -439,19 +941,33 @@ class _Terrain3dScreenState extends State<Terrain3dScreen> {
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
+                          // Online/Offline status indicator
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF00E5FF).withValues(alpha: 0.2),
+                              color: _isOfflineMode
+                                  ? Colors.orange.withValues(alpha: 0.2)
+                                  : const Color(0xFF00E5FF).withValues(alpha: 0.2),
                               borderRadius: BorderRadius.circular(10),
                             ),
-                            child: const Text(
-                              '3D ELEVATION',
-                              style: TextStyle(
-                                color: Color(0xFF00E5FF),
-                                fontSize: 9,
-                                fontWeight: FontWeight.w900,
-                              ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  _isOfflineMode ? Icons.cloud_off : Icons.cloud_done,
+                                  size: 10,
+                                  color: _isOfflineMode ? Colors.orange : const Color(0xFF00E5FF),
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  _isOfflineMode ? 'OFFLINE' : '3D LIVE',
+                                  style: TextStyle(
+                                    color: _isOfflineMode ? Colors.orange : const Color(0xFF00E5FF),
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ],
@@ -484,7 +1000,7 @@ class _Terrain3dScreenState extends State<Terrain3dScreen> {
             ),
           ),
 
-          // ── 4. Right Control Bar (Exactly matching Google Earth UI) ─────
+          // ── 4. Right Control Bar ────────────────────────────────────────
           Positioned(
             right: 16,
             bottom: 160,
@@ -515,7 +1031,16 @@ class _Terrain3dScreenState extends State<Terrain3dScreen> {
                 ),
                 const SizedBox(height: 12),
 
-                // 2D / 3D Toggle Circle Button (Google Earth Style)
+                // Download 3D Area for offline
+                _ControlButton(
+                  icon: Icons.download_rounded,
+                  color: const Color(0xFF29B6F6),
+                  tooltip: 'Download 3D Area Offline',
+                  onTap: _onDownload3dArea,
+                ),
+                const SizedBox(height: 12),
+
+                // 2D / 3D Toggle Circle Button
                 GestureDetector(
                   onTap: _toggle2d3d,
                   child: Container(
@@ -568,8 +1093,20 @@ class _Terrain3dScreenState extends State<Terrain3dScreen> {
                 child: Row(
                   children: [
                     Icon(
-                      _selectedPlace!.type == 'village' ? Icons.location_on : Icons.pentagon,
-                      color: _selectedPlace!.type == 'village' ? AppTheme.greenAccent : const Color(0xFF00E5FF),
+                      _selectedPlace!.type == 'village'
+                          ? Icons.location_on
+                          : _selectedPlace!.type == 'marker'
+                              ? Icons.place_rounded
+                              : _selectedPlace!.type == 'path'
+                                  ? Icons.timeline_rounded
+                                  : Icons.pentagon,
+                      color: _selectedPlace!.type == 'village'
+                          ? AppTheme.greenAccent
+                          : _selectedPlace!.type == 'marker'
+                              ? Colors.red
+                              : _selectedPlace!.type == 'path'
+                                  ? Colors.amber
+                                  : const Color(0xFF00E5FF),
                       size: 24,
                     ),
                     const SizedBox(width: 12),
@@ -626,7 +1163,7 @@ class _Terrain3dScreenState extends State<Terrain3dScreen> {
               ),
             ),
 
-          // ── 6. Bottom Drawer: Saved Villages & Polygons ─────────────────
+          // ── 6. Bottom Drawer: Saved Data ────────────────────────────────
           Align(
             alignment: Alignment.bottomCenter,
             child: Container(
@@ -646,7 +1183,7 @@ class _Terrain3dScreenState extends State<Terrain3dScreen> {
                     child: Row(
                       children: [
                         const Text(
-                          'FLY TO SAVED TERRAIN:',
+                          'FLY TO:',
                           style: TextStyle(
                             color: Colors.white70,
                             fontWeight: FontWeight.w700,
@@ -654,7 +1191,7 @@ class _Terrain3dScreenState extends State<Terrain3dScreen> {
                             letterSpacing: 1.0,
                           ),
                         ),
-                        const SizedBox(width: 12),
+                        const SizedBox(width: 8),
                         Expanded(
                           child: SingleChildScrollView(
                             scrollDirection: Axis.horizontal,
@@ -677,6 +1214,18 @@ class _Terrain3dScreenState extends State<Terrain3dScreen> {
                                   isSelected: _selectedFilter == 'polygon',
                                   onTap: () => setState(() => _selectedFilter = 'polygon'),
                                 ),
+                                const SizedBox(width: 6),
+                                _FilterChip(
+                                  label: 'Markers (${_allPlaces.where((p) => p.type == 'marker').length})',
+                                  isSelected: _selectedFilter == 'marker',
+                                  onTap: () => setState(() => _selectedFilter = 'marker'),
+                                ),
+                                const SizedBox(width: 6),
+                                _FilterChip(
+                                  label: 'Paths (${_allPlaces.where((p) => p.type == 'path').length})',
+                                  isSelected: _selectedFilter == 'path',
+                                  onTap: () => setState(() => _selectedFilter = 'path'),
+                                ),
                               ],
                             ),
                           ),
@@ -689,7 +1238,7 @@ class _Terrain3dScreenState extends State<Terrain3dScreen> {
                     child: _filteredPlaces.isEmpty
                         ? const Center(
                             child: Text(
-                              'No saved field polygons or villages yet.',
+                              'No saved data in this category yet.',
                               style: TextStyle(color: Colors.white38, fontSize: 13),
                             ),
                           )
@@ -722,10 +1271,22 @@ class _Terrain3dScreenState extends State<Terrain3dScreen> {
                                       Row(
                                         children: [
                                           Icon(
-                                            place.type == 'village' ? Icons.location_on : Icons.pentagon,
+                                            place.type == 'village'
+                                                ? Icons.location_on
+                                                : place.type == 'marker'
+                                                    ? Icons.place_rounded
+                                                    : place.type == 'path'
+                                                        ? Icons.timeline_rounded
+                                                        : place.type == 'kml'
+                                                            ? Icons.layers
+                                                            : Icons.pentagon,
                                             color: place.type == 'village'
                                                 ? AppTheme.greenAccent
-                                                : const Color(0xFF00E5FF),
+                                                : place.type == 'marker'
+                                                    ? Colors.red
+                                                    : place.type == 'path'
+                                                        ? Colors.amber
+                                                        : const Color(0xFF00E5FF),
                                             size: 16,
                                           ),
                                           const SizedBox(width: 6),
@@ -848,7 +1409,7 @@ class _TerrainItem {
   final String subtitle;
   final double lat;
   final double lng;
-  final String type; // 'village', 'polygon', 'kml'
+  final String type; // 'village', 'polygon', 'kml', 'marker', 'path'
   final double areaHectares;
   final String coordsJson;
   final String color;

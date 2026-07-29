@@ -223,6 +223,50 @@ class TileDownloader {
       if (await dir.exists()) await dir.delete(recursive: true);
     } catch (_) {}
   }
+
+  // DEM (Digital Elevation Model) tile support for 3D terrain
+  static const String _demBaseUrl = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium';
+
+  static Future<String> _demTilePath(int z, int x, int y) async {
+    final base = await _tileDir();
+    return '$base/dem/$z/$x/$y.png';
+  }
+
+  static Future<bool> demTileExists(int z, int x, int y) async {
+    final path = await _demTilePath(z, x, y);
+    return File(path).exists();
+  }
+
+  static Future<bool> downloadDemTile(int z, int x, int y) async {
+    try {
+      final path = await _demTilePath(z, x, y);
+      final file = File(path);
+      if (await file.exists()) return true;
+
+      await file.parent.create(recursive: true);
+
+      final url = '$_demBaseUrl/$z/$x/$y.png';
+      final resp = await http
+          .get(Uri.parse(url), headers: {'User-Agent': 'KashiGeoFieldPro/1.0'});
+
+      if (resp.statusCode == 200 && resp.bodyBytes.isNotEmpty) {
+        await file.writeAsBytes(resp.bodyBytes);
+        return true;
+      }
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<Uint8List?> getCachedDemTile(int z, int x, int y) async {
+    try {
+      final path = await _demTilePath(z, x, y);
+      final f = File(path);
+      if (await f.exists()) return await f.readAsBytes();
+    } catch (_) {}
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -370,6 +414,19 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
       // Small delay to avoid rate limiting
       await Future.delayed(const Duration(milliseconds: 20));
     }
+
+      // Also download DEM terrain tiles for 3D map (zoom 5-14)
+      final demMinZoom = 5;
+      final demMaxZoom = region.maxZoom > 14 ? 14 : region.maxZoom;
+      for (int z = demMinZoom; z <= demMaxZoom; z++) {
+        final demTiles = OfflineRegion.tilesForBbox(
+            region.minLat, region.maxLat, region.minLng, region.maxLng, z);
+        for (final tile in demTiles) {
+          if (_cancelDownload) break;
+          await TileDownloader.downloadDemTile(tile[0], tile[1], tile[2]);
+        }
+        if (_cancelDownload) break;
+      }
 
     // Save final state
     final idx = _regions.indexWhere((r) => r.id == region.id);
