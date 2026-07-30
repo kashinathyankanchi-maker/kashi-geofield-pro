@@ -165,7 +165,6 @@ class _Terrain3dScreenState extends State<Terrain3dScreen> {
       final db = DbHelper();
       final vList = await db.getAllVillages();
       final pList = await db.getAllPolygons();
-      final kList = await db.getAllKmlFiles();
 
       final List<_TerrainItem> items = [];
 
@@ -262,20 +261,30 @@ class _Terrain3dScreenState extends State<Terrain3dScreen> {
         }
       }
 
-      // KML file entries
-      for (final k in kList) {
-        if (k.isVisible) {
-          items.add(_TerrainItem(
-            id: 'k_${k.id}',
-            title: k.filename,
-            subtitle: 'Imported KML Layer',
-            lat: 20.5937,
-            lng: 78.9629,
-            type: 'kml',
-            areaHectares: 0,
-            coordsJson: '[]',
-            color: k.layerColor,
-          ));
+      // KML parsed shapes (with real coordinates)
+      if (widget.kmlShapes != null) {
+        for (int i = 0; i < widget.kmlShapes!.length; i++) {
+          final shape = widget.kmlShapes![i];
+          if (shape.coordinates.isNotEmpty) {
+            double lat = 0, lng = 0;
+            for (final c in shape.coordinates) {
+              lat += (c['lat'] ?? 0.0);
+              lng += (c['lng'] ?? 0.0);
+            }
+            lat /= shape.coordinates.length;
+            lng /= shape.coordinates.length;
+            items.add(_TerrainItem(
+              id: 'kml_$i',
+              title: shape.name,
+              subtitle: 'KML ${shape.type}: ${shape.coordinates.length} points',
+              lat: lat,
+              lng: lng,
+              type: 'kml',
+              areaHectares: 0,
+              coordsJson: jsonEncode(shape.coordinates),
+              color: shape.color,
+            ));
+          }
         }
       }
 
@@ -776,12 +785,14 @@ class _Terrain3dScreenState extends State<Terrain3dScreen> {
       _webController.runJavaScript("updateMarkers('$markerJson');");
 
       // ── KML Shapes ────────────────────────────────────────────────────
+      final List<Map<String, dynamic>> kmlFeatures = [];
+
+      // From widget.kmlShapes (parsed KML data passed from 2D map)
       if (widget.kmlShapes != null && widget.kmlShapes!.isNotEmpty) {
-        final List<Map<String, dynamic>> kmlFeatures = [];
         for (final shape in widget.kmlShapes!) {
           if (shape.coordinates.length >= 2) {
             final coords = shape.coordinates
-                .map((c) => [c['lng'] ?? c['longitude'] ?? 0.0, c['lat'] ?? c['latitude'] ?? 0.0])
+                .map((c) => [c['lng'] ?? 0.0, c['lat'] ?? 0.0])
                 .toList();
 
             if (shape.type == 'polygon' && coords.length >= 3) {
@@ -804,10 +815,42 @@ class _Terrain3dScreenState extends State<Terrain3dScreen> {
             kmlFeatures.add({
               'type': 'Feature',
               'properties': {'title': shape.name, 'color': shape.color},
-              'geometry': {'type': 'Point', 'coordinates': [c['lng'] ?? c['longitude'] ?? 0.0, c['lat'] ?? c['latitude'] ?? 0.0]},
+              'geometry': {'type': 'Point', 'coordinates': [c['lng'] ?? 0.0, c['lat'] ?? 0.0]},
             });
           }
         }
+      }
+
+      // Also add KML items from _allPlaces (parsed with real coords)
+      for (final place in _allPlaces) {
+        if (place.type == 'kml' && place.coordsJson != '[]') {
+          try {
+            final List<dynamic> coords = jsonDecode(place.coordsJson);
+            if (coords.length >= 3) {
+              final List<List<double>> ring = coords
+                  .map((c) => [(c['lng'] as num).toDouble(), (c['lat'] as num).toDouble()])
+                  .toList();
+              ring.add(ring.first);
+              kmlFeatures.add({
+                'type': 'Feature',
+                'properties': {'id': place.id, 'title': place.title, 'color': place.color},
+                'geometry': {'type': 'Polygon', 'coordinates': [ring]},
+              });
+            } else if (coords.length >= 2) {
+              final List<List<double>> line = coords
+                  .map((c) => [(c['lng'] as num).toDouble(), (c['lat'] as num).toDouble()])
+                  .toList();
+              kmlFeatures.add({
+                'type': 'Feature',
+                'properties': {'id': place.id, 'title': place.title, 'color': place.color},
+                'geometry': {'type': 'LineString', 'coordinates': line},
+              });
+            }
+          } catch (_) {}
+        }
+      }
+
+      if (kmlFeatures.isNotEmpty) {
         final kmlJson = jsonEncode({
           'type': 'FeatureCollection',
           'features': kmlFeatures,
