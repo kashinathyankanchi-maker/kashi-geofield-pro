@@ -41,6 +41,9 @@ dependencies:
   printing: ^5.13.1
   screenshot: ^3.0.0
 
+  # Excel
+  excel: ^4.0.6
+
   # UI
   flutter_colorpicker: ^1.0.3
 
