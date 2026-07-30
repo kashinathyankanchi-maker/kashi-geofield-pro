@@ -4,6 +4,7 @@ import 'dart:math';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import '../../core/utils/storage_helper.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../shared/theme.dart';
@@ -131,8 +132,8 @@ class TileDownloader {
   static const String _satBaseUrl = 'https://mt0.google.com/vt/lyrs=s';
 
   static Future<String> _tileDir() async {
-    final dir = await getApplicationDocumentsDirectory();
-    return '${dir.path}/offline_tiles';
+    final dir = await StorageHelper.getAppStorageDirectory();
+    return '$dir/offline_tiles';
   }
 
   static String tilePath(int z, int x, int y) => ''; // resolved asynchronously

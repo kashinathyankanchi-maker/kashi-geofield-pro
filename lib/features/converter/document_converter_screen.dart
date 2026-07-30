@@ -12,6 +12,7 @@ import 'package:excel/excel.dart' as xl;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../shared/theme.dart';
+import '../../core/utils/storage_helper.dart';
 
 class DocumentConverterScreen extends StatefulWidget {
   const DocumentConverterScreen({super.key});
@@ -307,10 +308,10 @@ class _DocumentConverterScreenState extends State<DocumentConverterScreen> {
 
       final fileBytes = excel.save();
       if (fileBytes != null) {
-        final docsDir = await getApplicationDocumentsDirectory();
+        final docsDir = await StorageHelper.getAppStorageDirectory();
         final timestamp = DateTime.now().millisecondsSinceEpoch;
         final fileName = 'extracted_${_sourceName.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_')}_$timestamp.xlsx';
-        final filePath = '${docsDir.path}/$fileName';
+        final filePath = '$docsDir/$fileName';
         final file = File(filePath);
         await file.writeAsBytes(fileBytes);
 
@@ -425,10 +426,10 @@ class _DocumentConverterScreenState extends State<DocumentConverterScreen> {
         ));
       }
 
-      final docsDir = await getApplicationDocumentsDirectory();
+      final docsDir = await StorageHelper.getAppStorageDirectory();
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       final fileName = 'extracted_${_sourceName.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_')}_$timestamp.pdf';
-      final filePath = '${docsDir.path}/$fileName';
+      final filePath = '$docsDir/$fileName';
       final file = File(filePath);
       await file.writeAsBytes(await doc.save());
 

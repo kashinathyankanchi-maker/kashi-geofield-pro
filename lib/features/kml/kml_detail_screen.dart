@@ -7,6 +7,7 @@ import '../../shared/theme.dart';
 import '../../core/models/kml_file_model.dart';
 import '../../core/utils/kml_engine.dart';
 import '../../core/database/db_helper.dart';
+import '../../core/utils/storage_helper.dart';
 
 class KmlDetailScreen extends StatefulWidget {
   final KmlFileModel kml;
@@ -61,7 +62,7 @@ class _KmlDetailScreenState extends State<KmlDetailScreen> {
         return;
       }
       final kmlContent = await sourceFile.readAsString();
-      final appDocDir = await getApplicationDocumentsDirectory();
+      final appDocDir = Directory(await StorageHelper.getAppStorageDirectory());
       final exportDir = Directory(p.join(appDocDir.path, 'kml_exports'));
       if (!await exportDir.exists()) await exportDir.create(recursive: true);
 

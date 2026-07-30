@@ -4,6 +4,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:share_plus/share_plus.dart';
+import '../../core/utils/storage_helper.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import '../../shared/theme.dart';
 import '../../core/database/db_helper.dart';
@@ -59,7 +60,7 @@ class _KmlScreenState extends State<KmlScreen> {
       }
 
       final sourceFile = File(picked.path!);
-      final appDocDir = await getApplicationDocumentsDirectory();
+      final appDocDir = Directory(await StorageHelper.getAppStorageDirectory());
       final kmlDir = Directory(p.join(appDocDir.path, 'kml_files'));
       if (!await kmlDir.exists()) await kmlDir.create(recursive: true);
 

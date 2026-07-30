@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
+import '../../core/utils/storage_helper.dart';
 import 'models/duty_diary_model.dart';
 
 /// How Kannada is rendered correctly:
@@ -204,29 +205,15 @@ class DiaryPdfGenerator {
     // ── Save & share ─────────────────────────────────────────────────────────
     try {
       final bytes = await pdf.save();
-      final dlDir = Directory('/storage/emulated/0/Download');
-      File file;
-      bool saved = false;
-      if (dlDir.existsSync()) {
-        try {
-          file = File('${dlDir.path}/Duty_Diary_${df.format(startOfWeek)}.pdf');
-          await file.writeAsBytes(bytes);
-          saved = true;
-        } catch (_) {
-          final d = await getApplicationDocumentsDirectory();
-          file = File('${d.path}/Duty_Diary_${df.format(startOfWeek)}.pdf');
-          await file.writeAsBytes(bytes);
-        }
-      } else {
-        final d = await getApplicationDocumentsDirectory();
-        file = File('${d.path}/Duty_Diary_${df.format(startOfWeek)}.pdf');
-        await file.writeAsBytes(bytes);
-      }
+      final folderPath = await StorageHelper.getAppStorageDirectory();
+      final file = File('$folderPath/Duty_Diary_${df.format(startOfWeek)}.pdf');
+      await file.writeAsBytes(bytes);
+      
       // ignore: use_build_context_synchronously
-      if (context.mounted && saved) {
+      if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-              content: Text('PDF saved to Downloads!'),
+              content: Text('PDF saved to Kashi GeoField Pro folder!'),
               backgroundColor: Colors.green),
         );
       }
@@ -404,32 +391,15 @@ class DiaryPdfGenerator {
     }
 
     try {
-      final dlDir = Directory('/storage/emulated/0/Download');
-      File file;
-      bool saved = false;
-      if (dlDir.existsSync()) {
-        try {
-          file = File(
-              '${dlDir.path}/Duty_Diary_${df.format(startOfWeek)}.csv');
-          await file.writeAsString(csv.toString());
-          saved = true;
-        } catch (_) {
-          final d = await getApplicationDocumentsDirectory();
-          file = File(
-              '${d.path}/Duty_Diary_${df.format(startOfWeek)}.csv');
-          await file.writeAsString(csv.toString());
-        }
-      } else {
-        final d = await getApplicationDocumentsDirectory();
-        file =
-            File('${d.path}/Duty_Diary_${df.format(startOfWeek)}.csv');
-        await file.writeAsString(csv.toString());
-      }
+      final folderPath = await StorageHelper.getAppStorageDirectory();
+      final file = File('$folderPath/Duty_Diary_${df.format(startOfWeek)}.csv');
+      await file.writeAsString(csv.toString());
+      
       // ignore: use_build_context_synchronously
-      if (context.mounted && saved) {
+      if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-              content: Text('CSV saved to Downloads!'),
+              content: Text('CSV saved to Kashi GeoField Pro folder!'),
               backgroundColor: Colors.green),
         );
       }

@@ -5,6 +5,9 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:screenshot/screenshot.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'storage_helper.dart';
 import 'geo_calculator.dart';
 import '../database/db_helper.dart';
 import '../models/print_history_model.dart';
@@ -686,7 +689,7 @@ class PdfGenerator {
   }
 
   static Future<String> _savePdf(pw.Document pdf, String name) async {
-    final dir = await getApplicationDocumentsDirectory();
+    final dir = Directory(await StorageHelper.getAppStorageDirectory());
     final safe = name.replaceAll(RegExp(r'[^\w\s-]'), '_');
     final ts = DateTime.now().millisecondsSinceEpoch;
     final path = '${dir.path}/pdf_${safe}_$ts.pdf';

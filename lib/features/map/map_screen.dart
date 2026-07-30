@@ -28,6 +28,7 @@ import '../../core/models/polygon_model.dart';
 import '../../core/utils/geo_calculator.dart';
 import '../../core/utils/kml_engine.dart';
 import '../../core/utils/pdf_generator.dart';
+import '../../core/utils/storage_helper.dart';
 import '../../core/models/fire_incident.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'fire_data_service.dart';
@@ -143,7 +144,7 @@ class MapScreenState extends State<MapScreen> {
   }
 
   Future<void> _loadData() async {
-    final docDir = await getApplicationDocumentsDirectory();
+    final docDir = Directory(await StorageHelper.getAppStorageDirectory());
     final db = DbHelper();
     final villages = await db.getAllVillages();
     final polygons = await db.getAllPolygons();
@@ -835,7 +836,7 @@ class MapScreenState extends State<MapScreen> {
       _showSnackBar('Importing ${pickedFile.name}…');
 
       // Copy file to app directory FIRST so extracted KMZ images can be saved alongside it
-      final dir = await getApplicationDocumentsDirectory();
+      final dir = Directory(await StorageHelper.getAppStorageDirectory());
       final destPath = '${dir.path}/${pickedFile.name}';
       await File(path).copy(destPath);
 
@@ -979,7 +980,7 @@ class MapScreenState extends State<MapScreen> {
   </Document>
 </kml>''';
 
-      final dir = await getApplicationDocumentsDirectory();
+      final dir = Directory(await StorageHelper.getAppStorageDirectory());
       final safe = shape.name.replaceAll(RegExp(r'[^\w\s-]'), '_');
       final file = File('${dir.path}/$safe.kml');
       await file.writeAsString(kml);
@@ -1332,7 +1333,7 @@ $wpPlacemarks
   </Document>
 </kml>''';
 
-      final dir = await getApplicationDocumentsDirectory();
+      final dir = Directory(await StorageHelper.getAppStorageDirectory());
       final safe = shape.name.replaceAll(RegExp(r'[^\w\s-]'), '_');
       final file = File('${dir.path}/$safe.kml');
       await file.writeAsString(kml);
@@ -1630,7 +1631,7 @@ $wpPlacemarks
         exportName = name;
       }
 
-      final dir = await getApplicationDocumentsDirectory();
+      final dir = Directory(await StorageHelper.getAppStorageDirectory());
       final safeName = exportName.replaceAll(RegExp(r'[^\w\s-]'), '_');
       final file = File('${dir.path}/$safeName.kml');
       await file.writeAsString(kml);
