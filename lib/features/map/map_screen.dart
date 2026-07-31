@@ -38,6 +38,7 @@ import 'widgets/layer_panel.dart';
 import 'widgets/shape_detail_sheet.dart';
 import '../calculators/cbm_screen.dart';
 import '../converter/document_converter_screen.dart';
+import '../reference/reference_library_screen.dart';
 
 import '../offline_maps/offline_maps_screen.dart';
 import 'offline_tile_provider.dart';
