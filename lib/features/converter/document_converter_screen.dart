@@ -11,8 +11,11 @@ import 'package:printing/printing.dart';
 import 'package:excel/excel.dart' as xl;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../shared/theme.dart';
 import '../../core/utils/storage_helper.dart';
+import 'ocr_models.dart';
+import 'cloud_vision_service.dart';
 
 class DocumentConverterScreen extends StatefulWidget {
   const DocumentConverterScreen({super.key});
@@ -139,16 +142,33 @@ class _DocumentConverterScreenState extends State<DocumentConverterScreen> {
     }
   }
 
+  Future<String> _getCloudVisionApiKey() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('settings_cloud_vision_api_key') ?? '';
+  }
+
   Future<void> _processImage(File imageFile) async {
     setState(() {
       _progressText = 'Running OCR on image...';
       _progress = 0.3;
     });
 
-    final inputImage = InputImage.fromFile(imageFile);
-    final recognized = await _textRecognizer.processImage(inputImage);
+    final apiKey = await _getCloudVisionApiKey();
+    List<OcrBlock> blocks;
 
-    _extractTextWithStructure(recognized);
+    if (apiKey.isNotEmpty) {
+      setState(() => _progressText = 'Running Cloud Vision OCR (Kannada Support)...');
+      blocks = await CloudVisionService.recognizeText(imageFile, apiKey);
+    } else {
+      final inputImage = InputImage.fromFile(imageFile);
+      final recognized = await _textRecognizer.processImage(inputImage);
+      blocks = recognized.blocks.map((b) => OcrBlock(
+        boundingBox: b.boundingBox,
+        lines: b.lines.map((l) => OcrLine(text: l.text, boundingBox: l.boundingBox)).toList(),
+      )).toList();
+    }
+
+    _buildStructuredOutput(blocks);
 
     setState(() {
       _progress = 1.0;
@@ -164,7 +184,8 @@ class _DocumentConverterScreenState extends State<DocumentConverterScreen> {
 
     final document = await pdfx.PdfDocument.openFile(pdfFile.path);
     final pageCount = document.pagesCount;
-    final allBlocks = <TextBlock>[];
+    final allBlocks = <OcrBlock>[];
+    final apiKey = await _getCloudVisionApiKey();
 
     for (int i = 1; i <= pageCount; i++) {
       setState(() {
@@ -181,14 +202,22 @@ class _DocumentConverterScreenState extends State<DocumentConverterScreen> {
       await page.close();
 
       if (pageImage != null && pageImage.bytes != null) {
-        // Write to temp file for ML Kit
         final tempDir = await getTemporaryDirectory();
         final tempFile = File('${tempDir.path}/pdf_page_$i.png');
         await tempFile.writeAsBytes(pageImage.bytes!);
 
-        final inputImage = InputImage.fromFile(tempFile);
-        final recognized = await _textRecognizer.processImage(inputImage);
-        allBlocks.addAll(recognized.blocks);
+        if (apiKey.isNotEmpty) {
+          final blocks = await CloudVisionService.recognizeText(tempFile, apiKey);
+          allBlocks.addAll(blocks);
+        } else {
+          final inputImage = InputImage.fromFile(tempFile);
+          final recognized = await _textRecognizer.processImage(inputImage);
+          final mappedBlocks = recognized.blocks.map((b) => OcrBlock(
+            boundingBox: b.boundingBox,
+            lines: b.lines.map((l) => OcrLine(text: l.text, boundingBox: l.boundingBox)).toList(),
+          )).toList();
+          allBlocks.addAll(mappedBlocks);
+        }
 
         // Clean up temp file
         try { await tempFile.delete(); } catch (_) {}
@@ -206,11 +235,7 @@ class _DocumentConverterScreenState extends State<DocumentConverterScreen> {
     });
   }
 
-  void _extractTextWithStructure(RecognizedText recognized) {
-    _buildStructuredOutput(recognized.blocks);
-  }
-
-  void _buildStructuredOutput(List<TextBlock> blocks) {
+  void _buildStructuredOutput(List<OcrBlock> blocks) {
     if (blocks.isEmpty) {
       _extractedText = '';
       _tableData = [];
@@ -218,7 +243,7 @@ class _DocumentConverterScreenState extends State<DocumentConverterScreen> {
     }
 
     // Sort blocks by Y position (top to bottom), then X (left to right)
-    final sortedBlocks = List<TextBlock>.from(blocks);
+    final sortedBlocks = List<OcrBlock>.from(blocks);
     sortedBlocks.sort((a, b) {
       final yDiff = a.boundingBox.top - b.boundingBox.top;
       if (yDiff.abs() < 15) {
@@ -228,7 +253,7 @@ class _DocumentConverterScreenState extends State<DocumentConverterScreen> {
     });
 
     // Group lines by Y-position proximity to detect table rows
-    final List<List<TextLine>> rows = [];
+    final List<List<OcrLine>> rows = [];
     double lastY = -100;
 
     for (final block in sortedBlocks) {

@@ -19,6 +19,7 @@ class _Keys {
   static const defaultZoom = 'settings_default_zoom';
   static const firmsApiKey = 'settings_firms_api_key';
   static const fireAlertRadius = 'settings_fire_alert_radius';
+  static const cloudVisionApiKey = 'settings_cloud_vision_api_key';
 }
 
 // ---------------------------------------------------------------------------
@@ -36,6 +37,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // -- controllers --
   final _orgNameCtrl = TextEditingController();
   final _firmsApiKeyCtrl = TextEditingController();
+  final _cloudVisionApiKeyCtrl = TextEditingController();
 
   // -- state --
   String _orgLogoPath = '';
@@ -61,6 +63,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void dispose() {
     _orgNameCtrl.dispose();
     _firmsApiKeyCtrl.dispose();
+    _cloudVisionApiKeyCtrl.dispose();
     super.dispose();
   }
 
@@ -80,6 +83,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _defaultZoom = prefs.getDouble(_Keys.defaultZoom) ?? 13.0;
       _firmsApiKeyCtrl.text = prefs.getString(_Keys.firmsApiKey) ?? '';
       _fireAlertRadius = prefs.getDouble(_Keys.fireAlertRadius) ?? 5.0;
+      _cloudVisionApiKeyCtrl.text = prefs.getString(_Keys.cloudVisionApiKey) ?? '';
       _loading = false;
     });
   }
@@ -316,9 +320,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(height: 16),
                 _buildMapSection(),
                 const SizedBox(height: 16),
-                _buildFireAlertSection(),
-                const SizedBox(height: 16),
-                _buildDataManagementSection(),
+                  _buildFireAlertSection(),
+                  const SizedBox(height: 24),
+                  _buildOcrSection(),
+                  const SizedBox(height: 24),
+                  _buildDataManagementSection(),
                 const SizedBox(height: 16),
                 _buildAppInfoSection(),
                 const SizedBox(height: 32),
@@ -568,6 +574,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 setState(() => _fireAlertRadius = v);
                 _saveSetting(_Keys.fireAlertRadius, v);
               },
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Section 3.6 - OCR API
+  // ---------------------------------------------------------------------------
+
+  Widget _buildOcrSection() {
+    return _SettingsCard(
+      title: 'Document Scanner (OCR)',
+      icon: Icons.document_scanner_rounded,
+      children: [
+        _SettingRow(
+          label: 'Cloud Vision API Key',
+          subtitle: 'Required for Kannada text recognition. Leave blank to use offline ML Kit.',
+          trailing: Expanded(
+            child: TextField(
+              controller: _cloudVisionApiKeyCtrl,
+              obscureText: true,
+              style: AppTheme.bodyMedium,
+              decoration: InputDecoration(
+                hintText: 'Enter API Key...',
+                isDense: true,
+                filled: true,
+                fillColor: AppTheme.textSecondary.withOpacity(0.05),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide.none,
+                ),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              ),
+              onChanged: (v) => _saveSetting(_Keys.cloudVisionApiKey, v.trim()),
             ),
           ),
         ),
