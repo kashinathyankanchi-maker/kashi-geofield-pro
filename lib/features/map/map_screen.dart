@@ -2298,6 +2298,20 @@ $wpPlacemarks
                         );
                       },
                     ),
+                    const SizedBox(height: 6),
+                    
+                    // Reference Library
+                    _MapFab(
+                      icon: Icons.menu_book_rounded,
+                      tooltip: 'Reference Library (Forest Acts)',
+                      color: const Color(0xFF6D4C41), // brown
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => const ReferenceLibraryScreen()),
+                        );
+                      },
+                    ),
                   ],
                 ),
                 ),

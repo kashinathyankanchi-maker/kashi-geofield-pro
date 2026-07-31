@@ -21,10 +21,10 @@ class ReferenceLibraryScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppTheme.bgLight,
+      backgroundColor: AppTheme.bgPrimary,
       appBar: AppBar(
         title: const Text('Reference Library'),
-        backgroundColor: AppTheme.primaryColor,
+        backgroundColor: AppTheme.greenPrimary,
         foregroundColor: Colors.white,
       ),
       body: ListView.separated(
@@ -41,10 +41,10 @@ class ReferenceLibraryScreen extends StatelessWidget {
               leading: Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: AppTheme.primaryColor.withOpacity(0.1),
+                  color: AppTheme.greenPrimary.withOpacity(0.1),
                   shape: BoxShape.circle,
                 ),
-                child: Icon(Icons.picture_as_pdf_rounded, color: AppTheme.primaryColor),
+                child: Icon(Icons.picture_as_pdf_rounded, color: AppTheme.greenPrimary),
               ),
               title: Text(
                 pdf['title']!,
