@@ -242,49 +242,116 @@ class _DocumentConverterScreenState extends State<DocumentConverterScreen> {
       return;
     }
 
-    // Sort blocks by Y position (top to bottom), then X (left to right)
-    final sortedBlocks = List<OcrBlock>.from(blocks);
-    sortedBlocks.sort((a, b) {
-      final yDiff = a.boundingBox.top - b.boundingBox.top;
-      if (yDiff.abs() < 15) {
-        return a.boundingBox.left.compareTo(b.boundingBox.left);
-      }
-      return yDiff.toInt();
-    });
+    // ── Step 1: Collect ALL lines from all blocks ──────────────────────────
+    final allLines = <OcrLine>[];
+    for (final block in blocks) {
+      allLines.addAll(block.lines);
+    }
 
-    // Group lines by Y-position proximity to detect table rows
-    final List<List<OcrLine>> rows = [];
-    double lastY = -100;
+    if (allLines.isEmpty) {
+      _extractedText = '';
+      _tableData = [];
+      return;
+    }
 
-    for (final block in sortedBlocks) {
-      for (final line in block.lines) {
-        final lineY = line.boundingBox.top;
-        if (rows.isEmpty || (lineY - lastY).abs() > 20) {
-          rows.add([line]);
-          lastY = lineY;
-        } else {
-          rows.last.add(line);
-          // Update lastY to average
-          lastY = rows.last.map((l) => l.boundingBox.top).reduce((a, b) => a + b) / rows.last.length;
+    // ── Step 2: Detect Row Bands by clustering Y-center positions ─────────
+    // Use the vertical center of each bounding box for more stable grouping
+    allLines.sort((a, b) => a.boundingBox.center.dy.compareTo(b.boundingBox.center.dy));
+
+    final List<List<OcrLine>> rowBands = [];
+    // Dynamic threshold: ~40% of the average line height
+    final avgLineH = allLines.map((l) => l.boundingBox.height).fold(0.0, (s, h) => s + h) / allLines.length;
+    final rowThreshold = (avgLineH * 0.7).clamp(8.0, 30.0);
+
+    for (final line in allLines) {
+      final cy = line.boundingBox.center.dy;
+      bool added = false;
+      for (final band in rowBands) {
+        final bandAvgY = band.map((l) => l.boundingBox.center.dy).fold(0.0, (s, y) => s + y) / band.length;
+        if ((cy - bandAvgY).abs() < rowThreshold) {
+          band.add(line);
+          added = true;
+          break;
         }
       }
+      if (!added) rowBands.add([line]);
     }
 
-    // Sort columns within each row by X position
-    for (final row in rows) {
-      row.sort((a, b) => a.boundingBox.left.compareTo(b.boundingBox.left));
+    // Sort bands by their average Y position
+    rowBands.sort((a, b) {
+      final ay = a.map((l) => l.boundingBox.center.dy).fold(0.0, (s, y) => s + y) / a.length;
+      final by = b.map((l) => l.boundingBox.center.dy).fold(0.0, (s, y) => s + y) / b.length;
+      return ay.compareTo(by);
+    });
+    // Sort lines within each row by left X
+    for (final band in rowBands) {
+      band.sort((a, b) => a.boundingBox.left.compareTo(b.boundingBox.left));
     }
 
-    // Build plain text and table data
-    final buffer = StringBuffer();
+    // ── Step 3: Detect Column Boundaries by clustering left-X values ──────
+    // Gather all left-X values
+    final allLeftX = allLines.map((l) => l.boundingBox.left).toList()..sort();
+
+    // Cluster X-starts into column groups using a gap threshold
+    final avgWidth = allLines.map((l) => l.boundingBox.width).fold(0.0, (s, w) => s + w) / allLines.length;
+    final colGapThreshold = (avgWidth * 0.4).clamp(10.0, 80.0);
+
+    final List<double> colStarts = [];
+    for (final x in allLeftX) {
+      bool merged = false;
+      for (int i = 0; i < colStarts.length; i++) {
+        if ((x - colStarts[i]).abs() < colGapThreshold) {
+          // Keep the leftmost value as the column anchor
+          if (x < colStarts[i]) colStarts[i] = x;
+          merged = true;
+          break;
+        }
+      }
+      if (!merged) colStarts.add(x);
+    }
+    colStarts.sort();
+
+    // ── Step 4: Assign each line to its column slot ────────────────────────
+    int _colFor(OcrLine line) {
+      final x = line.boundingBox.left;
+      int best = 0;
+      double bestDist = double.infinity;
+      for (int i = 0; i < colStarts.length; i++) {
+        final d = (x - colStarts[i]).abs();
+        if (d < bestDist) {
+          bestDist = d;
+          best = i;
+        }
+      }
+      return best;
+    }
+
+    // ── Step 5: Build table rows with correct column placement ─────────────
+    final numCols = colStarts.length;
     _tableData = [];
 
-    for (final row in rows) {
-      final cells = row.map((line) => line.text.trim()).toList();
-      _tableData.add(cells);
-      buffer.writeln(cells.join('\t'));
+    for (final band in rowBands) {
+      final row = List<String>.filled(numCols, '');
+      for (final line in band) {
+        final col = _colFor(line);
+        // If multiple lines land in the same cell, append with space
+        if (row[col].isEmpty) {
+          row[col] = line.text.trim();
+        } else {
+          row[col] = '${row[col]} ${line.text.trim()}';
+        }
+      }
+      // Skip completely empty rows
+      if (row.any((c) => c.isNotEmpty)) {
+        _tableData.add(row);
+      }
     }
 
+    // ── Step 6: Build plain text ───────────────────────────────────────────
+    final buffer = StringBuffer();
+    for (final row in _tableData) {
+      buffer.writeln(row.join('\t'));
+    }
     _extractedText = buffer.toString().trim();
   }
 
