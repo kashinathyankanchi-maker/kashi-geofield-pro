@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import '../../core/utils/storage_helper.dart';
 import 'package:flutter_earth_globe/flutter_earth_globe.dart';
 import 'package:flutter_earth_globe/flutter_earth_globe_controller.dart';
 import 'package:flutter_earth_globe/globe_coordinates.dart';
@@ -80,9 +79,9 @@ class _Earth3dScreenState extends State<Earth3dScreen> {
 
   Future<void> _loadEarthTextures() async {
     try {
-      final dir = await StorageHelper.getAppStorageDirectory();
-      final dayFile = File(path.join(dir, 'earth_topo_2048.jpg'));
-      final nightFile = File(path.join(dir, 'earth_lights_2048.jpg'));
+      final dir = await getApplicationDocumentsDirectory();
+      final dayFile = File(path.join(dir.path, 'earth_topo_2048.jpg'));
+      final nightFile = File(path.join(dir.path, 'earth_lights_2048.jpg'));
 
       if (dayFile.existsSync()) {
         _controller.loadSurface(FileImage(dayFile));

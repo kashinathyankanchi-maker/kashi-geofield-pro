@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:path_provider/path_provider.dart';
-import '../../core/utils/storage_helper.dart';
 import '../../core/database/db_helper.dart';
 import '../../core/utils/kml_engine.dart';
 import '../../features/map/map_controller.dart';
@@ -66,8 +65,8 @@ class _Terrain3dScreenState extends State<Terrain3dScreen> {
       _tileServer = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       _tileServerPort = _tileServer!.port;
 
-      final docsDir = await StorageHelper.getAppStorageDirectory();
-      final offlineBase = '$docsDir/offline_tiles';
+      final docsDir = await getApplicationDocumentsDirectory();
+      final offlineBase = '${docsDir.path}/offline_tiles';
 
       _tileServer!.listen((request) async {
         try {
