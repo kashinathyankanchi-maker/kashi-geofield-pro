@@ -2743,47 +2743,87 @@ $wpPlacemarks
       if (points.isEmpty) {
         _showSnackBar('No EXIF GPS found. Scanning text (OCR)...');
         final textRecognizer = TextRecognizer();
+
+        // DMS: N14 54 16.8 E74 39 57.1  (Degrees Minutes Seconds)
+        final dmsRegex = RegExp(
+          r'([NnSs])\s*(\d{1,2})\s+(\d{1,2})\s+(\d{1,2}(?:\.\d+)?)\s*'
+          r'([EeWw])\s*(\d{1,3})\s+(\d{1,2})\s+(\d{1,2}(?:\.\d+)?)',
+        );
+        // DDM: N14 54.383 E74 42.340  (Degrees Decimal Minutes)
         final ddmRegex = RegExp(r'([NnSs])\s*(\d{1,2})[^\d]*(\d{1,2}\.\d+)[^\dEewW]*([EeWw])\s*(\d{1,3})[^\d]*(\d{1,2}\.\d+)');
+        // DD: 14.905 74.664  (Decimal Degrees)
         final ddRegex = RegExp(r'(-?\d{1,2}\.\d{4,8})[^\d\.\-]*(-?\d{1,3}\.\d{4,8})');
 
         for (final photo in photos) {
           final inputImage = InputImage.fromFilePath(photo.path);
           final recognizedText = await textRecognizer.processImage(inputImage);
-          final matches = ddmRegex.allMatches(recognizedText.text);
 
-          for (final match in matches) {
+          // ── Try DMS first (most specific format) ───────────────────────
+          final dmsMatches = dmsRegex.allMatches(recognizedText.text);
+          for (final match in dmsMatches) {
             try {
               final latDir = match.group(1)!.toUpperCase();
               final latDeg = double.parse(match.group(2)!);
               final latMin = double.parse(match.group(3)!);
-              
-              final lngDir = match.group(4)!.toUpperCase();
-              final lngDeg = double.parse(match.group(5)!);
-              final lngMin = double.parse(match.group(6)!);
-              
-              double lat = latDeg + (latMin / 60.0);
-              double lng = lngDeg + (lngMin / 60.0);
-              
+              final latSec = double.parse(match.group(4)!);
+
+              final lngDir = match.group(5)!.toUpperCase();
+              final lngDeg = double.parse(match.group(6)!);
+              final lngMin = double.parse(match.group(7)!);
+              final lngSec = double.parse(match.group(8)!);
+
+              double lat = latDeg + (latMin / 60.0) + (latSec / 3600.0);
+              double lng = lngDeg + (lngMin / 60.0) + (lngSec / 3600.0);
+
               if (latDir == 'S') lat = -lat;
               if (lngDir == 'W') lng = -lng;
-              
+
               if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
                 points.add(LatLng(lat, lng));
               }
             } catch (_) {}
           }
 
-          final ddMatches = ddRegex.allMatches(recognizedText.text);
-          for (final match in ddMatches) {
-            try {
-              final lat = double.parse(match.group(1)!);
-              final lng = double.parse(match.group(2)!);
-              if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
-                if (lat != 0.0 && lng != 0.0) {
+          // ── Try DDM if DMS found nothing ────────────────────────────────
+          if (points.isEmpty) {
+            final matches = ddmRegex.allMatches(recognizedText.text);
+            for (final match in matches) {
+              try {
+                final latDir = match.group(1)!.toUpperCase();
+                final latDeg = double.parse(match.group(2)!);
+                final latMin = double.parse(match.group(3)!);
+
+                final lngDir = match.group(4)!.toUpperCase();
+                final lngDeg = double.parse(match.group(5)!);
+                final lngMin = double.parse(match.group(6)!);
+
+                double lat = latDeg + (latMin / 60.0);
+                double lng = lngDeg + (lngMin / 60.0);
+
+                if (latDir == 'S') lat = -lat;
+                if (lngDir == 'W') lng = -lng;
+
+                if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
                   points.add(LatLng(lat, lng));
                 }
-              }
-            } catch (_) {}
+              } catch (_) {}
+            }
+          }
+
+          // ── Try plain Decimal Degrees as last resort ────────────────────
+          if (points.isEmpty) {
+            final ddMatches = ddRegex.allMatches(recognizedText.text);
+            for (final match in ddMatches) {
+              try {
+                final lat = double.parse(match.group(1)!);
+                final lng = double.parse(match.group(2)!);
+                if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+                  if (lat != 0.0 && lng != 0.0) {
+                    points.add(LatLng(lat, lng));
+                  }
+                }
+              } catch (_) {}
+            }
           }
         }
         await textRecognizer.close();
