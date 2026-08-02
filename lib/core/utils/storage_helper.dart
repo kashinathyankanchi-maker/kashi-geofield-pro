@@ -28,6 +28,13 @@ class StorageHelper {
         if (!await directory.exists()) {
           await directory.create(recursive: true);
         }
+        
+        // Prevent Android MediaScanner from showing these files in the Gallery
+        final nomedia = File('${directory.path}/.nomedia');
+        if (!await nomedia.exists()) {
+          await nomedia.create();
+        }
+
         return directory.path;
       }
     }
@@ -39,6 +46,13 @@ class StorageHelper {
     if (!await directory.exists()) {
       await directory.create(recursive: true);
     }
+    
+    // Prevent MediaScanner scanning in fallback folder as well
+    final nomedia = File('${directory.path}/.nomedia');
+    if (!await nomedia.exists()) {
+      await nomedia.create();
+    }
+
     return directory.path;
   }
 }
