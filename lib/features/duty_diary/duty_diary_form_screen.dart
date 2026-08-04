@@ -113,14 +113,19 @@ class _DutyDiaryFormScreenState extends State<DutyDiaryFormScreen> {
           _isListening = true;
           _activeField = field;
         });
+
+        // Save existing text so we can append to it
+        final String existingText = field == 'locations' ? _locationsCtrl.text : _activitiesCtrl.text;
+        final String prefix = existingText.isEmpty ? '' : (existingText.endsWith(' ') ? existingText : '$existingText ');
+
         _speech.listen(
           localeId: 'kn_IN', // Kannada Language
           onResult: (val) {
             setState(() {
               if (field == 'locations') {
-                _locationsCtrl.text = val.recognizedWords;
+                _locationsCtrl.text = prefix + val.recognizedWords;
               } else if (field == 'activities') {
-                _activitiesCtrl.text = val.recognizedWords;
+                _activitiesCtrl.text = prefix + val.recognizedWords;
               }
             });
           },
