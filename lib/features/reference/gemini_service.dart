@@ -15,7 +15,7 @@ class GeminiService {
   }) async {
     try {
       final model = GenerativeModel(
-        model: 'gemini-2.5-flash',
+        model: 'gemini-flash-latest',
         apiKey: apiKey,
         systemInstruction: Content.system('''
 You are an expert legal assistant for Indian Forest Department officers. 
