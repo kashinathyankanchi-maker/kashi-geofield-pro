@@ -37,7 +37,6 @@ import 'widgets/draw_toolbar.dart';
 import 'widgets/layer_panel.dart';
 import 'widgets/shape_detail_sheet.dart';
 import '../calculators/cbm_screen.dart';
-import '../converter/document_converter_screen.dart';
 import '../reference/reference_library_screen.dart';
 
 import '../offline_maps/offline_maps_screen.dart';
@@ -2281,20 +2280,6 @@ $wpPlacemarks
                         Navigator.push(
                           context,
                           MaterialPageRoute(builder: (context) => const CbmScreen()),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 6),
-                    
-                    // Document Converter
-                    _MapFab(
-                      icon: Icons.document_scanner_rounded,
-                      tooltip: 'Document Scanner to Excel/PDF',
-                      color: const Color(0xFFEF6C00), // tactical orange
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (context) => const DocumentConverterScreen()),
                         );
                       },
                     ),
