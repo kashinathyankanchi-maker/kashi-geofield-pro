@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'package:google_generative_ai/google_generative_ai.dart';
 
 class GeminiService {
@@ -46,10 +48,18 @@ $pdfText
       final response = await chat.sendMessage(Content.text(question));
 
       return response.text ?? 'No response from Gemini AI.';
-    } on FormatException catch (e) {
-      return 'Response format error: $e';
     } catch (e) {
-      return 'API Error: $e\n\nIf you see a Quota/Limit error, please check if your Google Cloud project requires billing enabled or if the free tier is restricted in your region.';
+      String availableModels = '';
+      try {
+        final res = await http.get(Uri.parse('https://generativelanguage.googleapis.com/v1beta/models?key=$apiKey'));
+        if (res.statusCode == 200) {
+          final data = jsonDecode(res.body);
+          final models = (data['models'] as List).map((m) => m['name'].toString().replaceAll('models/', '')).toList();
+          availableModels = '\n\nAvailable models for your key:\n${models.join(', ')}';
+        }
+      } catch (_) {}
+
+      return 'API Error: $e$availableModels\n\nIf you see a Quota/Limit error, please check if your Google Cloud project requires billing enabled or if the free tier is restricted in your region.';
     }
   }
 }
