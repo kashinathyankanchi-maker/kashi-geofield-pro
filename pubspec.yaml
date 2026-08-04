@@ -74,6 +74,7 @@ dependencies:
   flutter_earth_globe: ^2.2.1
   webview_flutter: ^4.14.1
   syncfusion_flutter_pdfviewer: ^33.2.13
+  google_generative_ai: ^0.4.7
 dependency_overrides:
   flutter_plugin_android_lifecycle: 2.0.21
 

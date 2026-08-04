@@ -1,5 +1,4 @@
-import 'dart:convert';
-import 'package:http/http.dart' as http;
+import 'package:google_generative_ai/google_generative_ai.dart';
 
 class GeminiService {
   final String apiKey;
@@ -12,15 +11,12 @@ class GeminiService {
     required String question,
     List<Map<String, String>> chatHistory = const [],
   }) async {
-    final url = Uri.parse(
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=$apiKey',
-    );
-
-    // Build conversation history
-    final List<Map<String, dynamic>> contents = [];
-
-    // System-like first user message with PDF context
-    final systemPrompt = '''You are an expert legal assistant for Indian Forest Department officers. 
+    try {
+      final model = GenerativeModel(
+        model: 'gemini-1.5-flash',
+        apiKey: apiKey,
+        systemInstruction: Content.system('''
+You are an expert legal assistant for Indian Forest Department officers. 
 You have been given the full text of a legal/official document. 
 Answer the user's question ONLY based on the document text provided below. 
 If the answer is not found in the document, say "This information is not found in the document."
@@ -29,61 +25,31 @@ Answer in the same language the user asks the question in (English, Kannada, or 
 
 --- DOCUMENT TEXT ---
 $pdfText
---- END OF DOCUMENT ---''';
-
-    contents.add({
-      'role': 'user',
-      'parts': [{'text': systemPrompt}],
-    });
-    contents.add({
-      'role': 'model',
-      'parts': [{'text': 'I have read the document. I will answer your questions based on its contents. Please ask your question.'}],
-    });
-
-    // Add chat history
-    for (final msg in chatHistory) {
-      contents.add({
-        'role': msg['role'] == 'user' ? 'user' : 'model',
-        'parts': [{'text': msg['text']!}],
-      });
-    }
-
-    // Add current question
-    contents.add({
-      'role': 'user',
-      'parts': [{'text': question}],
-    });
-
-    final body = jsonEncode({
-      'contents': contents,
-      'generationConfig': {
-        'temperature': 0.3,
-        'maxOutputTokens': 2048,
-      },
-    });
-
-    try {
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: body,
+--- END OF DOCUMENT ---
+'''),
       );
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final candidates = data['candidates'] as List?;
-        if (candidates != null && candidates.isNotEmpty) {
-          final parts = candidates[0]['content']['parts'] as List;
-          return parts.map((p) => p['text']).join('');
+      // Build conversation history for the SDK
+      final List<Content> history = [];
+      for (final msg in chatHistory) {
+        if (msg['role'] == 'user') {
+          history.add(Content.text(msg['text']!));
+        } else {
+          history.add(Content.model([TextPart(msg['text']!)]));
         }
-        return 'No response from Gemini AI.';
-      } else {
-        final errorData = jsonDecode(response.body);
-        final errorMsg = errorData['error']?['message'] ?? 'Unknown error';
-        return 'API Error (${response.statusCode}): $errorMsg';
       }
+
+      // Initialize the chat session
+      final chat = model.startChat(history: history);
+
+      // Send the new message
+      final response = await chat.sendMessage(Content.text(question));
+
+      return response.text ?? 'No response from Gemini AI.';
+    } on FormatException catch (e) {
+      return 'Response format error: $e';
     } catch (e) {
-      return 'Connection error: $e\n\nMake sure you have internet access.';
+      return 'API Error: $e\n\nIf you see a Quota/Limit error, please check if your Google Cloud project requires billing enabled or if the free tier is restricted in your region.';
     }
   }
 }
