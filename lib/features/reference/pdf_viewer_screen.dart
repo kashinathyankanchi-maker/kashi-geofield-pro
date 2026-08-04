@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:pdfx/pdfx.dart';
+import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 import '../../shared/theme.dart';
 
 class PdfViewerScreen extends StatefulWidget {
@@ -13,89 +13,116 @@ class PdfViewerScreen extends StatefulWidget {
 }
 
 class _PdfViewerScreenState extends State<PdfViewerScreen> {
-  late PdfControllerPinch _pdfController;
-  bool _isLoading = true;
-  String _error = '';
-
-  @override
-  void initState() {
-    super.initState();
-    _initPdf();
-  }
-
-  Future<void> _initPdf() async {
-    try {
-      _pdfController = PdfControllerPinch(
-        document: PdfDocument.openAsset(widget.pdfPath),
-      );
-      setState(() {
-        _isLoading = false;
-      });
-    } catch (e) {
-      setState(() {
-        _error = 'Failed to load PDF: $e';
-        _isLoading = false;
-      });
-    }
-  }
+  final PdfViewerController _pdfViewerController = PdfViewerController();
+  PdfTextSearchResult _searchResult = PdfTextSearchResult();
+  bool _isSearching = false;
+  final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
 
   @override
   void dispose() {
-    _pdfController.dispose();
+    _pdfViewerController.dispose();
+    _searchController.dispose();
+    _searchFocusNode.dispose();
     super.dispose();
+  }
+
+  void _startSearch() {
+    setState(() {
+      _isSearching = true;
+    });
+    Future.delayed(const Duration(milliseconds: 100), () {
+      _searchFocusNode.requestFocus();
+    });
+  }
+
+  void _stopSearch() {
+    _searchResult.clear();
+    _searchController.clear();
+    setState(() {
+      _isSearching = false;
+    });
+  }
+
+  void _performSearch(String query) async {
+    if (query.isEmpty) {
+      _searchResult.clear();
+      setState(() {});
+      return;
+    }
+    _searchResult = await _pdfViewerController.searchText(query);
+    setState(() {});
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black87,
+      backgroundColor: AppTheme.bgPrimary,
       appBar: AppBar(
-        title: Text(widget.title, style: const TextStyle(fontSize: 16)),
-        backgroundColor: AppTheme.primaryColor,
+        title: _isSearching
+            ? TextField(
+                controller: _searchController,
+                focusNode: _searchFocusNode,
+                style: const TextStyle(color: Colors.white),
+                decoration: InputDecoration(
+                  hintText: 'Search...',
+                  hintStyle: const TextStyle(color: Colors.white54),
+                  border: InputBorder.none,
+                  suffixIcon: IconButton(
+                    icon: const Icon(Icons.clear, color: Colors.white),
+                    onPressed: () {
+                      _searchController.clear();
+                      _searchResult.clear();
+                      setState(() {});
+                    },
+                  ),
+                ),
+                onSubmitted: _performSearch,
+                textInputAction: TextInputAction.search,
+              )
+            : Text(widget.title, style: const TextStyle(fontSize: 16)),
+        backgroundColor: AppTheme.greenPrimary,
         foregroundColor: Colors.white,
         actions: [
-          if (!_isLoading && _error.isEmpty)
-            PdfPageNumber(
-              controller: _pdfController,
-              builder: (_, loadingState, page, pagesCount) => Container(
-                alignment: Alignment.center,
-                padding: const EdgeInsets.only(right: 16),
-                child: Text(
-                  '$page / ${pagesCount ?? 0}',
-                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
-                ),
+          if (_isSearching && _searchResult.hasResult) ...[
+            IconButton(
+              icon: const Icon(Icons.keyboard_arrow_up),
+              onPressed: () {
+                _searchResult.previousInstance();
+                setState(() {});
+              },
+            ),
+            Center(
+              child: Text(
+                '${_searchResult.currentInstanceIndex} / ${_searchResult.totalInstanceCount}',
+                style: const TextStyle(fontSize: 14),
               ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.keyboard_arrow_down),
+              onPressed: () {
+                _searchResult.nextInstance();
+                setState(() {});
+              },
+            ),
+          ],
+          if (!_isSearching)
+            IconButton(
+              icon: const Icon(Icons.search),
+              onPressed: _startSearch,
+            )
+          else
+            IconButton(
+              icon: const Icon(Icons.close),
+              onPressed: _stopSearch,
             ),
         ],
       ),
-      body: _buildBody(),
-    );
-  }
-
-  Widget _buildBody() {
-    if (_isLoading) {
-      return const Center(child: CircularProgressIndicator(color: Colors.white));
-    }
-    if (_error.isNotEmpty) {
-      return Center(
-        child: Text(
-          _error,
-          style: const TextStyle(color: Colors.red, fontSize: 16),
-          textAlign: TextAlign.center,
-        ),
-      );
-    }
-    return PdfViewPinch(
-      controller: _pdfController,
-      builders: PdfViewPinchBuilders<DefaultBuilderOptions>(
-        options: const DefaultBuilderOptions(),
-        documentLoaderBuilder: (_) =>
-            const Center(child: CircularProgressIndicator(color: Colors.white)),
-        pageLoaderBuilder: (_) =>
-            const Center(child: CircularProgressIndicator(color: Colors.white)),
-        errorBuilder: (_, error) => Center(
-          child: Text(error.toString(), style: const TextStyle(color: Colors.red)),
-        ),
+      body: SfPdfViewer.asset(
+        widget.pdfPath,
+        controller: _pdfViewerController,
+        canShowScrollHead: true, // This enables the slide bar / scrollbar
+        canShowScrollStatus: true,
       ),
     );
   }

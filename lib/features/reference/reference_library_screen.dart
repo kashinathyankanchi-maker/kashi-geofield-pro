@@ -16,6 +16,26 @@ class ReferenceLibraryScreen extends StatelessWidget {
       'subtitle': 'ಕನಾಟಕ ಅರಣ ಅಯಮ, 1963',
       'path': 'assets/pdfs/karnataka_forest_act_1963_kn.pdf',
     },
+    {
+      'title': 'The Wild Life (Protection) Act, 1972',
+      'subtitle': 'Central Act for Protection of Wild Life',
+      'path': 'assets/pdfs/wild_life_protection_act_1972.pdf',
+    },
+    {
+      'title': 'The Karnataka Forest Code, 1976',
+      'subtitle': 'Code for Management and Working of Forests',
+      'path': 'assets/pdfs/karnataka_forest_code_1976.pdf',
+    },
+    {
+      'title': 'The Karnataka Forest Manual',
+      'subtitle': 'Manual for Constitution of Reserved Forests & Privileges',
+      'path': 'assets/pdfs/karnataka_forest_manual.pdf',
+    },
+    {
+      'title': 'The Karnataka Preservation of Trees Act, 1976',
+      'subtitle': 'Act for preservation of trees in the State',
+      'path': 'assets/pdfs/karnataka_preservation_of_trees_act_1976.pdf',
+    },
   ];
 
   @override
