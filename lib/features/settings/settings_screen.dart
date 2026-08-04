@@ -587,12 +587,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _buildOcrSection() {
     return _SettingsCard(
-      title: 'Document Scanner (OCR)',
-      icon: Icons.document_scanner_rounded,
+      title: 'Google AI (Gemini)',
+      icon: Icons.auto_awesome,
       children: [
         _SettingRow(
-          label: 'Cloud Vision API Key',
-          subtitle: 'Required for Kannada text recognition. Leave blank to use offline ML Kit.',
+          label: 'Google AI API Key',
+          subtitle: 'Required for "Ask AI" (PDF chat). Get FREE key at aistudio.google.com',
           trailing: Expanded(
             child: TextField(
               controller: _cloudVisionApiKeyCtrl,

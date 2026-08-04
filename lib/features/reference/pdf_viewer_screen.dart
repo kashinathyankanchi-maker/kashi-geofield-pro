@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 import '../../shared/theme.dart';
+import 'gemini_chat_screen.dart';
 
 class PdfViewerScreen extends StatefulWidget {
   final String title;
@@ -121,8 +122,24 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       body: SfPdfViewer.asset(
         widget.pdfPath,
         controller: _pdfViewerController,
-        canShowScrollHead: true, // This enables the slide bar / scrollbar
+        canShowScrollHead: true,
         canShowScrollStatus: true,
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => GeminiChatScreen(
+                pdfTitle: widget.title,
+                pdfAssetPath: widget.pdfPath,
+              ),
+            ),
+          );
+        },
+        backgroundColor: const Color(0xFF1A237E),
+        icon: const Icon(Icons.auto_awesome, color: Colors.white),
+        label: const Text('Ask AI', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
       ),
     );
   }
