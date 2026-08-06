@@ -160,6 +160,12 @@ class TileDownloader {
 
       await file.parent.create(recursive: true);
 
+      // Ensure .nomedia exists in the root offline_tiles dir to hide all PNGs from gallery
+      final base = await _tileDir();
+      final nomedia = File('$base/.nomedia');
+      if (!await nomedia.exists()) await nomedia.create();
+
+
       final url = satellite
           ? '$_satBaseUrl&x=$x&y=$y&z=$z'
           : '$_tileBaseUrl/$z/$x/$y.png';

@@ -1,4 +1,6 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 import '../../shared/theme.dart';
 import 'gemini_chat_screen.dart';
@@ -19,12 +21,36 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   bool _isSearching = false;
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
+  String? _tempDir;
+
+  @override
+  void initState() {
+    super.initState();
+    _initTempDir();
+  }
+
+  Future<void> _initTempDir() async {
+    // Use app's internal cache directory — hidden from file manager
+    final cacheDir = await getTemporaryDirectory();
+    final pdfTempDir = Directory('${cacheDir.path}/pdf_viewer_cache');
+    if (!await pdfTempDir.exists()) {
+      await pdfTempDir.create(recursive: true);
+    }
+    if (mounted) setState(() => _tempDir = pdfTempDir.path);
+  }
 
   @override
   void dispose() {
     _pdfViewerController.dispose();
     _searchController.dispose();
     _searchFocusNode.dispose();
+    // Clean up PDF viewer temp files from internal cache
+    if (_tempDir != null) {
+      final dir = Directory(_tempDir!);
+      dir.exists().then((exists) {
+        if (exists) dir.delete(recursive: true);
+      });
+    }
     super.dispose();
   }
 
@@ -119,12 +145,15 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
             ),
         ],
       ),
-      body: SfPdfViewer.asset(
-        widget.pdfPath,
-        controller: _pdfViewerController,
-        canShowScrollHead: true,
-        canShowScrollStatus: true,
-      ),
+      body: _tempDir == null
+          ? const Center(child: CircularProgressIndicator())
+          : SfPdfViewer.asset(
+              widget.pdfPath,
+              controller: _pdfViewerController,
+              canShowScrollHead: true,
+              canShowScrollStatus: true,
+              tempFilePath: _tempDir,
+            ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () {
           Navigator.push(
