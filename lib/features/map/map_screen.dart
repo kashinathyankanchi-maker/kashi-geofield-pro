@@ -38,6 +38,7 @@ import 'widgets/layer_panel.dart';
 import 'widgets/shape_detail_sheet.dart';
 import '../calculators/cbm_screen.dart';
 import '../reference/reference_library_screen.dart';
+import '../kmz_exporter/kmz_exporter_screen.dart';
 
 import '../offline_maps/offline_maps_screen.dart';
 import 'offline_tile_provider.dart';
@@ -2294,6 +2295,20 @@ $wpPlacemarks
                         Navigator.push(
                           context,
                           MaterialPageRoute(builder: (context) => const ReferenceLibraryScreen()),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 6),
+
+                    // Image / TIFF → KMZ
+                    _MapFab(
+                      icon: Icons.layers_rounded,
+                      tooltip: 'Image / TIFF → KMZ',
+                      color: const Color(0xFF00695C), // teal
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => const KmzExporterScreen()),
                         );
                       },
                     ),
