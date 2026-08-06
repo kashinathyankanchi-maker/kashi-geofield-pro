@@ -30,13 +30,14 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   }
 
   Future<void> _initTempDir() async {
-    // Use app's internal cache directory — hidden from file manager
+    // Pre-create internal cache dir so Syncfusion writes temp files there
+    // instead of the public Downloads folder.
     final cacheDir = await getTemporaryDirectory();
     final pdfTempDir = Directory('${cacheDir.path}/pdf_viewer_cache');
     if (!await pdfTempDir.exists()) {
       await pdfTempDir.create(recursive: true);
     }
-    if (mounted) setState(() => _tempDir = pdfTempDir.path);
+    _tempDir = pdfTempDir.path;
   }
 
   @override
@@ -77,7 +78,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       setState(() {});
       return;
     }
-    _searchResult = await _pdfViewerController.searchText(query);
+    _searchResult = _pdfViewerController.searchText(query);
     setState(() {});
   }
 
@@ -145,15 +146,12 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
             ),
         ],
       ),
-      body: _tempDir == null
-          ? const Center(child: CircularProgressIndicator())
-          : SfPdfViewer.asset(
-              widget.pdfPath,
-              controller: _pdfViewerController,
-              canShowScrollHead: true,
-              canShowScrollStatus: true,
-              tempFilePath: _tempDir,
-            ),
+      body: SfPdfViewer.asset(
+          widget.pdfPath,
+          controller: _pdfViewerController,
+          canShowScrollHead: true,
+          canShowScrollStatus: true,
+        ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () {
           Navigator.push(
