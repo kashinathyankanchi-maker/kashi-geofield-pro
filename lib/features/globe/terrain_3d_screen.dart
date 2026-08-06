@@ -327,7 +327,6 @@ class _Terrain3dScreenState extends State<Terrain3dScreen> {
   // ── MapLibre GL JS HTML ───────────────────────────────────────────────────
 
   String _buildMapLibreHtml(double centerLat, double centerLng) {
-    // Use local tile server if available, otherwise direct URLs
     final satTileUrl = _tileServerPort > 0
         ? 'http://127.0.0.1:$_tileServerPort/sat/{z}/{x}/{y}.png'
         : 'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}';
@@ -341,29 +340,41 @@ class _Terrain3dScreenState extends State<Terrain3dScreen> {
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>3D Google Earth Terrain</title>
+    <title>3D Terrain Map</title>
     <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
     <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
     <style>
-        body { margin: 0; padding: 0; background-color: #000; overflow: hidden; font-family: sans-serif; }
+        * { box-sizing: border-box; }
+        body { margin: 0; padding: 0; background: #0a0a0a; overflow: hidden; font-family: -apple-system, sans-serif; }
         #map { position: absolute; top: 0; bottom: 0; width: 100%; height: 100%; }
         .maplibregl-ctrl-attribution { display: none !important; }
         .maplibregl-ctrl-logo { display: none !important; }
         .maplibregl-popup-content {
-            background: rgba(0,0,0,0.85);
+            background: rgba(5, 15, 30, 0.92);
             color: #00E5FF;
-            border: 1px solid #00E5FF;
-            border-radius: 8px;
-            padding: 6px 10px;
-            font-size: 12px;
-            font-weight: bold;
+            border: 1.5px solid rgba(0, 229, 255, 0.6);
+            border-radius: 10px;
+            padding: 8px 14px;
+            font-size: 13px;
+            font-weight: 600;
+            backdrop-filter: blur(8px);
+            box-shadow: 0 4px 20px rgba(0,229,255,0.2);
         }
-        .maplibregl-popup-tip { border-top-color: rgba(0,0,0,0.85) !important; }
+        .maplibregl-popup-tip { border-top-color: rgba(5, 15, 30, 0.92) !important; }
+        .maplibregl-popup-close-button { color: #00E5FF; font-size: 16px; }
     </style>
 </head>
 <body>
     <div id="map"></div>
     <script>
+        // ── Pending data queue: store GeoJSON before map is ready ──────────
+        var _ready = false;
+        var _pendingPolygons = null;
+        var _pendingPaths = null;
+        var _pendingMarkers = null;
+        var _pendingKml = null;
+        var _pendingOverlays = [];
+
         const map = new maplibregl.Map({
             container: 'map',
             style: {
@@ -374,7 +385,8 @@ class _Terrain3dScreenState extends State<Terrain3dScreen> {
                         type: 'raster',
                         tiles: ['$satTileUrl'],
                         tileSize: 256,
-                        maxzoom: 20
+                        maxzoom: 20,
+                        attribution: ''
                     },
                     'terrain-dem': {
                         type: 'raster-dem',
@@ -397,14 +409,15 @@ class _Terrain3dScreenState extends State<Terrain3dScreen> {
                         type: 'raster',
                         source: 'satellite-tiles',
                         minzoom: 0,
-                        maxzoom: 22
+                        maxzoom: 22,
+                        paint: { 'raster-resampling': 'linear' }
                     },
                     {
                         id: 'hillshade-layer',
                         type: 'hillshade',
                         source: 'hillshade-dem',
                         paint: {
-                            'hillshade-exaggeration': 0.4,
+                            'hillshade-exaggeration': 0.35,
                             'hillshade-shadow-color': '#000000',
                             'hillshade-highlight-color': '#ffffff',
                             'hillshade-illumination-direction': 315,
@@ -414,24 +427,24 @@ class _Terrain3dScreenState extends State<Terrain3dScreen> {
                 ],
                 terrain: {
                     source: 'terrain-dem',
-                    exaggeration: 1.8
+                    exaggeration: 2.2
                 },
                 sky: {
-                    'sky-color': '#199EF3',
-                    'sky-horizon-blend': 0.5,
-                    'horizon-color': '#ffffff',
-                    'horizon-fog-blend': 0.1,
-                    'fog-color': '#0e1117',
-                    'fog-ground-blend': 0.5,
-                    'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 0, 1, 10, 1, 12, 0]
+                    'sky-type': 'atmosphere',
+                    'sky-atmosphere-sun': [0.0, 90.0],
+                    'sky-atmosphere-sun-intensity': 15,
+                    'sky-atmosphere-halo-color': 'rgba(255, 255, 255, 0.5)',
+                    'sky-atmosphere-color': 'rgba(135, 206, 235, 1.0)'
                 }
             },
             center: [$centerLng, $centerLat],
             zoom: 13.5,
-            pitch: 60,
+            pitch: 62,
             bearing: -15,
             maxPitch: 85,
-            attributionControl: false
+            minZoom: 2,
+            attributionControl: false,
+            antialias: true
         });
 
         map.addControl(new maplibregl.NavigationControl({
@@ -440,249 +453,155 @@ class _Terrain3dScreenState extends State<Terrain3dScreen> {
             visualizePitch: true
         }), 'top-right');
 
-        map.on('load', () => {
-            // Fog for atmospheric depth
-            if (map.setFog) {
+        map.on('load', function() {
+            // Atmospheric fog
+            try {
                 map.setFog({
-                    range: [2, 12],
-                    color: 'rgba(186, 210, 235, 0.15)',
-                    'horizon-blend': 0.1
+                    range: [1.5, 10],
+                    color: 'rgba(200, 220, 255, 0.12)',
+                    'horizon-blend': 0.08,
+                    'high-color': '#add8e6',
+                    'space-color': '#0a0a2e',
+                    'star-intensity': 0.3
                 });
-            }
+            } catch(e) {}
 
-            // ── User polygons source & layers ───────────────────────────
-            map.addSource('user-polygons', {
-                type: 'geojson',
-                data: { type: 'FeatureCollection', features: [] }
+            // ── User polygons ───────────────────────────────────────────────
+            map.addSource('user-polygons', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+            map.addLayer({ id: 'user-polygons-fill', type: 'fill', source: 'user-polygons',
+                paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.35 }
             });
-            map.addLayer({
-                id: 'user-polygons-fill',
-                type: 'fill',
-                source: 'user-polygons',
-                paint: {
-                    'fill-color': ['get', 'color'],
-                    'fill-opacity': 0.3
-                }
+            map.addLayer({ id: 'user-polygons-line', type: 'line', source: 'user-polygons',
+                paint: { 'line-color': ['get', 'color'], 'line-width': 3.5, 'line-opacity': 1.0 }
             });
-            map.addLayer({
-                id: 'user-polygons-line',
-                type: 'line',
-                source: 'user-polygons',
-                paint: {
-                    'line-color': ['get', 'color'],
-                    'line-width': 3,
-                    'line-opacity': 0.9
-                }
-            });
-            map.addLayer({
-                id: 'user-polygons-label',
-                type: 'symbol',
-                source: 'user-polygons',
-                layout: {
-                    'text-field': ['get', 'title'],
-                    'text-size': 12,
-                    'text-anchor': 'center',
-                    'text-allow-overlap': false
-                },
-                paint: {
-                    'text-color': '#ffffff',
-                    'text-halo-color': '#000000',
-                    'text-halo-width': 1.5
-                }
+            map.addLayer({ id: 'user-polygons-label', type: 'symbol', source: 'user-polygons',
+                layout: { 'text-field': ['get', 'title'], 'text-size': 13, 'text-anchor': 'center', 'text-allow-overlap': false },
+                paint: { 'text-color': '#ffffff', 'text-halo-color': '#000000', 'text-halo-width': 2 }
             });
 
-            // ── Paths / polylines source & layers ───────────────────────
-            map.addSource('user-paths', {
-                type: 'geojson',
-                data: { type: 'FeatureCollection', features: [] }
+            // ── Paths ───────────────────────────────────────────────────────
+            map.addSource('user-paths', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+            map.addLayer({ id: 'user-paths-line', type: 'line', source: 'user-paths',
+                paint: { 'line-color': ['get', 'color'], 'line-width': 4, 'line-opacity': 0.9 }
             });
-            map.addLayer({
-                id: 'user-paths-line',
-                type: 'line',
-                source: 'user-paths',
-                paint: {
-                    'line-color': ['get', 'color'],
-                    'line-width': 4,
-                    'line-opacity': 0.85,
-                    'line-dasharray': [2, 1]
-                }
-            });
-            map.addLayer({
-                id: 'user-paths-label',
-                type: 'symbol',
-                source: 'user-paths',
-                layout: {
-                    'symbol-placement': 'line-center',
-                    'text-field': ['get', 'title'],
-                    'text-size': 11,
-                    'text-anchor': 'center'
-                },
-                paint: {
-                    'text-color': '#FFD740',
-                    'text-halo-color': '#000000',
-                    'text-halo-width': 1.5
-                }
+            map.addLayer({ id: 'user-paths-label', type: 'symbol', source: 'user-paths',
+                layout: { 'symbol-placement': 'line-center', 'text-field': ['get', 'title'], 'text-size': 11 },
+                paint: { 'text-color': '#FFD740', 'text-halo-color': '#000000', 'text-halo-width': 1.5 }
             });
 
-            // ── Markers source & layers ─────────────────────────────────
-            map.addSource('user-markers', {
-                type: 'geojson',
-                data: { type: 'FeatureCollection', features: [] }
+            // ── Markers ─────────────────────────────────────────────────────
+            map.addSource('user-markers', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+            map.addLayer({ id: 'user-markers-glow', type: 'circle', source: 'user-markers',
+                paint: { 'circle-radius': 16, 'circle-color': ['get', 'color'], 'circle-opacity': 0.18, 'circle-blur': 1 }
             });
-            map.addLayer({
-                id: 'user-markers-circle',
-                type: 'circle',
-                source: 'user-markers',
-                paint: {
-                    'circle-radius': 8,
-                    'circle-color': ['get', 'color'],
-                    'circle-stroke-width': 3,
-                    'circle-stroke-color': '#ffffff',
-                    'circle-opacity': 0.9
-                }
+            map.addLayer({ id: 'user-markers-circle', type: 'circle', source: 'user-markers',
+                paint: { 'circle-radius': 8, 'circle-color': ['get', 'color'], 'circle-stroke-width': 3, 'circle-stroke-color': '#ffffff', 'circle-opacity': 1.0 }
             });
-            map.addLayer({
-                id: 'user-markers-label',
-                type: 'symbol',
-                source: 'user-markers',
-                layout: {
-                    'text-field': ['get', 'title'],
-                    'text-size': 13,
-                    'text-offset': [0, 1.8],
-                    'text-anchor': 'top',
-                    'text-allow-overlap': false
-                },
-                paint: {
-                    'text-color': '#00E5FF',
-                    'text-halo-color': '#000000',
-                    'text-halo-width': 2
-                }
+            map.addLayer({ id: 'user-markers-label', type: 'symbol', source: 'user-markers',
+                layout: { 'text-field': ['get', 'title'], 'text-size': 13, 'text-offset': [0, 1.8], 'text-anchor': 'top', 'text-allow-overlap': false },
+                paint: { 'text-color': '#00E5FF', 'text-halo-color': '#000000', 'text-halo-width': 2 }
             });
-            // Glow ring behind markers
-            map.addLayer({
-                id: 'user-markers-glow',
-                type: 'circle',
-                source: 'user-markers',
-                paint: {
-                    'circle-radius': 14,
-                    'circle-color': ['get', 'color'],
-                    'circle-opacity': 0.15,
-                    'circle-blur': 1
-                }
-            }, 'user-markers-circle');
 
-            // ── KML shapes source & layers ──────────────────────────────
-            map.addSource('kml-shapes', {
-                type: 'geojson',
-                data: { type: 'FeatureCollection', features: [] }
-            });
-            map.addLayer({
-                id: 'kml-shapes-fill',
-                type: 'fill',
-                source: 'kml-shapes',
+            // ── KML shapes ──────────────────────────────────────────────────
+            map.addSource('kml-shapes', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+            map.addLayer({ id: 'kml-shapes-fill', type: 'fill', source: 'kml-shapes',
                 filter: ['==', ['geometry-type'], 'Polygon'],
-                paint: {
-                    'fill-color': ['get', 'color'],
-                    'fill-opacity': 0.25
-                }
+                paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.3 }
             });
-            map.addLayer({
-                id: 'kml-shapes-line',
-                type: 'line',
-                source: 'kml-shapes',
-                paint: {
-                    'line-color': ['get', 'color'],
-                    'line-width': 2.5,
-                    'line-opacity': 0.8
-                }
+            map.addLayer({ id: 'kml-shapes-line', type: 'line', source: 'kml-shapes',
+                paint: { 'line-color': ['get', 'color'], 'line-width': 3, 'line-opacity': 0.95 }
             });
-            map.addLayer({
-                id: 'kml-shapes-label',
-                type: 'symbol',
-                source: 'kml-shapes',
-                layout: {
-                    'text-field': ['get', 'title'],
-                    'text-size': 11,
-                    'text-anchor': 'center',
-                    'text-allow-overlap': false
-                },
-                paint: {
-                    'text-color': '#FF8A65',
-                    'text-halo-color': '#000000',
-                    'text-halo-width': 1.5
-                }
+            map.addLayer({ id: 'kml-shapes-label', type: 'symbol', source: 'kml-shapes',
+                layout: { 'text-field': ['get', 'title'], 'text-size': 12, 'text-anchor': 'center', 'text-allow-overlap': false },
+                paint: { 'text-color': '#FF8A65', 'text-halo-color': '#000000', 'text-halo-width': 2 }
             });
+
+            // ── Click popups for all overlay layers ─────────────────────────
+            ['user-polygons-fill','kml-shapes-fill','user-markers-circle'].forEach(function(layerId) {
+                map.on('click', layerId, function(e) {
+                    var props = e.features[0].properties;
+                    var name = props.title || props.name || 'Area';
+                    new maplibregl.Popup({ offset: 10, closeButton: true, maxWidth: '220px' })
+                        .setLngLat(e.lngLat)
+                        .setHTML('<b>' + name + '</b>')
+                        .addTo(map);
+                });
+                map.on('mouseenter', layerId, function() { map.getCanvas().style.cursor = 'pointer'; });
+                map.on('mouseleave', layerId, function() { map.getCanvas().style.cursor = ''; });
+            });
+
+            // Mark ready and flush any pending data
+            _ready = true;
+            if (_pendingPolygons) { _applyPolygons(_pendingPolygons); _pendingPolygons = null; }
+            if (_pendingPaths)    { _applyPaths(_pendingPaths);       _pendingPaths = null; }
+            if (_pendingMarkers)  { _applyMarkers(_pendingMarkers);   _pendingMarkers = null; }
+            if (_pendingKml)      { _applyKml(_pendingKml);           _pendingKml = null; }
+            _pendingOverlays.forEach(function(o) { _applyOverlay(o); });
+            _pendingOverlays = [];
         });
 
+        // ── Internal apply functions (only called when map is ready) ────────
+        function _applyPolygons(data) {
+            try { map.getSource('user-polygons').setData(JSON.parse(data)); } catch(e) {}
+        }
+        function _applyPaths(data) {
+            try { map.getSource('user-paths').setData(JSON.parse(data)); } catch(e) {}
+        }
+        function _applyMarkers(data) {
+            try { map.getSource('user-markers').setData(JSON.parse(data)); } catch(e) {}
+        }
+        function _applyKml(data) {
+            try { map.getSource('kml-shapes').setData(JSON.parse(data)); } catch(e) {}
+        }
+        function _applyOverlay(o) {
+            try {
+                var srcId = 'img-overlay-' + o.id;
+                var layId = 'img-overlay-layer-' + o.id;
+                if (map.getSource(srcId)) return;
+                map.addSource(srcId, {
+                    type: 'image',
+                    url: o.url,
+                    coordinates: [
+                        [o.west, o.north],
+                        [o.east, o.north],
+                        [o.east, o.south],
+                        [o.west, o.south]
+                    ]
+                });
+                map.addLayer({ id: layId, type: 'raster', source: srcId, paint: { 'raster-opacity': 0.75 } }, 'user-polygons-fill');
+            } catch(e) {}
+        }
+
+        // ── Public API (called from Flutter via runJavaScript) ──────────────
         function updateGeoJson(geojsonStr) {
-            if (map && map.getSource('user-polygons')) {
-                try {
-                    const data = JSON.parse(geojsonStr);
-                    map.getSource('user-polygons').setData(data);
-                } catch(e) {}
-            }
+            if (_ready) { _applyPolygons(geojsonStr); } else { _pendingPolygons = geojsonStr; }
         }
-
         function updatePaths(geojsonStr) {
-            if (map && map.getSource('user-paths')) {
-                try {
-                    const data = JSON.parse(geojsonStr);
-                    map.getSource('user-paths').setData(data);
-                } catch(e) {}
-            }
+            if (_ready) { _applyPaths(geojsonStr); } else { _pendingPaths = geojsonStr; }
         }
-
         function updateMarkers(geojsonStr) {
-            if (map && map.getSource('user-markers')) {
-                try {
-                    const data = JSON.parse(geojsonStr);
-                    map.getSource('user-markers').setData(data);
-                } catch(e) {}
-            }
+            if (_ready) { _applyMarkers(geojsonStr); } else { _pendingMarkers = geojsonStr; }
         }
-
         function updateKmlShapes(geojsonStr) {
-            if (map && map.getSource('kml-shapes')) {
-                try {
-                    const data = JSON.parse(geojsonStr);
-                    map.getSource('kml-shapes').setData(data);
-                } catch(e) {}
-            }
+            if (_ready) { _applyKml(geojsonStr); } else { _pendingKml = geojsonStr; }
         }
-
+        function addImageOverlay(id, url, north, south, east, west) {
+            var o = { id: id, url: url, north: north, south: south, east: east, west: west };
+            if (_ready) { _applyOverlay(o); } else { _pendingOverlays.push(o); }
+        }
         function flyToPlace(lat, lng, zoom, pitch, bearing) {
-            if (map) {
-                map.flyTo({
-                    center: [lng, lat],
-                    zoom: zoom || 14,
-                    pitch: pitch !== undefined ? pitch : 60,
-                    bearing: bearing || 0,
-                    duration: 2000,
-                    essential: true
-                });
-            }
+            map.flyTo({ center: [lng, lat], zoom: zoom || 14, pitch: pitch !== undefined ? pitch : 62,
+                bearing: bearing || 0, duration: 2200, essential: true,
+                easing: function(t) { return t < 0.5 ? 2*t*t : -1+(4-2*t)*t; }
+            });
         }
-
         function toggle3dMode(is3d) {
-            if (map) {
-                map.easeTo({
-                    pitch: is3d ? 60 : 0,
-                    bearing: is3d ? -15 : 0,
-                    duration: 1000
-                });
-            }
+            map.easeTo({ pitch: is3d ? 62 : 0, bearing: is3d ? -15 : 0, duration: 1200 });
+            map.setTerrain(is3d ? { source: 'terrain-dem', exaggeration: 2.2 } : null);
         }
-
-        function resetNorth() {
-            if (map) {
-                map.resetNorthPitch({ duration: 1000 });
-            }
-        }
-
+        function resetNorth() { map.resetNorthPitch({ duration: 1000 }); }
         function setTerrainExaggeration(val) {
-            if (map && map.setTerrain) {
-                map.setTerrain({ source: 'terrain-dem', exaggeration: val });
-            }
+            try { map.setTerrain({ source: 'terrain-dem', exaggeration: val }); } catch(e) {}
         }
     </script>
 </body>
