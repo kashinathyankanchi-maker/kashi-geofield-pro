@@ -11,6 +11,7 @@ import '../../core/database/db_helper.dart';
 import '../../core/models/kml_file_model.dart';
 import '../../core/utils/kml_engine.dart';
 import 'kml_detail_screen.dart';
+import '../kmz_exporter/kmz_exporter_screen.dart';
 
 class KmlScreen extends StatefulWidget {
   const KmlScreen({super.key});
@@ -361,11 +362,33 @@ class _KmlScreenState extends State<KmlScreen> {
                 },
               ),
             ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _isImporting ? null : _importKmlFile,
-        icon: const Icon(Icons.upload_file),
-        label: const Text('Import KML / KMZ'),
-        backgroundColor: AppTheme.greenPrimary,
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          // Image / TIFF → KMZ
+          FloatingActionButton.extended(
+            heroTag: 'fab_image_kmz',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const KmzExporterScreen()),
+            ),
+            icon: const Icon(Icons.add_photo_alternate_rounded),
+            label: const Text('Image / TIFF → KMZ'),
+            backgroundColor: const Color(0xFF00695C),
+          ),
+          const SizedBox(height: 10),
+          // Import KML / KMZ
+          FloatingActionButton.extended(
+            heroTag: 'fab_import_kml',
+            onPressed: _isImporting ? null : _importKmlFile,
+            icon: _isImporting
+                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                : const Icon(Icons.upload_file),
+            label: const Text('Import KML / KMZ'),
+            backgroundColor: AppTheme.greenPrimary,
+          ),
+        ],
       ),
     );
   }
