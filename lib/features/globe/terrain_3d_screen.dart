@@ -316,20 +316,31 @@ class _Terrain3dScreenState extends State<Terrain3dScreen> {
           onPageFinished: (_) {
             if (mounted) {
               setState(() => _isLoading = false);
-              _injectGeoJsonToMap();
+              // Small delay to ensure map JS is fully initialised
+              Future.delayed(const Duration(milliseconds: 600), () {
+                if (mounted) _injectGeoJsonToMap();
+              });
             }
           },
+          onWebResourceError: (error) {
+            debugPrint('3D Map WebView error: ${error.description} (${error.errorCode})');
+          },
+          onHttpError: (error) {
+            debugPrint('3D Map HTTP error: ${error.response?.statusCode} ${error.request?.uri}');
+          },
         ),
-      )
-      ..loadHtmlString(htmlContent, baseUrl: 'https://localhost/');
+      );
+
+    // Load without baseUrl so HTTP local tile server isn't blocked as mixed content
+    _webController.loadHtmlString(htmlContent);
   }
 
   // ── MapLibre GL JS HTML ───────────────────────────────────────────────────
 
   String _buildMapLibreHtml(double centerLat, double centerLng) {
-    final satTileUrl = _tileServerPort > 0
-        ? 'http://127.0.0.1:$_tileServerPort/sat/{z}/{x}/{y}.png'
-        : 'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}';
+    // Always use HTTPS for satellite tiles to avoid mixed-content blocking
+    // Local tile server (HTTP) only for DEM elevation data
+    const satTileUrl = 'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}';
     final demTileUrl = _tileServerPort > 0
         ? 'http://127.0.0.1:$_tileServerPort/dem/{z}/{x}/{y}.png'
         : 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
@@ -430,11 +441,12 @@ class _Terrain3dScreenState extends State<Terrain3dScreen> {
                     exaggeration: 2.2
                 },
                 sky: {
-                    'sky-type': 'atmosphere',
-                    'sky-atmosphere-sun': [0.0, 90.0],
-                    'sky-atmosphere-sun-intensity': 15,
-                    'sky-atmosphere-halo-color': 'rgba(255, 255, 255, 0.5)',
-                    'sky-atmosphere-color': 'rgba(135, 206, 235, 1.0)'
+                    'sky-color': '#87CEEB',
+                    'sky-horizon-blend': 0.5,
+                    'horizon-color': '#e8f4f8',
+                    'horizon-fog-blend': 0.3,
+                    'fog-color': '#0a0a1e',
+                    'fog-ground-blend': 0.8
                 }
             },
             center: [$centerLng, $centerLat],
