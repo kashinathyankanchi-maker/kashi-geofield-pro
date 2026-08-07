@@ -1,7 +1,6 @@
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
-import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart' as fmap;
 import 'package:latlong2/latlong.dart';
@@ -9,6 +8,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdfx/pdfx.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:image/image.dart' as img_pkg;
 import '../../shared/theme.dart';
 import '../../core/utils/kml_engine.dart';
 
@@ -38,15 +38,15 @@ class _GCP {
   _GCP({required this.pixel, required this.geo});
 }
 
-/// Screen that lets user geo-reference a PDF image by placing control points
-/// with Zoomable PDF, Satellite Map Overlay, and Opacity Controls.
+/// Screen that lets user geo-reference a PDF or Image by placing control points
+/// with Zoomable Image, Satellite Map Overlay, and Opacity Controls.
 class GeoReferenceScreen extends StatefulWidget {
-  final String pdfPath;
+  final String filePath; // Path to PDF, TIFF, PNG, or JPG
   final String fileName;
 
   const GeoReferenceScreen({
     super.key,
-    required this.pdfPath,
+    required this.filePath,
     required this.fileName,
   });
 
@@ -77,12 +77,56 @@ class _GeoReferenceScreenState extends State<GeoReferenceScreen>
   void initState() {
     super.initState();
     _mapController = fmap.MapController();
-    _renderPdf();
+    _loadFile();
   }
 
-  Future<void> _renderPdf() async {
+  Future<void> _loadFile() async {
+    final ext = widget.filePath.toLowerCase();
+    if (ext.endsWith('.pdf')) {
+      await _loadPdf();
+    } else {
+      await _loadImage();
+    }
+  }
+
+  Future<void> _loadImage() async {
     try {
-      final doc = await PdfDocument.openFile(widget.pdfPath);
+      final file = File(widget.filePath);
+      Uint8List bytes = await file.readAsBytes();
+      
+      final ext = widget.filePath.toLowerCase();
+      if (ext.endsWith('.tif') || ext.endsWith('.tiff')) {
+        // Decode TIFF to PNG so Flutter can render it natively
+        final decoded = img_pkg.decodeImage(bytes);
+        if (decoded != null) {
+          bytes = Uint8List.fromList(img_pkg.encodePng(decoded));
+        } else {
+          throw Exception('Failed to decode TIFF image');
+        }
+      }
+      
+      final uiImage = await decodeImageFromList(bytes);
+      if (mounted) {
+        setState(() {
+          _imageBytes = bytes;
+          _imgWidth = uiImage.width;
+          _imgHeight = uiImage.height;
+          _loading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = 'Failed to load image: $e';
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _loadPdf() async {
+    try {
+      final doc = await PdfDocument.openFile(widget.filePath);
       final page = await doc.getPage(1);
       final pageImage = await page.render(
         width: page.width * 3,

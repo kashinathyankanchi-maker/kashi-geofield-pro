@@ -2242,8 +2242,8 @@ $wpPlacemarks
                     const SizedBox(height: 6),
                     // PDF to Geo-Referenced KMZ
                     _MapFab(
-                      icon: Icons.picture_as_pdf_rounded,
-                      tooltip: 'PDF → Geo KMZ',
+                      icon: Icons.map_rounded,
+                      tooltip: 'Map/Image → Geo KMZ',
                       color: const Color(0xFFFF7043), // deep orange
                       onTap: _importPdfMap,
                     ),
@@ -2626,7 +2626,7 @@ $wpPlacemarks
       final result = await FilePicker.platform.pickFiles(
         allowMultiple: false,
         type: FileType.custom,
-        allowedExtensions: ['pdf'],
+        allowedExtensions: ['pdf', 'tif', 'tiff', 'jpg', 'jpeg', 'png'],
       );
       if (result == null || result.files.isEmpty) return;
 
@@ -2639,7 +2639,7 @@ $wpPlacemarks
         context,
         MaterialPageRoute(
           builder: (_) => GeoReferenceScreen(
-            pdfPath: path,
+            filePath: path,
             fileName: pickedFile.name,
           ),
         ),
@@ -2655,10 +2655,10 @@ $wpPlacemarks
             maxZoom: 18,
           ),
         );
-        _showSnackBar('PDF map pinned to real-world coordinates!');
+        _showSnackBar('Map pinned to real-world coordinates!');
       }
     } catch (e) {
-      _showSnackBar('Error importing PDF: $e', isError: true);
+      _showSnackBar('Error importing map: $e', isError: true);
     }
   }
 
