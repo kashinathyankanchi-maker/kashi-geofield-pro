@@ -8,6 +8,9 @@
 build/
 *.iml
 
+# Secrets — NEVER commit API keys
+lib/core/config/app_secrets.dart
+
 # Android
 android/.gradle/
 android/local.properties

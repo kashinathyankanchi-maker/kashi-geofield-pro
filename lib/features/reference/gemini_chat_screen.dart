@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:syncfusion_flutter_pdf/pdf.dart';
 import '../../shared/theme.dart';
+import '../../core/config/app_secrets.dart';
 import 'gemini_service.dart';
 
 class GeminiChatScreen extends StatefulWidget {
@@ -38,14 +39,22 @@ class _GeminiChatScreenState extends State<GeminiChatScreen> {
   }
 
   Future<void> _initialize() async {
-    // Load API key
+    // Load API key — use saved preference, else fall back to built-in default
     final prefs = await SharedPreferences.getInstance();
-    _apiKey = prefs.getString('settings_cloud_vision_api_key') ?? '';
+    _apiKey = prefs.getString('settings_gemini_api_key') ?? '';
+
+    // If no saved key yet, use the built-in default and save it for next time
+    if (_apiKey == null || _apiKey!.isEmpty) {
+      if (AppSecrets.geminiApiKey.isNotEmpty) {
+        _apiKey = AppSecrets.geminiApiKey;
+        await prefs.setString('settings_gemini_api_key', AppSecrets.geminiApiKey);
+      }
+    }
 
     if (_apiKey == null || _apiKey!.isEmpty) {
       setState(() {
         _isExtractingText = false;
-        _error = 'No Gemini API Key found.\n\nGo to Settings → Google AI API Key and paste your key.\n\nGet a FREE key at: aistudio.google.com';
+        _error = 'No Gemini API Key found.\n\nGo to Settings → Gemini AI Key and paste your key.\n\nGet a FREE key at: aistudio.google.com';
       });
       return;
     }

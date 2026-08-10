@@ -5,6 +5,7 @@ import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../shared/theme.dart';
 import '../../core/database/db_helper.dart';
+import '../../core/config/app_secrets.dart';
 
 // ---------------------------------------------------------------------------
 // Constants – SharedPreferences keys
@@ -20,6 +21,7 @@ class _Keys {
   static const firmsApiKey = 'settings_firms_api_key';
   static const fireAlertRadius = 'settings_fire_alert_radius';
   static const cloudVisionApiKey = 'settings_cloud_vision_api_key';
+  static const geminiApiKey = 'settings_gemini_api_key';
 }
 
 // ---------------------------------------------------------------------------
@@ -38,6 +40,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _orgNameCtrl = TextEditingController();
   final _firmsApiKeyCtrl = TextEditingController();
   final _cloudVisionApiKeyCtrl = TextEditingController();
+  final _geminiApiKeyCtrl = TextEditingController();
 
   // -- state --
   String _orgLogoPath = '';
@@ -64,6 +67,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _orgNameCtrl.dispose();
     _firmsApiKeyCtrl.dispose();
     _cloudVisionApiKeyCtrl.dispose();
+    _geminiApiKeyCtrl.dispose();
     super.dispose();
   }
 
@@ -84,6 +88,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _firmsApiKeyCtrl.text = prefs.getString(_Keys.firmsApiKey) ?? '';
       _fireAlertRadius = prefs.getDouble(_Keys.fireAlertRadius) ?? 5.0;
       _cloudVisionApiKeyCtrl.text = prefs.getString(_Keys.cloudVisionApiKey) ?? '';
+      _geminiApiKeyCtrl.text = prefs.getString(_Keys.geminiApiKey) ?? AppSecrets.geminiApiKey;
       _loading = false;
     });
   }
@@ -587,19 +592,43 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _buildOcrSection() {
     return _SettingsCard(
-      title: 'Google AI (Gemini)',
+      title: 'AI & OCR API Keys',
       icon: Icons.auto_awesome,
       children: [
         _SettingRow(
-          label: 'Google AI API Key',
+          label: 'Google AI (Gemini) Key',
           subtitle: 'Required for "Ask AI" (PDF chat). Get FREE key at aistudio.google.com',
+          trailing: Expanded(
+            child: TextField(
+              controller: _geminiApiKeyCtrl,
+              obscureText: true,
+              style: AppTheme.bodyMedium,
+              decoration: InputDecoration(
+                hintText: 'Enter Gemini Key...',
+                isDense: true,
+                filled: true,
+                fillColor: AppTheme.textSecondary.withOpacity(0.05),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide.none,
+                ),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              ),
+              onChanged: (v) => _saveSetting(_Keys.geminiApiKey, v.trim()),
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        _SettingRow(
+          label: 'Google Cloud Vision Key',
+          subtitle: 'Optional. Enhances Kannada OCR accuracy in document scanner.',
           trailing: Expanded(
             child: TextField(
               controller: _cloudVisionApiKeyCtrl,
               obscureText: true,
               style: AppTheme.bodyMedium,
               decoration: InputDecoration(
-                hintText: 'Enter API Key...',
+                hintText: 'Enter Cloud Vision Key...',
                 isDense: true,
                 filled: true,
                 fillColor: AppTheme.textSecondary.withOpacity(0.05),
