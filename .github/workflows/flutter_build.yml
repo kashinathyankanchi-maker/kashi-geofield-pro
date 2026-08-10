@@ -42,9 +42,66 @@ jobs:
       - name: Build Release APK
         run: flutter build apk --release
 
+      # ── Upload APK as workflow artifact (90-day retention) ──────────────────
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: kashi-geofield-pro-apk
           path: build/app/outputs/flutter-apk/app-release.apk
-          retention-days: 30
+          retention-days: 90
+
+      # ── Create/Update a rolling GitHub Release so anyone can download ────────
+      - name: Delete old 'latest' release (if exists)
+        uses: actions/github-script@v7
+        if: github.event_name == 'push'
+        with:
+          script: |
+            try {
+              const rel = await github.rest.repos.getReleaseByTag({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag: 'latest-build',
+              });
+              await github.rest.repos.deleteRelease({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                release_id: rel.data.id,
+              });
+              console.log('Deleted old release');
+            } catch (e) {
+              console.log('No old release found, creating fresh');
+            }
+            try {
+              await github.rest.git.deleteRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: 'tags/latest-build',
+              });
+            } catch (e) {}
+
+      - name: Create GitHub Release with APK
+        uses: softprops/action-gh-release@v2
+        if: github.event_name == 'push'
+        with:
+          tag_name: latest-build
+          name: "📱 Latest APK Build"
+          body: |
+            ## Kashi GeoField Pro — Latest Build
+            
+            **Auto-generated from commit:** `${{ github.sha }}`  
+            **Branch:** `${{ github.ref_name }}`  
+            **Date:** ${{ github.event.head_commit.timestamp }}
+            
+            ### 📥 How to Install
+            1. Download `kashi-geofield-pro.apk` below
+            2. Open it on your Android phone (OnePlus / Moto / Samsung etc.)
+            3. Allow "Install from unknown sources" if prompted
+            4. Install and open!
+            
+            > **Works on:** Android 6.0+ (OnePlus, Motorola, Samsung, Xiaomi, etc.)
+          files: build/app/outputs/flutter-apk/app-release.apk
+          token: ${{ secrets.GITHUB_TOKEN }}
+          draft: false
+          prerelease: false
+          make_latest: true
+          fail_on_unmatched_files: true
