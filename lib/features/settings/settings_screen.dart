@@ -5,7 +5,6 @@ import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../shared/theme.dart';
 import '../../core/database/db_helper.dart';
-import '../../core/config/app_secrets.dart';
 
 // ---------------------------------------------------------------------------
 // Constants – SharedPreferences keys
@@ -88,7 +87,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _firmsApiKeyCtrl.text = prefs.getString(_Keys.firmsApiKey) ?? '';
       _fireAlertRadius = prefs.getDouble(_Keys.fireAlertRadius) ?? 5.0;
       _cloudVisionApiKeyCtrl.text = prefs.getString(_Keys.cloudVisionApiKey) ?? '';
-      _geminiApiKeyCtrl.text = prefs.getString(_Keys.geminiApiKey) ?? AppSecrets.geminiApiKey;
+      _geminiApiKeyCtrl.text = prefs.getString(_Keys.geminiApiKey) ?? '';
       _loading = false;
     });
   }
