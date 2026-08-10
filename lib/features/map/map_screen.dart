@@ -2744,21 +2744,50 @@ $wpPlacemarks
         _showSnackBar('No EXIF GPS found. Scanning text (OCR)...');
         final textRecognizer = TextRecognizer();
 
-        // DMS: N14 54 16.8 E74 39 57.1  (Degrees Minutes Seconds)
+        // ── Format 1: N/E-prefixed Decimal Degrees (GPS route files) ───────
+        // e.g. N14.92149 E74.79476  or  N 14.92149 E 74.79476
+        final nePrefixDDRegex = RegExp(
+          r'([NnSs])\s*(\d{1,2}\.\d+)\s+([EeWw])\s*(\d{1,3}\.\d+)',
+        );
+
+        // ── Format 2: Classic DMS ────────────────────────────────────────────
+        // e.g. N14 54 16.8 E74 39 57.1
         final dmsRegex = RegExp(
           r'([NnSs])\s*(\d{1,2})\s+(\d{1,2})\s+(\d{1,2}(?:\.\d+)?)\s*'
           r'([EeWw])\s*(\d{1,3})\s+(\d{1,2})\s+(\d{1,2}(?:\.\d+)?)',
         );
-        // DDM: N14 54.383 E74 42.340  (Degrees Decimal Minutes)
+        // ── Format 3: DDM (Degrees Decimal Minutes) ──────────────────────────
+        // e.g. N14 54.383 E74 42.340
         final ddmRegex = RegExp(r'([NnSs])\s*(\d{1,2})[^\d]*(\d{1,2}\.\d+)[^\dEewW]*([EeWw])\s*(\d{1,3})[^\d]*(\d{1,2}\.\d+)');
-        // DD: 14.905 74.664  (Decimal Degrees)
+        // ── Format 4: Plain Decimal Degrees ──────────────────────────────────
+        // e.g. 14.905 74.664
         final ddRegex = RegExp(r'(-?\d{1,2}\.\d{4,8})[^\d\.\-]*(-?\d{1,3}\.\d{4,8})');
 
         for (final photo in photos) {
           final inputImage = InputImage.fromFilePath(photo.path);
           final recognizedText = await textRecognizer.processImage(inputImage);
 
-          // ── Try DMS first (most specific format) ───────────────────────
+          // ── Try N/E-prefixed DD FIRST (most common in GPS route files) ────
+          // Handles: N14.92149 E74.79476 / S14.92149 W74.79476
+          final nePrefixMatches = nePrefixDDRegex.allMatches(recognizedText.text);
+          for (final match in nePrefixMatches) {
+            try {
+              final latDir = match.group(1)!.toUpperCase();
+              double lat = double.parse(match.group(2)!);
+              final lngDir = match.group(3)!.toUpperCase();
+              double lng = double.parse(match.group(4)!);
+
+              if (latDir == 'S') lat = -lat;
+              if (lngDir == 'W') lng = -lng;
+
+              if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+                points.add(LatLng(lat, lng));
+              }
+            } catch (_) {}
+          }
+
+          // ── Try DMS if NPDD found nothing (most specific format) ──────────
+          if (points.isEmpty) {
           final dmsMatches = dmsRegex.allMatches(recognizedText.text);
           for (final match in dmsMatches) {
             try {
@@ -2783,8 +2812,9 @@ $wpPlacemarks
               }
             } catch (_) {}
           }
+          } // end if DMS
 
-          // ── Try DDM if DMS found nothing ────────────────────────────────
+          // ── Try DDM if still nothing ────────────────────────────────────
           if (points.isEmpty) {
             final matches = ddmRegex.allMatches(recognizedText.text);
             for (final match in matches) {
