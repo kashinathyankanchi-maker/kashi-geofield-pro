@@ -25,6 +25,10 @@
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30"/>
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
+    <!-- AR and Camera -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera.ar" android:required="false" />
+
     <application
         android:label="kashi GeoField Pro"
         android:name="${applicationName}"
@@ -64,6 +68,11 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+
+        <!-- ARCore Metadata -->
+        <meta-data
+            android:name="com.google.ar.core"
+            android:value="optional" />
 
         <!-- FileProvider for sharing files on Android 7+ -->
         <provider
