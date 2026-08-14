@@ -71,6 +71,10 @@ class MapScreenState extends State<MapScreen> {
   // Tapped coordinate (for collecting lat/lng from map)
   LatLng? _tappedPosition;
 
+  // Search result pin
+  LatLng? _searchResultPosition;
+  String _searchResultName = '';
+
   String? _appDocDir;
 
   // Geo-referenced PDF overlay images
@@ -223,8 +227,15 @@ class MapScreenState extends State<MapScreen> {
         if (data.isNotEmpty) {
           final lat = double.parse(data[0]['lat'] as String);
           final lng = double.parse(data[0]['lon'] as String);
-          _flutterMapController.move(LatLng(lat, lng), 14.0);
-          _showSnackBar('Found: ${data[0]['display_name']}');
+          final displayName = data[0]['display_name'] as String;
+          // Move map to location
+          _flutterMapController.move(LatLng(lat, lng), 15.0);
+          // Drop search result pin
+          setState(() {
+            _searchResultPosition = LatLng(lat, lng);
+            _searchResultName = displayName;
+          });
+          _showSnackBar('Found: $displayName');
         } else {
           _showSnackBar('Location not found', isError: true);
         }
@@ -774,6 +785,53 @@ class MapScreenState extends State<MapScreen> {
           ));
         }
       }
+    }
+
+    // 📍 Search result pin
+    if (_searchResultPosition != null) {
+      markers.add(fmap.Marker(
+        point: _searchResultPosition!,
+        width: 48,
+        height: 56,
+        alignment: Alignment.bottomCenter,
+        child: GestureDetector(
+          onTap: () {
+            setState(() {
+              _searchResultPosition = null;
+              _searchResultName = '';
+            });
+          },
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE53935),
+                  borderRadius: BorderRadius.circular(6),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.4),
+                      blurRadius: 4,
+                      offset: const Offset(0, 2),
+                    )
+                  ],
+                ),
+                child: const Text(
+                  'FOUND',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 8,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ),
+              const Icon(Icons.location_pin, color: Color(0xFFE53935), size: 36),
+            ],
+          ),
+        ),
+      ));
     }
 
     return markers;
@@ -2359,6 +2417,105 @@ $wpPlacemarks
                       _mapController.addPoint(_tappedPosition!);
                       setState(() => _tappedPosition = null);
                     },
+                  ),
+                  ),
+                ),
+
+              // ── Search result info card ───────────────────────────────────────
+              if (_searchResultPosition != null)
+                Positioned(
+                  bottom: 90,
+                  left: 12,
+                  right: 60,
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1A1A2E).withValues(alpha: 0.96),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: const Color(0xFFE53935), width: 1.5),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.5),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        )
+                      ],
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.location_pin, color: Color(0xFFE53935), size: 28),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                _searchResultName,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Lat: ${_searchResultPosition!.latitude.toStringAsFixed(6)}  '
+                                'Lng: ${_searchResultPosition!.longitude.toStringAsFixed(6)}',
+                                style: const TextStyle(
+                                  color: Colors.white54,
+                                  fontSize: 11,
+                                  fontFamily: 'monospace',
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  OutlinedButton.icon(
+                                    onPressed: () {
+                                      _mapController.addPoint(_searchResultPosition!);
+                                      setState(() {
+                                        _searchResultPosition = null;
+                                        _searchResultName = '';
+                                      });
+                                      _showSnackBar('Marker added at search location');
+                                    },
+                                    icon: const Icon(Icons.add_location, size: 14),
+                                    label: const Text('Add Marker', style: TextStyle(fontSize: 11)),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: const Color(0xFF4CAF50),
+                                      side: const BorderSide(color: Color(0xFF4CAF50)),
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                      minimumSize: Size.zero,
+                                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  OutlinedButton.icon(
+                                    onPressed: () => setState(() {
+                                      _searchResultPosition = null;
+                                      _searchResultName = '';
+                                    }),
+                                    icon: const Icon(Icons.close, size: 14),
+                                    label: const Text('Dismiss', style: TextStyle(fontSize: 11)),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: Colors.white54,
+                                      side: const BorderSide(color: Colors.white24),
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                      minimumSize: Size.zero,
+                                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
 
