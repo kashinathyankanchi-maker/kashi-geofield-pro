@@ -2418,7 +2418,6 @@ $wpPlacemarks
                       setState(() => _tappedPosition = null);
                     },
                   ),
-                  ),
                 ),
 
               // ── Search result info card ───────────────────────────────────────
