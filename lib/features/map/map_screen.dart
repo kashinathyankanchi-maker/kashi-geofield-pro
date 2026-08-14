@@ -994,7 +994,7 @@ class MapScreenState extends State<MapScreen> {
 
       if (mounted) {
         _showSnackBar(
-            'GPS track saved & shared (${GeoCalculator.formatPerimeter(shape.perimeterMeters)})');
+            '✓ GPS track KML saved to: ${dir.path}');
       }
     } catch (e) {
       if (mounted) _showSnackBar('KML export failed: $e', isError: true);
@@ -1343,7 +1343,7 @@ $wpPlacemarks
         subject: '${shape.name} - KML',
       );
 
-      if (mounted) _showSnackBar('KML exported: ${shape.name}');
+      if (mounted) _showSnackBar('✓ KML saved to: ${dir.path}');
     } catch (e) {
       if (mounted) _showSnackBar('KML export failed: $e', isError: true);
     }
@@ -1642,7 +1642,7 @@ $wpPlacemarks
         text: 'KML file: $exportName',
       );
 
-      if (mounted) _showSnackBar('KML ready — choose where to save/share');
+      if (mounted) _showSnackBar('✓ KML saved to: ${dir.path}');
     } catch (e) {
       if (mounted) _showSnackBar('KML export failed: $e', isError: true);
     }
@@ -3135,8 +3135,8 @@ class _MapFab extends StatelessWidget {
       child: GestureDetector(
         onTap: onTap,
         child: Container(
-          width: 42,
-          height: 42,
+          width: 36,
+          height: 36,
           decoration: BoxDecoration(
             color: AppTheme.bgSecondary.withValues(alpha: 0.9),
             borderRadius: BorderRadius.circular(6),
@@ -3165,7 +3165,7 @@ class _MapFab extends StatelessWidget {
                   children: [
                     Icon(
                       icon,
-                      size: 16,
+                      size: 14,
                       color: effectiveColor,
                     ),
                     const SizedBox(height: 1.5),
