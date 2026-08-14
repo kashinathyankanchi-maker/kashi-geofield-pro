@@ -62,19 +62,78 @@ class _KmlDetailScreenState extends State<KmlDetailScreen> {
         return;
       }
       final kmlContent = await sourceFile.readAsString();
-      final appDocDir = Directory(await StorageHelper.getAppStorageDirectory());
-      final exportDir = Directory(p.join(appDocDir.path, 'kml_exports'));
-      if (!await exportDir.exists()) await exportDir.create(recursive: true);
+
+      // Save directly to the main 'kashi geofild pro' folder (visible in file manager)
+      final appDir = Directory(await StorageHelper.getAppStorageDirectory());
+      if (!await appDir.exists()) await appDir.create(recursive: true);
 
       final baseName = p.basenameWithoutExtension(_kml.filename);
+      final kmzFileName = '${baseName}_${DateTime.now().millisecondsSinceEpoch}.kmz';
+      final kmzPath = p.join(appDir.path, kmzFileName);
       final kmzBytes = KmlEngine.generateKmz(kmlContent, '$baseName.kml');
-      final kmzPath = p.join(
-          exportDir.path, '${baseName}_${DateTime.now().millisecondsSinceEpoch}.kmz');
       await File(kmzPath).writeAsBytes(kmzBytes);
 
       if (mounted) {
-        _showSnack('KMZ exported successfully');
-        await Share.shareXFiles([XFile(kmzPath)], subject: '$baseName.kmz');
+        // Show dialog with save path and share/done options
+        await showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: const Color(0xFF1A1A2E),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: const Row(
+              children: [
+                Icon(Icons.check_circle, color: Color(0xFF4CAF50), size: 28),
+                SizedBox(width: 10),
+                Text('KMZ Saved!', style: TextStyle(color: Colors.white, fontSize: 18)),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('File saved to internal storage:', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.black38,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    kmzPath,
+                    style: const TextStyle(color: Color(0xFF80CBC4), fontSize: 11, fontFamily: 'monospace'),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  'Open your Files app → Internal Storage → "kashi geofild pro" to find it.',
+                  style: TextStyle(color: Colors.white54, fontSize: 12),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Done', style: TextStyle(color: Colors.white54)),
+              ),
+              ElevatedButton.icon(
+                onPressed: () async {
+                  Navigator.pop(ctx);
+                  await Share.shareXFiles(
+                    [XFile(kmzPath, mimeType: 'application/vnd.google-earth.kmz')],
+                    subject: '$baseName.kmz',
+                  );
+                },
+                icon: const Icon(Icons.share, size: 16),
+                label: const Text('Share / Send'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF1A237E),
+                  foregroundColor: Colors.white,
+                ),
+              ),
+            ],
+          ),
+        );
       }
     } catch (e) {
       _showSnack('Export failed: $e', isError: true);
