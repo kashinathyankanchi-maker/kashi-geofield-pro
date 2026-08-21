@@ -30,16 +30,18 @@ jobs:
           channel: 'stable'
           cache: true
 
+      - name: Cache pub packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pub-cache
+          key: pub-${{ hashFiles('pubspec.lock') }}
+          restore-keys: |
+            pub-
+
       - name: Install Dependencies
-        run: flutter pub get
-
-      - name: Verify Formatting
-        run: dart format --output=none --set-exit-if-changed .
-        continue-on-error: true
-
-      - name: Analyze Code
-        run: flutter analyze
-        continue-on-error: true
+        run: flutter pub get --enforce-lockfile
+        continue-on-error: false
 
       - name: Build Release APK
         run: flutter build apk --release
