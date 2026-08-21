@@ -8,8 +8,8 @@ class GeminiService {
 
   GeminiService({required this.apiKey});
 
-  // gemini-2.0-flash is the latest free fast model (replaces deprecated gemini-flash-latest)
-  static const _model = 'gemini-2.0-flash';
+  // gemini-1.5-flash is available on all free API keys from aistudio.google.com
+  static const _model = 'gemini-1.5-flash';
   static const _baseUrl =
       'https://generativelanguage.googleapis.com/v1beta/models/$_model:generateContent';
 
