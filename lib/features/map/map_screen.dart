@@ -21,6 +21,7 @@ import 'package:exif/exif.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import '../../shared/theme.dart';
 import '../globe/terrain_3d_screen.dart';
+import 'historical_imagery_screen.dart';
 import '../../core/database/db_helper.dart';
 import '../../core/models/kml_file_model.dart';
 import '../../core/models/village_model.dart';
@@ -2233,6 +2234,26 @@ $wpPlacemarks
                           _flutterMapController.move(selectedCoord, 16);
                           _showSnackBar('Zoomed to selected 3D location on 2D Map');
                         }
+                      },
+                    ),
+                    const SizedBox(height: 6),
+                    // Historical Imagery (ESRI Wayback)
+                    _MapFab(
+                      icon: Icons.history_toggle_off_rounded,
+                      tooltip: 'Historical Satellite Imagery',
+                      color: const Color(0xFFAB47BC), // purple
+                      onTap: () {
+                        final center = _flutterMapController.camera.center;
+                        final zoom = _flutterMapController.camera.zoom;
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => HistoricalImageryScreen(
+                              initialCenter: center,
+                              initialZoom: zoom,
+                            ),
+                          ),
+                        );
                       },
                     ),
                     const SizedBox(height: 6),
