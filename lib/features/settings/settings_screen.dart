@@ -37,6 +37,7 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   // -- controllers --
   final _orgNameCtrl = TextEditingController();
+  final _firmsApiKeyCtrl = TextEditingController();
   final _cloudVisionApiKeyCtrl = TextEditingController();
   final _geminiApiKeyCtrl = TextEditingController();
 
@@ -46,6 +47,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _orientation = 'Portrait';
   Color _polygonColor = const Color(0xFF2196F3);
   double _defaultZoom = 13.0;
+  double _fireAlertRadius = 5.0;
 
   bool _loading = true;
   bool _saving = false;
@@ -62,6 +64,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void dispose() {
     _orgNameCtrl.dispose();
+    _firmsApiKeyCtrl.dispose();
     _cloudVisionApiKeyCtrl.dispose();
     _geminiApiKeyCtrl.dispose();
     super.dispose();
@@ -81,6 +84,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ? Color(colorVal)
           : const Color(0xFF2196F3);
       _defaultZoom = prefs.getDouble(_Keys.defaultZoom) ?? 13.0;
+      _firmsApiKeyCtrl.text = prefs.getString(_Keys.firmsApiKey) ?? '';
+      _fireAlertRadius = prefs.getDouble(_Keys.fireAlertRadius) ?? 5.0;
       _cloudVisionApiKeyCtrl.text = prefs.getString(_Keys.cloudVisionApiKey) ?? '';
       _geminiApiKeyCtrl.text = prefs.getString(_Keys.geminiApiKey) ?? '';
       _loading = false;
@@ -319,9 +324,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(height: 16),
                 _buildMapSection(),
                 const SizedBox(height: 16),
-                _buildOcrSection(),
-                const SizedBox(height: 16),
-                _buildDataManagementSection(),
+                  _buildFireAlertSection(),
+                  const SizedBox(height: 24),
+                  _buildOcrSection(),
+                  const SizedBox(height: 24),
+                  _buildDataManagementSection(),
                 const SizedBox(height: 16),
                 _buildAppInfoSection(),
                 const SizedBox(height: 32),
@@ -523,7 +530,60 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  // ---------------------------------------------------------------------------
+  // Section 3.5 - Fire Alerts
+  // ---------------------------------------------------------------------------
 
+  Widget _buildFireAlertSection() {
+    return _SettingsCard(
+      title: 'Fire Detection Alerts',
+      icon: Icons.local_fire_department_rounded,
+      children: [
+        _SettingRow(
+          label: 'NASA FIRMS API Key',
+          subtitle: 'Required for real-time fire detection',
+          trailing: Expanded(
+            child: TextField(
+              controller: _firmsApiKeyCtrl,
+              obscureText: true,
+              style: AppTheme.bodyMedium,
+              decoration: InputDecoration(
+                hintText: 'Enter Map Key...',
+                isDense: true,
+                filled: true,
+                fillColor: AppTheme.textSecondary.withOpacity(0.05),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide.none,
+                ),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              ),
+              onChanged: (v) => _saveSetting(_Keys.firmsApiKey, v.trim()),
+            ),
+          ),
+        ),
+        const Divider(height: 24),
+        _SettingRow(
+          label: 'Alert Radius (km)',
+          subtitle: 'Warn if fires are within ${_fireAlertRadius.toStringAsFixed(1)} km of your saved areas',
+          trailing: Expanded(
+            child: Slider(
+              value: _fireAlertRadius,
+              min: 1.0,
+              max: 20.0,
+              divisions: 19,
+              label: '${_fireAlertRadius.toStringAsFixed(1)} km',
+              activeColor: const Color(0xFFD32F2F),
+              onChanged: (v) {
+                setState(() => _fireAlertRadius = v);
+                _saveSetting(_Keys.fireAlertRadius, v);
+              },
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 
   // ---------------------------------------------------------------------------
   // Section 3.6 - OCR API
