@@ -90,51 +90,74 @@ class _DutyDiaryFormScreenState extends State<DutyDiaryFormScreen> {
   }
 
   void _listen(String field) async {
-    if (!_isListening) {
-      var status = await Permission.microphone.request();
-      if (status != PermissionStatus.granted) {
+    if (_isListening) {
+      // ── Stop current session first, then update UI ──────────────────────
+      await _speech.stop();
+      setState(() {
+        _isListening = false;
+        _activeField = null;
+      });
+      return;
+    }
+
+    // ── Start new session ─────────────────────────────────────────────────
+    var status = await Permission.microphone.request();
+    if (status != PermissionStatus.granted) {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Microphone permission denied', style: TextStyle(color: Colors.white)), backgroundColor: Colors.red),
         );
-        return;
       }
-
-      bool available = await _speech.initialize(
-        onStatus: (val) {
-          if (val == 'done' || val == 'notListening') {
-            setState(() => _isListening = false);
-          }
-        },
-        onError: (val) => setState(() => _isListening = false),
-      );
-
-      if (available) {
-        setState(() {
-          _isListening = true;
-          _activeField = field;
-        });
-
-        // Save existing text so we can append to it
-        final String existingText = field == 'locations' ? _locationsCtrl.text : _activitiesCtrl.text;
-        final String prefix = existingText.isEmpty ? '' : (existingText.endsWith(' ') ? existingText : '$existingText ');
-
-        _speech.listen(
-          localeId: 'kn_IN', // Kannada Language
-          onResult: (val) {
-            setState(() {
-              if (field == 'locations') {
-                _locationsCtrl.text = prefix + val.recognizedWords;
-              } else if (field == 'activities') {
-                _activitiesCtrl.text = prefix + val.recognizedWords;
-              }
-            });
-          },
-        );
-      }
-    } else {
-      setState(() => _isListening = false);
-      _speech.stop();
+      return;
     }
+
+    bool available = await _speech.initialize(
+      onStatus: (val) {
+        if (val == 'done' || val == 'notListening') {
+          if (mounted) setState(() => _isListening = false);
+        }
+      },
+      onError: (val) {
+        if (mounted) setState(() => _isListening = false);
+      },
+    );
+
+    if (!available) return;
+
+    // Snapshot the current text ONCE at session start — new speech appends to this
+    final String textAtStart = field == 'locations' ? _locationsCtrl.text : _activitiesCtrl.text;
+    final String prefix = textAtStart.isEmpty
+        ? ''
+        : (textAtStart.endsWith(' ') ? textAtStart : '$textAtStart ');
+
+    setState(() {
+      _isListening = true;
+      _activeField = field;
+    });
+
+    _speech.listen(
+      localeId: 'kn_IN', // Kannada Language
+      onResult: (val) {
+        // Only update while THIS session is still the active one
+        if (!_isListening || _activeField != field) return;
+        if (mounted) {
+          setState(() {
+            if (field == 'locations') {
+              _locationsCtrl.text = prefix + val.recognizedWords;
+              // Keep cursor at end
+              _locationsCtrl.selection = TextSelection.fromPosition(
+                TextPosition(offset: _locationsCtrl.text.length),
+              );
+            } else if (field == 'activities') {
+              _activitiesCtrl.text = prefix + val.recognizedWords;
+              _activitiesCtrl.selection = TextSelection.fromPosition(
+                TextPosition(offset: _activitiesCtrl.text.length),
+              );
+            }
+          });
+        }
+      },
+    );
   }
 
   Future<void> _save() async {
