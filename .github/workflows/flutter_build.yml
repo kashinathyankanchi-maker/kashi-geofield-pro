@@ -40,8 +40,7 @@ jobs:
             pub-
 
       - name: Install Dependencies
-        run: flutter pub get --enforce-lockfile
-        continue-on-error: false
+        run: flutter pub get
 
       - name: Build Release APK
         run: flutter build apk --release
