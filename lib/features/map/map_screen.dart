@@ -43,6 +43,7 @@ import '../ar/ar_measure_screen.dart';
 import '../offline_maps/offline_maps_screen.dart';
 import 'offline_tile_provider.dart';
 import 'geo_reference_screen.dart';
+import 'package:flutter_compass/flutter_compass.dart';
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -80,6 +81,14 @@ class MapScreenState extends State<MapScreen> {
 
   // Geo-referenced PDF overlay images
   final List<GeoReferencedImage> _geoRefImages = [];
+
+  // ── Compass state ─────────────────────────────────────────────────────────
+  bool _compassEnabled = false;        // master compass toggle
+  bool _rotateMapWithCompass = true;   // rotate map using compass
+  bool _showCompassOnMap = true;       // show compass rose widget
+  bool _showCurrentHeading = true;     // show heading info box
+  double _currentHeading = 0.0;        // live heading in degrees
+  StreamSubscription<CompassEvent>? _compassStream;
 
   @override
   void initState() {
@@ -2257,6 +2266,16 @@ $wpPlacemarks
                       },
                     ),
                     const SizedBox(height: 6),
+                    // Compass
+                    _MapFab(
+                      icon: Icons.explore_rounded,
+                      tooltip: 'Compass & Map Rotation',
+                      color: _compassEnabled
+                          ? const Color(0xFF00BFA5)   // teal when active
+                          : const Color(0xFF546E7A),  // grey when off
+                      onTap: _showCompassPanel,
+                    ),
+                    const SizedBox(height: 6),
                     // Download offline
                     _MapFab(
                       icon: Icons.download_rounded,
@@ -2426,6 +2445,50 @@ $wpPlacemarks
                   child: _GpsCoordChip(position: _currentPosition!),
                 ),
 
+              // ── Compass Rose ──────────────────────────────────────────────────
+              if (_compassEnabled && _showCompassOnMap)
+                Positioned(
+                  top: 100,
+                  right: 60,
+                  child: _CompassRose(heading: _currentHeading),
+                ),
+
+              // ── Heading info box ──────────────────────────────────────────────
+              if (_compassEnabled && _showCurrentHeading)
+                Positioned(
+                  top: 220,
+                  right: 58,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.72),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.white24),
+                    ),
+                    child: Column(
+                      children: [
+                        Text(
+                          '${_currentHeading.toStringAsFixed(1)}°',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'monospace',
+                          ),
+                        ),
+                        Text(
+                          _headingToCardinal(_currentHeading),
+                          style: const TextStyle(
+                            color: Color(0xFF00BFA5),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
               // ── Tapped coordinate marker ──────────────────────────────────────
               if (_tappedPosition != null)
                 Positioned(
@@ -2558,6 +2621,171 @@ $wpPlacemarks
           ),
         ));
       },
+    );
+  }
+
+  // ── Compass helpers ──────────────────────────────────────────────────────
+
+  void _startCompass() {
+    _compassStream?.cancel();
+    _compassStream = FlutterCompass.events?.listen((event) {
+      if (!mounted) return;
+      final heading = event.heading ?? 0.0;
+      setState(() => _currentHeading = heading);
+      if (_rotateMapWithCompass) {
+        _flutterMapController.rotate(-heading);
+      }
+    });
+  }
+
+  void _stopCompass() {
+    _compassStream?.cancel();
+    _compassStream = null;
+    // Reset map rotation to north
+    _flutterMapController.rotate(0);
+    setState(() => _currentHeading = 0.0);
+  }
+
+  void _toggleCompass(bool enabled) {
+    setState(() => _compassEnabled = enabled);
+    if (enabled) {
+      _startCompass();
+    } else {
+      _stopCompass();
+    }
+  }
+
+  void _showCompassPanel() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) => Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Handle
+              Center(
+                child: Container(
+                  width: 40, height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // ── ORIENTATION section ──────────────────────────────────
+              Row(
+                children: [
+                  Text('ORIENTATION',
+                      style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey.shade500,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 1.2)),
+                  const SizedBox(width: 8),
+                  Expanded(child: Divider(color: Colors.grey.shade300)),
+                  const SizedBox(width: 8),
+                  Icon(Icons.help_outline, color: Colors.grey.shade400, size: 18),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Icon(Icons.explore_rounded, color: Colors.grey.shade700, size: 24),
+                  const SizedBox(width: 12),
+                  const Text('Compass',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.w500)),
+                  const Spacer(),
+                  // Vertical divider
+                  Container(width: 1, height: 30, color: Colors.grey.shade200),
+                  const SizedBox(width: 12),
+                  Switch(
+                    value: _compassEnabled,
+                    activeColor: const Color(0xFF00BFA5),
+                    onChanged: (v) {
+                      setSheet(() {});
+                      _toggleCompass(v);
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+
+              // ── OPTIONS section ──────────────────────────────────────
+              Row(
+                children: [
+                  Text('OPTIONS',
+                      style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey.shade500,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 1.2)),
+                  const SizedBox(width: 8),
+                  Expanded(child: Divider(color: Colors.grey.shade300)),
+                  const SizedBox(width: 8),
+                  Icon(Icons.settings, color: Colors.grey.shade400, size: 18),
+                ],
+              ),
+              const SizedBox(height: 8),
+              // Rotate map checkbox
+              _CompassCheckRow(
+                label: 'Rotate the map (using compass)',
+                value: _rotateMapWithCompass,
+                onChanged: _compassEnabled
+                    ? (v) {
+                        setSheet(() {});
+                        setState(() => _rotateMapWithCompass = v);
+                        if (!v) _flutterMapController.rotate(0);
+                      }
+                    : null,
+              ),
+              const SizedBox(height: 4),
+              // Display compass on map
+              _CompassCheckRow(
+                label: 'Display compass on the map',
+                value: _showCompassOnMap,
+                onChanged: (v) {
+                  setSheet(() {});
+                  setState(() => _showCompassOnMap = v);
+                },
+              ),
+              const SizedBox(height: 16),
+
+              // ── INFORMATION BOX section ──────────────────────────────
+              Row(
+                children: [
+                  Text('INFORMATION BOX',
+                      style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey.shade500,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 1.2)),
+                  const SizedBox(width: 8),
+                  Expanded(child: Divider(color: Colors.grey.shade300)),
+                ],
+              ),
+              const SizedBox(height: 8),
+              _CompassCheckRow(
+                label: 'Current heading',
+                value: _showCurrentHeading,
+                onChanged: (v) {
+                  setSheet(() {});
+                  setState(() => _showCurrentHeading = v);
+                },
+              ),
+              const SizedBox(height: 16),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -3070,6 +3298,7 @@ $wpPlacemarks
   @override
   void dispose() {
     _positionStream?.cancel();
+    _compassStream?.cancel();
     _searchController.dispose();
     super.dispose();
   }
@@ -4491,7 +4720,176 @@ class _LiveDrawingMeasurementCard extends StatelessWidget {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Heading → Cardinal direction helper (inside MapScreenState class extension)
+// ---------------------------------------------------------------------------
 
+String _headingToCardinal(double heading) {
+  final h = ((heading % 360) + 360) % 360;
+  const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  return dirs[((h + 22.5) / 45).floor() % 8];
+}
 
+// ---------------------------------------------------------------------------
+// Compass Rose widget
+// ---------------------------------------------------------------------------
 
+class _CompassRose extends StatelessWidget {
+  final double heading;
+  const _CompassRose({required this.heading});
+
+  @override
+  Widget build(BuildContext context) {
+    return Transform.rotate(
+      angle: -(heading * (3.14159265 / 180)),
+      child: Container(
+        width: 80,
+        height: 80,
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.65),
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.white24, width: 1.5),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.5),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: CustomPaint(
+          painter: _CompassPainter(),
+        ),
+      ),
+    );
+  }
+}
+
+class _CompassPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final cx = size.width / 2;
+    final cy = size.height / 2;
+    final r = size.width / 2;
+
+    // North needle (red)
+    final northPaint = Paint()..color = const Color(0xFFE53935)..style = PaintingStyle.fill;
+    final northPath = Path()
+      ..moveTo(cx, cy - r * 0.72)
+      ..lineTo(cx - r * 0.12, cy)
+      ..lineTo(cx, cy - r * 0.12)
+      ..close();
+    canvas.drawPath(northPath, northPaint);
+
+    // South needle (white/silver)
+    final southPaint = Paint()..color = Colors.white70..style = PaintingStyle.fill;
+    final southPath = Path()
+      ..moveTo(cx, cy + r * 0.72)
+      ..lineTo(cx + r * 0.12, cy)
+      ..lineTo(cx, cy + r * 0.12)
+      ..close();
+    canvas.drawPath(southPath, southPaint);
+
+    // East needle (grey)
+    final ePaint = Paint()..color = Colors.white38..style = PaintingStyle.fill;
+    final ePath = Path()
+      ..moveTo(cx + r * 0.72, cy)
+      ..lineTo(cx, cy - r * 0.12)
+      ..lineTo(cx + r * 0.12, cy)
+      ..close();
+    canvas.drawPath(ePath, ePaint);
+
+    // West needle (grey)
+    final wPath = Path()
+      ..moveTo(cx - r * 0.72, cy)
+      ..lineTo(cx, cy + r * 0.12)
+      ..lineTo(cx - r * 0.12, cy)
+      ..close();
+    canvas.drawPath(wPath, ePaint);
+
+    // Center dot
+    canvas.drawCircle(
+      Offset(cx, cy),
+      r * 0.08,
+      Paint()..color = Colors.white,
+    );
+
+    // N label
+    final tp = TextPainter(
+      text: const TextSpan(
+        text: 'N',
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: 11,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    tp.paint(canvas, Offset(cx - tp.width / 2, cy - r * 0.95));
+  }
+
+  @override
+  bool shouldRepaint(_CompassPainter old) => false;
+}
+
+// ---------------------------------------------------------------------------
+// Checkbox row for compass settings panel
+// ---------------------------------------------------------------------------
+
+class _CompassCheckRow extends StatelessWidget {
+  final String label;
+  final bool value;
+  final ValueChanged<bool>? onChanged;
+
+  const _CompassCheckRow({
+    required this.label,
+    required this.value,
+    this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onChanged == null ? null : () => onChanged!(!value),
+      borderRadius: BorderRadius.circular(6),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
+        child: Row(
+          children: [
+            Container(
+              width: 22,
+              height: 22,
+              decoration: BoxDecoration(
+                color: value
+                    ? (onChanged != null ? Colors.black87 : Colors.grey)
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(
+                  color: value
+                      ? Colors.transparent
+                      : Colors.grey.shade400,
+                  width: 1.5,
+                ),
+              ),
+              child: value
+                  ? const Icon(Icons.check, color: Colors.white, size: 15)
+                  : null,
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: 15,
+                  color: onChanged != null ? Colors.black87 : Colors.grey,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
