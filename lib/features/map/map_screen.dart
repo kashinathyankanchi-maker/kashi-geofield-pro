@@ -4774,7 +4774,7 @@ class _CompassPainter extends CustomPainter {
 
     // North needle (red)
     final northPaint = Paint()..color = const Color(0xFFE53935)..style = PaintingStyle.fill;
-    final northPath = Path()
+    final northPath = ui.Path()
       ..moveTo(cx, cy - r * 0.72)
       ..lineTo(cx - r * 0.12, cy)
       ..lineTo(cx, cy - r * 0.12)
@@ -4783,7 +4783,7 @@ class _CompassPainter extends CustomPainter {
 
     // South needle (white/silver)
     final southPaint = Paint()..color = Colors.white70..style = PaintingStyle.fill;
-    final southPath = Path()
+    final southPath = ui.Path()
       ..moveTo(cx, cy + r * 0.72)
       ..lineTo(cx + r * 0.12, cy)
       ..lineTo(cx, cy + r * 0.12)
@@ -4792,7 +4792,7 @@ class _CompassPainter extends CustomPainter {
 
     // East needle (grey)
     final ePaint = Paint()..color = Colors.white38..style = PaintingStyle.fill;
-    final ePath = Path()
+    final ePath = ui.Path()
       ..moveTo(cx + r * 0.72, cy)
       ..lineTo(cx, cy - r * 0.12)
       ..lineTo(cx + r * 0.12, cy)
@@ -4800,7 +4800,7 @@ class _CompassPainter extends CustomPainter {
     canvas.drawPath(ePath, ePaint);
 
     // West needle (grey)
-    final wPath = Path()
+    final wPath = ui.Path()
       ..moveTo(cx - r * 0.72, cy)
       ..lineTo(cx, cy + r * 0.12)
       ..lineTo(cx - r * 0.12, cy)
