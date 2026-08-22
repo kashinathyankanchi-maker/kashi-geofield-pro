@@ -2019,7 +2019,7 @@ $wpPlacemarks
               if (_mapController.trackingState != TrackingState.idle ||
                   _mapController.hasTracking)
                 Positioned(
-                  bottom: 8,
+                  bottom: 72,
                   left: 0,
                   right: 0,
                   child: Center(
@@ -2185,8 +2185,8 @@ $wpPlacemarks
               // ── Right: Map controls ──────────────────────────────────────────
               Positioned(
                 right: 10,
-                top: 140,
-                bottom: 10,
+                top: 105,
+                bottom: 72,
                 child: SingleChildScrollView(
                   physics: const BouncingScrollPhysics(),
                   child: Column(
