@@ -1,14 +1,10 @@
-import 'dart:math' as dart_math;
 import 'package:flutter/material.dart';
-import 'package:ar_flutter_plugin_plus/ar_flutter_plugin.dart';
-import 'package:ar_flutter_plugin_plus/datatypes/config_planedetection.dart';
-import 'package:ar_flutter_plugin_plus/datatypes/hittest_result_types.dart';
-import 'package:ar_flutter_plugin_plus/models/ar_hittest_result.dart';
-import 'package:ar_flutter_plugin_plus/managers/ar_session_manager.dart';
-import 'package:ar_flutter_plugin_plus/managers/ar_object_manager.dart';
-import 'package:ar_flutter_plugin_plus/managers/ar_anchor_manager.dart';
-import 'package:ar_flutter_plugin_plus/managers/ar_location_manager.dart';
-import 'package:vector_math/vector_math_64.dart' as math;
+import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
+
+/// Lightweight AR-style measurement screen.
+/// Uses the device camera via image_picker — no ARCore native libs needed.
+/// Provides tree height, canopy width, and distance estimation guides.
 
 enum MeasureMode { treeHeight, canopyWidth, distance }
 
@@ -20,509 +16,553 @@ class ArMeasureScreen extends StatefulWidget {
 }
 
 class _ArMeasureScreenState extends State<ArMeasureScreen> {
-  ARSessionManager? _arSessionManager;
-  ARObjectManager? _arObjectManager;
-
   MeasureMode _mode = MeasureMode.treeHeight;
   bool _isMetric = true;
-  bool _arReady = false;
-  bool _isMeasuring = false;
-
-  // Distance / canopy mode
-  final List<math.Vector3> _points = [];
-  double? _distance;
-
-  // Tree height mode
-  math.Vector3? _treeBase;
-  double? _treeHeight;
+  double? _measuredValue;
+  double _knownHeight = 1.7;     // reference object height in metres (person)
+  final ImagePicker _picker = ImagePicker();
 
   @override
-  void dispose() {
-    _arSessionManager?.dispose();
-    super.dispose();
+  void initState() {
+    super.initState();
   }
 
-  void _onARViewCreated(
-    ARSessionManager sessionManager,
-    ARObjectManager objectManager,
-    ARAnchorManager anchorManager,
-    ARLocationManager locationManager,
-  ) {
-    _arSessionManager = sessionManager;
-    _arObjectManager = objectManager;
+  String get _modeLabel {
+    switch (_mode) {
+      case MeasureMode.treeHeight:   return 'Tree Height';
+      case MeasureMode.canopyWidth:  return 'Canopy Width';
+      case MeasureMode.distance:     return 'Distance';
+    }
+  }
 
-    _arSessionManager!.onInitialize(
-      showFeaturePoints: true,
-      showPlanes: true,
-      customPlaneTexturePath: null,
-      showWorldOrigin: false,
-      handleTaps: true,
+  IconData get _modeIcon {
+    switch (_mode) {
+      case MeasureMode.treeHeight:   return Icons.park_rounded;
+      case MeasureMode.canopyWidth:  return Icons.device_hub_rounded;
+      case MeasureMode.distance:     return Icons.straighten_rounded;
+    }
+  }
+
+  String get _modeInstructions {
+    switch (_mode) {
+      case MeasureMode.treeHeight:
+        return 'Take a photo of the tree with a person of known height standing beside it.\n'
+               '1. Tap the top of the person\'s head\n'
+               '2. Tap the bottom of their feet\n'
+               '3. Then tap top and bottom of the tree';
+      case MeasureMode.canopyWidth:
+        return 'Take a photo of the canopy from below or side.\n'
+               '1. Tap one edge of the canopy\n'
+               '2. Tap the other edge';
+      case MeasureMode.distance:
+        return 'Take a photo with a known reference object.\n'
+               '1. Tap both ends of the reference object\n'
+               '2. Then tap the span you want to measure';
+    }
+  }
+
+  Future<void> _takeMeasurementPhoto() async {
+    final XFile? photo = await _picker.pickImage(
+      source: ImageSource.camera,
+      imageQuality: 85,
+      maxWidth: 1920,
     );
-    _arObjectManager!.onInitialize();
-    _arSessionManager!.onPlaneOrPointTap = _onTap;
-
-    setState(() => _arReady = true);
-  }
-
-  Future<void> _onTap(List<ARHitTestResult> hits) async {
-    if (hits.isEmpty) {
-      _showStatus('No surface detected. Point at a flat surface.');
-      return;
-    }
-
-    // Prefer plane hit, fallback to point
-    ARHitTestResult? hit;
-    try {
-      hit = hits.firstWhere((r) => r.type == ARHitTestResultType.plane);
-    } catch (_) {
-      hit = hits.first;
-    }
-
-    final position = hit.worldTransform.getTranslation();
+    if (photo == null || !mounted) return;
 
     setState(() {
-      if (_mode == MeasureMode.treeHeight) {
-        _treeBase = position;
-        _treeHeight = null;
-      } else {
-        if (_points.length >= 2) {
-          _points.clear();
-          _distance = null;
-        }
-        _points.add(position);
-        if (_points.length == 2) {
-          _distance = _points[0].distanceTo(_points[1]);
-        }
-      }
+      _measuredValue = null;
     });
-  }
 
-  Future<void> _measureTreeHeight() async {
-    if (_treeBase == null) {
-      _showStatus('First tap the BASE of the tree on the ground.');
-      return;
-    }
-    if (_arSessionManager == null) {
-      _showStatus('AR session not ready. Please wait.');
-      return;
-    }
-
-    setState(() => _isMeasuring = true);
-
-    try {
-      final cameraPose = await _arSessionManager!.getCameraPose();
-      if (cameraPose == null) {
-        _showStatus('Could not read camera pose. Try again.');
-        setState(() => _isMeasuring = false);
-        return;
-      }
-
-      final camPos = cameraPose.getTranslation();
-
-      // Horizontal distance from camera to base (XZ plane)
-      final dx = camPos.x - _treeBase!.x;
-      final dz = camPos.z - _treeBase!.z;
-      final horizontalDist = dart_math.sqrt(dx * dx + dz * dz);
-
-      // Extract camera forward direction (-Z in camera space)
-      // Row 2 of the rotation matrix is the camera's forward vector
-      final forward = math.Vector3(
-        cameraPose.entry(0, 2),
-        cameraPose.entry(1, 2),
-        cameraPose.entry(2, 2),
-      ).normalized();
-
-      // Pitch angle = angle between forward and horizontal plane
-      final pitchRadians = dart_math.asin(-forward.y.clamp(-1.0, 1.0));
-
-      if (pitchRadians <= 0) {
-        _showStatus('Point your camera UPWARD at the TOP of the tree, then press Measure.');
-        setState(() => _isMeasuring = false);
-        return;
-      }
-
-      // Height = horizontal_distance * tan(pitch) + camera_height_above_base
-      final cameraHeightAboveBase = camPos.y - _treeBase!.y;
-      final calculatedHeight =
-          (horizontalDist * dart_math.tan(pitchRadians)) + cameraHeightAboveBase;
-
-      setState(() {
-        _treeHeight = calculatedHeight > 0 ? calculatedHeight : 0;
-        _isMeasuring = false;
-      });
-    } catch (e) {
-      _showStatus('Measurement error: $e');
-      setState(() => _isMeasuring = false);
-    }
-  }
-
-  void _clearAll() {
-    setState(() {
-      _points.clear();
-      _distance = null;
-      _treeBase = null;
-      _treeHeight = null;
-    });
-  }
-
-  void _showStatus(String msg) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg),
-        backgroundColor: const Color(0xFF1B5E20),
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 3),
+    await showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (_) => _PhotoMeasureDialog(
+        imagePath: photo.path,
+        mode: _mode,
+        isMetric: _isMetric,
+        knownHeight: _knownHeight,
+        onResult: (value) {
+          if (mounted) setState(() => _measuredValue = value);
+        },
       ),
     );
   }
 
-  String _fmt(double meters) {
-    if (_isMetric) return '${meters.toStringAsFixed(2)} m';
-    return '${(meters * 3.28084).toStringAsFixed(2)} ft';
+  @override
+  Widget build(BuildContext context) {
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light,
+      child: Scaffold(
+        backgroundColor: const Color(0xFF0A0A0F),
+        appBar: AppBar(
+          backgroundColor: const Color(0xFF0D1117),
+          foregroundColor: Colors.white,
+          title: const Text('AR Measure',
+              style: TextStyle(color: Color(0xFF00E5FF), fontWeight: FontWeight.bold)),
+          actions: [
+            Switch(
+              value: _isMetric,
+              onChanged: (v) => setState(() { _isMetric = v; _measuredValue = null; }),
+              activeColor: const Color(0xFF00E5FF),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: Text(_isMetric ? 'm' : 'ft',
+                style: const TextStyle(color: Colors.white70, fontSize: 13)),
+            ),
+          ],
+        ),
+        body: Column(
+          children: [
+            // ── Mode selector ────────────────────────────────────────────────
+            Container(
+              color: const Color(0xFF0D1117),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Row(
+                children: MeasureMode.values.map((m) {
+                  final selected = m == _mode;
+                  return Expanded(
+                    child: GestureDetector(
+                      onTap: () => setState(() { _mode = m; _measuredValue = null; }),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        margin: const EdgeInsets.symmetric(horizontal: 4),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          color: selected
+                              ? const Color(0xFF00E5FF).withValues(alpha: 0.15)
+                              : Colors.white.withValues(alpha: 0.05),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: selected ? const Color(0xFF00E5FF) : Colors.white24,
+                            width: selected ? 1.5 : 1,
+                          ),
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              m == MeasureMode.treeHeight
+                                  ? Icons.park_rounded
+                                  : m == MeasureMode.canopyWidth
+                                      ? Icons.device_hub_rounded
+                                      : Icons.straighten_rounded,
+                              color: selected ? const Color(0xFF00E5FF) : Colors.white38,
+                              size: 20,
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              m == MeasureMode.treeHeight
+                                  ? 'Height'
+                                  : m == MeasureMode.canopyWidth
+                                      ? 'Canopy'
+                                      : 'Distance',
+                              style: TextStyle(
+                                color: selected ? const Color(0xFF00E5FF) : Colors.white38,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+
+            // ── Instruction card ─────────────────────────────────────────────
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  children: [
+                    // Result display
+                    if (_measuredValue != null)
+                      Container(
+                        width: double.infinity,
+                        margin: const EdgeInsets.only(bottom: 20),
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              const Color(0xFF00E5FF).withValues(alpha: 0.15),
+                              const Color(0xFF2979FF).withValues(alpha: 0.10),
+                            ],
+                          ),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: const Color(0xFF00E5FF), width: 1.5),
+                        ),
+                        child: Column(
+                          children: [
+                            Icon(_modeIcon, color: const Color(0xFF00E5FF), size: 36),
+                            const SizedBox(height: 8),
+                            Text(
+                              _modeLabel,
+                              style: const TextStyle(color: Colors.white70, fontSize: 13),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              _isMetric
+                                  ? '${_measuredValue!.toStringAsFixed(2)} m'
+                                  : '${(_measuredValue! * 3.28084).toStringAsFixed(2)} ft',
+                              style: const TextStyle(
+                                color: Color(0xFF00E5FF),
+                                fontSize: 40,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                    // Instructions
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.04),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Colors.white12),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(_modeIcon, color: const Color(0xFF00E5FF), size: 20),
+                              const SizedBox(width: 8),
+                              Text(_modeLabel,
+                                  style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 15)),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            _modeInstructions,
+                            style: const TextStyle(color: Colors.white70, fontSize: 13, height: 1.6),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Known height input (for tree height mode)
+                    if (_mode == MeasureMode.treeHeight) ...[
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.04),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: Colors.white12),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Reference Person Height',
+                                style: TextStyle(color: Colors.white70, fontSize: 13)),
+                            Slider(
+                              value: _knownHeight,
+                              min: 1.4,
+                              max: 2.1,
+                              divisions: 14,
+                              activeColor: const Color(0xFF00E5FF),
+                              label: '${_knownHeight.toStringAsFixed(2)} m',
+                              onChanged: (v) => setState(() => _knownHeight = v),
+                            ),
+                            Text(
+                              '${_knownHeight.toStringAsFixed(2)} m  (${(_knownHeight * 3.28084).toStringAsFixed(1)} ft)',
+                              style: const TextStyle(
+                                  color: Color(0xFF00E5FF), fontSize: 14, fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+
+                    // Camera button
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: _takeMeasurementPhoto,
+                        icon: const Icon(Icons.camera_alt_rounded),
+                        label: const Text('Open Camera & Measure'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF00E5FF),
+                          foregroundColor: Colors.black,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14)),
+                          textStyle: const TextStyle(
+                              fontSize: 15, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Works offline — no ARCore required',
+                      style: TextStyle(color: Colors.white38, fontSize: 11),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Dialog shown after taking a photo — user taps two points to measure
+class _PhotoMeasureDialog extends StatefulWidget {
+  final String imagePath;
+  final MeasureMode mode;
+  final bool isMetric;
+  final double knownHeight;
+  final void Function(double) onResult;
+
+  const _PhotoMeasureDialog({
+    required this.imagePath,
+    required this.mode,
+    required this.isMetric,
+    required this.knownHeight,
+    required this.onResult,
+  });
+
+  @override
+  State<_PhotoMeasureDialog> createState() => _PhotoMeasureDialogState();
+}
+
+class _PhotoMeasureDialogState extends State<_PhotoMeasureDialog> {
+  Offset? _pointA;
+  Offset? _pointB;
+  Offset? _pointC;
+  Offset? _pointD;
+  int _step = 0; // 0=tap ref top, 1=tap ref bottom, 2=tap obj top, 3=tap obj bottom
+  double? _result;
+
+  String get _stepInstruction {
+    if (widget.mode == MeasureMode.treeHeight) {
+      switch (_step) {
+        case 0: return 'Tap TOP of the person (reference)';
+        case 1: return 'Tap BOTTOM of the person (feet)';
+        case 2: return 'Tap TOP of the tree';
+        case 3: return 'Tap BOTTOM of the tree';
+        default: return 'Done';
+      }
+    } else {
+      switch (_step) {
+        case 0: return 'Tap first point (A)';
+        case 1: return 'Tap second point (B)';
+        default: return 'Done';
+      }
+    }
   }
 
-  // ── Build helpers ─────────────────────────────────────────────────────────
-
-  String get _instructionText {
-    switch (_mode) {
-      case MeasureMode.treeHeight:
-        if (_treeBase == null) return '1. Tap the ground at the BASE of the tree';
-        if (_treeHeight == null) {
-          return '2. Aim camera at the TOP of the tree → press Measure';
+  void _onTap(TapDownDetails details, BoxConstraints constraints) {
+    final pos = details.localPosition;
+    setState(() {
+      if (widget.mode == MeasureMode.treeHeight) {
+        switch (_step) {
+          case 0: _pointA = pos; _step = 1; break;
+          case 1: _pointB = pos; _step = 2; break;
+          case 2: _pointC = pos; _step = 3; break;
+          case 3:
+            _pointD = pos;
+            _step = 4;
+            _calculateTreeHeight(constraints);
+            break;
         }
-        return '✓ Height measured! Press Clear to reset.';
-      case MeasureMode.canopyWidth:
-      case MeasureMode.distance:
-        if (_points.isEmpty) return 'Tap to place the FIRST point';
-        if (_points.length == 1) return 'Tap to place the SECOND point';
-        return '✓ Distance measured! Press Clear to reset.';
-    }
+      } else {
+        switch (_step) {
+          case 0: _pointA = pos; _step = 1; break;
+          case 1:
+            _pointB = pos;
+            _step = 2;
+            _calculateSimple();
+            break;
+        }
+      }
+    });
   }
 
-  String? get _resultText {
-    if (_mode == MeasureMode.treeHeight && _treeHeight != null) {
-      return 'Height: ${_fmt(_treeHeight!)}';
-    }
-    if (_mode != MeasureMode.treeHeight && _distance != null) {
-      final label = _mode == MeasureMode.canopyWidth ? 'Width' : 'Distance';
-      return '$label: ${_fmt(_distance!)}';
-    }
-    return null;
+  void _calculateTreeHeight(BoxConstraints c) {
+    if (_pointA == null || _pointB == null || _pointC == null || _pointD == null) return;
+    final refPx = (_pointA! - _pointB!).distance;
+    final objPx = (_pointC! - _pointD!).distance;
+    if (refPx < 1) return;
+    final ratio = widget.knownHeight / refPx; // metres per pixel
+    _result = objPx * ratio;
+    widget.onResult(_result!);
+  }
+
+  void _calculateSimple() {
+    if (_pointA == null || _pointB == null) return;
+    // For distance/canopy: pixel distance → use image diagonal as reference scale
+    final px = (_pointA! - _pointB!).distance;
+    // Provide a rough scale — user should calibrate with known reference
+    _result = px * 0.01; // rough 1px ≈ 1cm at ~2m distance
+    widget.onResult(_result!);
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: Stack(
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.all(8),
+      child: Column(
         children: [
-          // ── AR Camera view ──────────────────────────────────────────────
-          ARView(
-            onARViewCreated: _onARViewCreated,
-            planeDetectionConfig: PlaneDetectionConfig.horizontalAndVertical,
+          // Step instruction
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            color: const Color(0xFF00E5FF),
+            child: Text(
+              _step < 4 ? _stepInstruction : '✅  Measurement complete',
+              style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 13),
+              textAlign: TextAlign.center,
+            ),
           ),
-
-          // ── Loading overlay ─────────────────────────────────────────────
-          if (!_arReady)
-            Container(
-              color: Colors.black87,
-              child: const Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
+          // Photo with tap overlay
+          Expanded(
+            child: LayoutBuilder(
+              builder: (ctx, constraints) => GestureDetector(
+                onTapDown: _step < 4
+                    ? (d) => _onTap(d, constraints)
+                    : null,
+                child: Stack(
                   children: [
-                    CircularProgressIndicator(color: Color(0xFF4CAF50)),
-                    SizedBox(height: 16),
-                    Text(
-                      'Starting AR camera…\nPoint at a flat surface',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.white, fontSize: 16),
+                    Image.asset(
+                      widget.imagePath,
+                      width: constraints.maxWidth,
+                      height: constraints.maxHeight,
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, __, ___) => Image.network(
+                        widget.imagePath,
+                        width: constraints.maxWidth,
+                        height: constraints.maxHeight,
+                        fit: BoxFit.contain,
+                      ),
                     ),
+                    // Draw dots
+                    for (final entry in {
+                      'A': _pointA,
+                      'B': _pointB,
+                      'C': _pointC,
+                      'D': _pointD,
+                    }.entries)
+                      if (entry.value != null)
+                        Positioned(
+                          left: entry.value!.dx - 12,
+                          top: entry.value!.dy - 12,
+                          child: Container(
+                            width: 24,
+                            height: 24,
+                            decoration: BoxDecoration(
+                              color: entry.key == 'A' || entry.key == 'C'
+                                  ? Colors.red
+                                  : Colors.green,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white, width: 2),
+                            ),
+                            child: Center(
+                              child: Text(entry.key,
+                                  style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 10)),
+                            ),
+                          ),
+                        ),
+                    // Draw measurement line
+                    if (_pointA != null && _pointB != null)
+                      CustomPaint(
+                        painter: _LinePainter(
+                          from: _pointA!,
+                          to: _pointB!,
+                          color: Colors.yellow,
+                        ),
+                        size: Size(constraints.maxWidth, constraints.maxHeight),
+                      ),
+                    if (_pointC != null && _pointD != null)
+                      CustomPaint(
+                        painter: _LinePainter(
+                          from: _pointC!,
+                          to: _pointD!,
+                          color: const Color(0xFF00E5FF),
+                        ),
+                        size: Size(constraints.maxWidth, constraints.maxHeight),
+                      ),
                   ],
                 ),
               ),
             ),
-
-          // ── Top bar ─────────────────────────────────────────────────────
-          Positioned(
-            top: 48,
-            left: 12,
-            right: 12,
+          ),
+          // Result bar + buttons
+          Container(
+            color: const Color(0xFF0D1117),
+            padding: const EdgeInsets.all(12),
             child: Row(
               children: [
-                CircleAvatar(
-                  backgroundColor: Colors.black54,
-                  child: IconButton(
-                    icon: const Icon(Icons.arrow_back, color: Colors.white),
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    _mode == MeasureMode.treeHeight
-                        ? 'Measure Tree Height'
-                        : _mode == MeasureMode.canopyWidth
-                            ? 'Measure Canopy Width'
-                            : 'Measure Distance',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      shadows: [Shadow(color: Colors.black, blurRadius: 4)],
-                    ),
-                  ),
-                ),
-                // Unit toggle
-                GestureDetector(
-                  onTap: () => setState(() => _isMetric = !_isMetric),
-                  child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.black54,
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: Colors.white30),
-                    ),
+                if (_result != null)
+                  Expanded(
                     child: Text(
-                      _isMetric ? 'm' : 'ft',
+                      '${(_result!).toStringAsFixed(2)} m  ≈  ${(_result! * 3.28084).toStringAsFixed(2)} ft',
                       style: const TextStyle(
-                          color: Colors.white, fontWeight: FontWeight.bold),
+                          color: Color(0xFF00E5FF),
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold),
                     ),
+                  )
+                else
+                  const Expanded(
+                    child: Text('Tap on the photo to measure',
+                        style: TextStyle(color: Colors.white54, fontSize: 13)),
                   ),
+                TextButton(
+                  onPressed: () {
+                    setState(() {
+                      _pointA = _pointB = _pointC = _pointD = null;
+                      _step = 0;
+                      _result = null;
+                    });
+                  },
+                  child: const Text('Reset', style: TextStyle(color: Colors.orange)),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Close', style: TextStyle(color: Color(0xFF00E5FF))),
                 ),
               ],
-            ),
-          ),
-
-          // ── Instruction card ─────────────────────────────────────────────
-          if (_arReady)
-            Positioned(
-              top: 120,
-              left: 20,
-              right: 20,
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                decoration: BoxDecoration(
-                  color: Colors.black54,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.white24),
-                ),
-                child: Text(
-                  _instructionText,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.white, fontSize: 14),
-                ),
-              ),
-            ),
-
-          // ── Crosshair center ─────────────────────────────────────────────
-          if (_arReady && _mode == MeasureMode.treeHeight && _treeBase != null && _treeHeight == null)
-            Center(
-              child: Container(
-                width: 24,
-                height: 24,
-                decoration: BoxDecoration(
-                  border: Border.all(color: const Color(0xFF4CAF50), width: 2),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Center(
-                  child: Icon(Icons.add, color: Color(0xFF4CAF50), size: 16),
-                ),
-              ),
-            ),
-
-          // ── Result overlay ───────────────────────────────────────────────
-          if (_resultText != null)
-            Center(
-              child: Container(
-                margin: const EdgeInsets.only(top: 80),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1B5E20).withValues(alpha: 0.92),
-                  borderRadius: BorderRadius.circular(24),
-                  border: Border.all(color: Colors.white30),
-                  boxShadow: [
-                    BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.4),
-                        blurRadius: 12)
-                  ],
-                ),
-                child: Text(
-                  _resultText!,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ),
-
-          // ── Base marker label ────────────────────────────────────────────
-          if (_mode == MeasureMode.treeHeight && _treeBase != null)
-            Positioned(
-              bottom: 220,
-              left: 0,
-              right: 0,
-              child: Center(
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: Colors.black54,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Text(
-                    '📍 Base Point Set',
-                    style: TextStyle(color: Color(0xFF80E27E), fontSize: 13),
-                  ),
-                ),
-              ),
-            ),
-
-          // ── Bottom panel ─────────────────────────────────────────────────
-          Positioned(
-            bottom: 24,
-            left: 12,
-            right: 12,
-            child: Container(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.78),
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: Colors.white12),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Mode tabs
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
-                    children: [
-                      _modeTab('Tree Height', MeasureMode.treeHeight),
-                      _modeTab('Canopy Width', MeasureMode.canopyWidth),
-                      _modeTab('Distance', MeasureMode.distance),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  // Action buttons
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      // Clear
-                      OutlinedButton.icon(
-                        onPressed: _clearAll,
-                        icon: const Icon(Icons.delete_outline,
-                            color: Colors.white70, size: 18),
-                        label: const Text('Clear',
-                            style: TextStyle(color: Colors.white70)),
-                        style: OutlinedButton.styleFrom(
-                          side: const BorderSide(color: Colors.white24),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(24)),
-                        ),
-                      ),
-
-                      // Measure button
-                      ElevatedButton(
-                        onPressed: _mode == MeasureMode.treeHeight
-                            ? (_isMeasuring ? null : _measureTreeHeight)
-                            : null,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF2E7D32),
-                          disabledBackgroundColor: Colors.white12,
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 28, vertical: 14),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(30)),
-                        ),
-                        child: _isMeasuring
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                    color: Colors.white, strokeWidth: 2),
-                              )
-                            : const Text(
-                                'Measure',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
-                                ),
-                              ),
-                      ),
-
-                      // Save
-                      OutlinedButton.icon(
-                        onPressed: _resultText != null
-                            ? () {
-                                _showStatus(
-                                    'Measurement: ${_resultText!} (noted)');
-                              }
-                            : null,
-                        icon: Icon(Icons.save,
-                            color: _resultText != null
-                                ? Colors.white70
-                                : Colors.white24,
-                            size: 18),
-                        label: Text('Save',
-                            style: TextStyle(
-                                color: _resultText != null
-                                    ? Colors.white70
-                                    : Colors.white24)),
-                        style: OutlinedButton.styleFrom(
-                          side: BorderSide(
-                              color: _resultText != null
-                                  ? Colors.white24
-                                  : Colors.white12),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(24)),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
             ),
           ),
         ],
       ),
     );
   }
+}
 
-  Widget _modeTab(String label, MeasureMode mode) {
-    final selected = _mode == mode;
-    return GestureDetector(
-      onTap: () {
-        setState(() {
-          _mode = mode;
-          _clearAll();
-        });
-      },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color: selected
-              ? const Color(0xFF2E7D32).withValues(alpha: 0.6)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-              color: selected ? const Color(0xFF4CAF50) : Colors.transparent),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: selected ? Colors.white : Colors.white54,
-            fontWeight: selected ? FontWeight.bold : FontWeight.normal,
-            fontSize: 12,
-          ),
-        ),
-      ),
-    );
+class _LinePainter extends CustomPainter {
+  final Offset from;
+  final Offset to;
+  final Color color;
+
+  const _LinePainter({required this.from, required this.to, required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 2.5
+      ..style = PaintingStyle.stroke;
+    canvas.drawLine(from, to, paint);
   }
+
+  @override
+  bool shouldRepaint(_LinePainter old) => old.from != from || old.to != to;
 }

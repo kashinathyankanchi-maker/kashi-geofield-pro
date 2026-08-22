@@ -5,6 +5,10 @@ import 'features/splash/splash_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // ── Full screen: hide status bar (time/battery/network) ──────────────────
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.landscapeLeft,
