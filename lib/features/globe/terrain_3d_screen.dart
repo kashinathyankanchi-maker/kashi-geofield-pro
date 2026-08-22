@@ -9,7 +9,7 @@ import '../../core/utils/kml_engine.dart';
 import '../../features/map/map_controller.dart';
 import '../../features/offline_maps/offline_maps_screen.dart';
 import '../../shared/theme.dart';
-import 'earth_3d_screen.dart';
+
 
 class Terrain3dScreen extends StatefulWidget {
   final LatLng? initialCenter;
@@ -948,29 +948,7 @@ class _Terrain3dScreenState extends State<Terrain3dScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(width: 10),
-                  GestureDetector(
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const Earth3dScreen()),
-                      );
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.75),
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white24),
-                      ),
-                      child: const Tooltip(
-                        message: 'Planetary Space Globe',
-                        child: Icon(Icons.public_rounded, color: Color(0xFF00E5FF), size: 20),
-                      ),
-                    ),
                   ),
-                ],
-              ),
             ),
           ),
 
