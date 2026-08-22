@@ -90,6 +90,9 @@ class MapScreenState extends State<MapScreen> {
   double _currentHeading = 0.0;        // live heading in degrees
   StreamSubscription<CompassEvent>? _compassStream;
 
+  // ── Sidebar tool panel toggle ─────────────────────────────────────────────
+  bool _showToolButtons = false;       // show/hide extra tool buttons
+
   @override
   void initState() {
     super.initState();
@@ -2188,227 +2191,232 @@ $wpPlacemarks
                   physics: const BouncingScrollPhysics(),
                   child: Column(
                     children: [
-                    // Zoom in
+
+                    // ── Always visible: Zoom In ───────────────────────────
                     _MapFab(
                       icon: Icons.add,
                       tooltip: 'Zoom In',
-                      color: const Color(0xFF2D7A3A), // tactical green
+                      color: const Color(0xFF2D7A3A),
                       onTap: () {
                         final c = _flutterMapController.camera;
                         _flutterMapController.move(c.center, c.zoom + 1);
                       },
                     ),
                     const SizedBox(height: 6),
-                    // Zoom out
+
+                    // ── Always visible: Zoom Out ──────────────────────────
                     _MapFab(
                       icon: Icons.remove,
                       tooltip: 'Zoom Out',
-                      color: const Color(0xFF2D7A3A), // tactical green
+                      color: const Color(0xFF2D7A3A),
                       onTap: () {
                         final c = _flutterMapController.camera;
                         _flutterMapController.move(c.center, c.zoom - 1);
                       },
                     ),
                     const SizedBox(height: 6),
-                    // GPS location
+
+                    // ── Always visible: My Location ───────────────────────
                     _MapFab(
                       icon: _loadingLocation
                           ? Icons.hourglass_top_rounded
                           : Icons.my_location_rounded,
                       tooltip: 'My Location',
-                      color: const Color(0xFF39D353), // bright green location
+                      color: const Color(0xFF39D353),
                       onTap: _loadingLocation ? null : _goToCurrentLocation,
                       isLoading: _loadingLocation,
                     ),
                     const SizedBox(height: 6),
-                    // 3D Google Earth Terrain Map Mode
-                    _MapFab(
-                      icon: Icons.terrain_rounded,
-                      tooltip: '3D Google Earth Terrain Map',
-                      color: const Color(0xFF00E5FF), // neon cyan globe
-                      onTap: () async {
-                        final selectedCoord = await Navigator.push<LatLng>(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => Terrain3dScreen(
-                              initialCenter: _mapController.selectedShape?.points.isNotEmpty == true
-                                  ? _mapController.selectedShape!.points.first
-                                  : _currentPosition,
-                              drawnShapes: _mapController.drawnShapes,
-                              kmlShapes: _mapController.kmlShapes,
-                            ),
-                          ),
-                        );
-                        if (selectedCoord != null && mounted) {
-                          _flutterMapController.move(selectedCoord, 16);
-                          _showSnackBar('Zoomed to selected 3D location on 2D Map');
-                        }
-                      },
-                    ),
-                    const SizedBox(height: 6),
-                    // Historical Imagery (ESRI Wayback)
-                    _MapFab(
-                      icon: Icons.history_toggle_off_rounded,
-                      tooltip: 'Historical Satellite Imagery',
-                      color: const Color(0xFFAB47BC), // purple
-                      onTap: () {
-                        final center = _flutterMapController.camera.center;
-                        final zoom = _flutterMapController.camera.zoom;
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => HistoricalImageryScreen(
-                              initialCenter: center,
-                              initialZoom: zoom,
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 6),
-                    // Compass
+
+                    // ── Always visible: Compass ───────────────────────────
                     _MapFab(
                       icon: Icons.explore_rounded,
                       tooltip: 'Compass & Map Rotation',
                       color: _compassEnabled
-                          ? const Color(0xFF00BFA5)   // teal when active
-                          : const Color(0xFF546E7A),  // grey when off
+                          ? const Color(0xFF00BFA5)
+                          : const Color(0xFF546E7A),
                       onTap: _showCompassPanel,
                     ),
                     const SizedBox(height: 6),
-                    // Download offline
+
+                    // ── Tools toggle button ───────────────────────────────
                     _MapFab(
-                      icon: Icons.download_rounded,
-                      tooltip: 'Download Area',
-                      color: const Color(0xFF29B6F6), // tactical blue
-                      onTap: () => setState(() => _mapController.toggleOfflineDownloadMode()),
+                      icon: _showToolButtons
+                          ? Icons.close_rounded
+                          : Icons.construction_rounded,
+                      tooltip: _showToolButtons ? 'Hide Tools' : 'Show Tools',
+                      color: _showToolButtons
+                          ? const Color(0xFFE53935)
+                          : const Color(0xFFF57C00),
+                      onTap: () => setState(() => _showToolButtons = !_showToolButtons),
                     ),
-                    const SizedBox(height: 6),
-                    // GPS Track Start/Stop
-                    _MapFab(
-                      icon: _mapController.isTracking
-                          ? Icons.pause_circle_rounded
-                          : (_mapController.isTrackingPaused
-                              ? Icons.play_circle_rounded
-                              : Icons.directions_walk_rounded),
-                      tooltip: _mapController.isTracking
-                          ? 'Pause Tracking'
-                          : (_mapController.isTrackingPaused
-                              ? 'Resume Tracking'
-                              : 'Start GPS Track'),
-                      color: _mapController.isTracking
-                          ? const Color(0xFFFF7043) // professional deep orange
-                          : (_mapController.isTrackingPaused
-                              ? const Color(0xFFFFA726) // professional amber
-                              : const Color(0xFF7E57C2)), // professional indigo
-                      onTap: () {
-                        if (_mapController.isTracking) {
-                          _mapController.pauseTracking();
-                        } else if (_mapController.isTrackingPaused) {
-                          _mapController.resumeTracking();
-                        } else {
-                          _mapController.startTracking();
-                          _showSnackBar(
-                              'GPS tracking started — walk to record path');
-                        }
-                      },
-                    ),
-                    if (_mapController.isTracking || _mapController.isTrackingPaused) ...[
+
+                    // ── Collapsible tool buttons ──────────────────────────
+                    if (_showToolButtons) ...[
                       const SizedBox(height: 6),
                       _MapFab(
-                        icon: Icons.stop_circle_rounded,
-                        tooltip: 'Stop Track',
-                        color: AppTheme.errorColor,
-                        onTap: () {
-                          final shape = _mapController.stopTracking();
-                          if (shape != null) {
-                            _showSnackBar('Tracking saved: ${shape.name}');
-                          } else {
-                            _showSnackBar('Tracking stopped (no movement recorded)', isError: true);
+                        icon: Icons.terrain_rounded,
+                        tooltip: '3D Google Earth Terrain Map',
+                        color: const Color(0xFF00E5FF),
+                        onTap: () async {
+                          final selectedCoord = await Navigator.push<LatLng>(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => Terrain3dScreen(
+                                initialCenter: _mapController.selectedShape?.points.isNotEmpty == true
+                                    ? _mapController.selectedShape!.points.first
+                                    : _currentPosition,
+                                drawnShapes: _mapController.drawnShapes,
+                                kmlShapes: _mapController.kmlShapes,
+                              ),
+                            ),
+                          );
+                          if (selectedCoord != null && mounted) {
+                            _flutterMapController.move(selectedCoord, 16);
+                            _showSnackBar('Zoomed to selected 3D location on 2D Map');
                           }
                         },
                       ),
+                      const SizedBox(height: 6),
+                      _MapFab(
+                        icon: Icons.history_toggle_off_rounded,
+                        tooltip: 'Historical Satellite Imagery',
+                        color: const Color(0xFFAB47BC),
+                        onTap: () {
+                          final center = _flutterMapController.camera.center;
+                          final zoom = _flutterMapController.camera.zoom;
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => HistoricalImageryScreen(
+                                initialCenter: center,
+                                initialZoom: zoom,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 6),
+                      _MapFab(
+                        icon: Icons.download_rounded,
+                        tooltip: 'Download Area',
+                        color: const Color(0xFF29B6F6),
+                        onTap: () => setState(() => _mapController.toggleOfflineDownloadMode()),
+                      ),
+                      const SizedBox(height: 6),
+                      _MapFab(
+                        icon: _mapController.isTracking
+                            ? Icons.pause_circle_rounded
+                            : (_mapController.isTrackingPaused
+                                ? Icons.play_circle_rounded
+                                : Icons.directions_walk_rounded),
+                        tooltip: _mapController.isTracking
+                            ? 'Pause Tracking'
+                            : (_mapController.isTrackingPaused
+                                ? 'Resume Tracking'
+                                : 'Start GPS Track'),
+                        color: _mapController.isTracking
+                            ? const Color(0xFFFF7043)
+                            : (_mapController.isTrackingPaused
+                                ? const Color(0xFFFFA726)
+                                : const Color(0xFF7E57C2)),
+                        onTap: () {
+                          if (_mapController.isTracking) {
+                            _mapController.pauseTracking();
+                          } else if (_mapController.isTrackingPaused) {
+                            _mapController.resumeTracking();
+                          } else {
+                            _mapController.startTracking();
+                            _showSnackBar('GPS tracking started — walk to record path');
+                          }
+                        },
+                      ),
+                      if (_mapController.isTracking || _mapController.isTrackingPaused) ...[
+                        const SizedBox(height: 6),
+                        _MapFab(
+                          icon: Icons.stop_circle_rounded,
+                          tooltip: 'Stop Track',
+                          color: AppTheme.errorColor,
+                          onTap: () {
+                            final shape = _mapController.stopTracking();
+                            if (shape != null) {
+                              _showSnackBar('Tracking saved: ${shape.name}');
+                            } else {
+                              _showSnackBar('Tracking stopped (no movement recorded)', isError: true);
+                            }
+                          },
+                        ),
+                      ],
+                      const SizedBox(height: 6),
+                      _MapFab(
+                        icon: Icons.upload_file_rounded,
+                        tooltip: 'Import KML / GeoJSON',
+                        color: const Color(0xFF26A69A),
+                        onTap: _importKmlFile,
+                      ),
+                      const SizedBox(height: 6),
+                      _MapFab(
+                        icon: Icons.map_rounded,
+                        tooltip: 'Map/Image → Geo KMZ',
+                        color: const Color(0xFFFF7043),
+                        onTap: _importPdfMap,
+                      ),
+                      const SizedBox(height: 6),
+                      _MapFab(
+                        icon: Icons.pin_drop_rounded,
+                        tooltip: 'Enter Coordinates Manually',
+                        color: const Color(0xFFEF5350),
+                        onTap: _showManualCoordinateEntry,
+                      ),
+                      const SizedBox(height: 6),
+                      _MapFab(
+                        icon: Icons.mic_rounded,
+                        tooltip: 'Duty Diary & Voice Assistant',
+                        color: Colors.orangeAccent,
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (context) => const DutyDiaryScreen()),
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 6),
+                      _MapFab(
+                        icon: Icons.calculate_rounded,
+                        tooltip: 'Quarter Girth Calc',
+                        color: const Color(0xFFAB47BC),
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (context) => const CbmScreen()),
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 6),
+                      _MapFab(
+                        icon: Icons.menu_book_rounded,
+                        tooltip: 'Reference Library (Forest Acts)',
+                        color: const Color(0xFF6D4C41),
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (context) => const ReferenceLibraryScreen()),
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 6),
+                      _MapFab(
+                        icon: Icons.straighten_rounded,
+                        tooltip: 'AR Measure',
+                        color: const Color(0xFF00ACC1),
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (context) => const ArMeasureScreen()),
+                          );
+                        },
+                      ),
                     ],
-                    const SizedBox(height: 6),
-                    // Quick Import KML
-                    _MapFab(
-                      icon: Icons.upload_file_rounded,
-                      tooltip: 'Import KML / GeoJSON',
-                      color: const Color(0xFF26A69A), // tactical teal
-                      onTap: _importKmlFile,
-                    ),
-                    const SizedBox(height: 6),
-                    // PDF to Geo-Referenced KMZ
-                    _MapFab(
-                      icon: Icons.map_rounded,
-                      tooltip: 'Map/Image → Geo KMZ',
-                      color: const Color(0xFFFF7043), // deep orange
-                      onTap: _importPdfMap,
-                    ),
-                    const SizedBox(height: 6),
-                    // Manual lat/lng entry
-                    _MapFab(
-                      icon: Icons.pin_drop_rounded,
-                      tooltip: 'Enter Coordinates Manually',
-                      color: const Color(0xFFEF5350), // tactical red
-                      onTap: _showManualCoordinateEntry,
-                    ),
-                    const SizedBox(height: 6),
-                    
-                    // Duty Diary & Voice Assistant
-                    _MapFab(
-                      icon: Icons.mic_rounded,
-                      tooltip: "Duty Diary & Voice Assistant",
-                      color: Colors.orangeAccent,
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (context) => const DutyDiaryScreen()),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 6),
-                    
-                    // Forestry Calculator
-                    _MapFab(
-                      icon: Icons.calculate_rounded,
-                      tooltip: 'Quarter Girth Calc',
-                      color: const Color(0xFFAB47BC), // tactical purple
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (context) => const CbmScreen()),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 6),
-                    
-                    // Reference Library
-                    _MapFab(
-                      icon: Icons.menu_book_rounded,
-                      tooltip: 'Reference Library (Forest Acts)',
-                      color: const Color(0xFF6D4C41), // brown
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (context) => const ReferenceLibraryScreen()),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 6),
-
-                    // AR Measure Tool
-                    _MapFab(
-                      icon: Icons.straighten_rounded,
-                      tooltip: 'AR Measure',
-                      color: const Color(0xFF00ACC1), // Cyan
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (context) => const ArMeasureScreen()),
-                        );
-                      },
-                    ),
                   ],
                 ),
                 ),
