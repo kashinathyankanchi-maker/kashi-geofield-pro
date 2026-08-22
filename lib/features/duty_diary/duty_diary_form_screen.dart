@@ -26,7 +26,8 @@ class _DutyDiaryFormScreenState extends State<DutyDiaryFormScreen> {
 
   stt.SpeechToText _speech = stt.SpeechToText();
   bool _isListening = false;
-  String _activeField = '';
+  String? _activeField;
+
 
   @override
   void initState() {
@@ -140,6 +141,7 @@ class _DutyDiaryFormScreenState extends State<DutyDiaryFormScreen> {
       onResult: (val) {
         // Only update while THIS session is still the active one
         if (!_isListening || _activeField != field) return;
+
         if (mounted) {
           setState(() {
             if (field == 'locations') {
@@ -321,6 +323,7 @@ class _DutyDiaryFormScreenState extends State<DutyDiaryFormScreen> {
     required int maxLines,
   }) {
     bool isActive = _isListening && _activeField == fieldKey;
+
     return TextFormField(
       controller: controller,
       maxLines: maxLines,
