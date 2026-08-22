@@ -944,13 +944,14 @@ class _Terrain3dScreenState extends State<Terrain3dScreen> {
                               ],
                             ),
                           ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  ),
-            ),
-          ),
+                        ],    // inner Row children
+                      ),      // inner Row
+                    ),        // Expanded Container
+                  ),          // Expanded
+                ],            // outer Row children
+              ),              // outer Row
+            ),                // Padding
+          ),                  // SafeArea
 
           // ── 4. Right Control Bar ────────────────────────────────────────
           Positioned(
