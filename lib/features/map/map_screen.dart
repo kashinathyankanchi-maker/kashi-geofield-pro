@@ -2185,7 +2185,7 @@ $wpPlacemarks
               // ── Right: Map controls ──────────────────────────────────────────
               Positioned(
                 right: 10,
-                top: 105,
+                top: 125,
                 bottom: 72,
                 child: SingleChildScrollView(
                   physics: const BouncingScrollPhysics(),
@@ -2456,30 +2456,31 @@ $wpPlacemarks
               // ── Compass Rose ──────────────────────────────────────────────────
               if (_compassEnabled && _showCompassOnMap)
                 Positioned(
-                  top: 100,
-                  right: 60,
+                  top: 125,
+                  right: 75,
                   child: _CompassRose(heading: _currentHeading),
                 ),
 
               // ── Heading info box ──────────────────────────────────────────────
               if (_compassEnabled && _showCurrentHeading)
                 Positioned(
-                  top: 220,
-                  right: 58,
+                  top: 178,
+                  right: 75,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
                       color: Colors.black.withOpacity(0.72),
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(color: Colors.white24),
                     ),
                     child: Column(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
                           '${_currentHeading.toStringAsFixed(1)}°',
                           style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 14,
+                            fontSize: 12,
                             fontWeight: FontWeight.bold,
                             fontFamily: 'monospace',
                           ),
@@ -2488,7 +2489,7 @@ $wpPlacemarks
                           _headingToCardinal(_currentHeading),
                           style: const TextStyle(
                             color: Color(0xFF00BFA5),
-                            fontSize: 11,
+                            fontSize: 10,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -4751,8 +4752,8 @@ class _CompassRose extends StatelessWidget {
     return Transform.rotate(
       angle: -(heading * (3.14159265 / 180)),
       child: Container(
-        width: 80,
-        height: 80,
+        width: 48,
+        height: 48,
         decoration: BoxDecoration(
           color: Colors.black.withOpacity(0.65),
           shape: BoxShape.circle,
