@@ -6,8 +6,11 @@ import 'features/splash/splash_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // ── Full screen: hide status bar (time/battery/network) ──────────────────
-  SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+  // ── Enable status bar (time/battery/network) over black bar ──────────────
+  SystemChrome.setEnabledSystemUIMode(
+    SystemUiMode.manual,
+    overlays: [SystemUiOverlay.top, SystemUiOverlay.bottom],
+  );
 
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
@@ -16,7 +19,7 @@ void main() async {
   ]);
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
+      statusBarColor: Colors.black,
       statusBarIconBrightness: Brightness.light,
     ),
   );

@@ -2036,10 +2036,18 @@ $wpPlacemarks
                 ),
 
               // ── Top: Tactical status bar + Search row ─────────────────
-              SafeArea(
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    // Solid black bar covering status bar / notch area (prevents map from showing above top bar)
+                    Container(
+                      height: MediaQuery.of(context).padding.top,
+                      color: Colors.black,
+                    ),
                     // ── Tactical Status Header ──────────────────────────────
                     Container(
                       color: AppTheme.bgSecondary.withValues(alpha: 0.92),
