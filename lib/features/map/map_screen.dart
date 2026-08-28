@@ -161,30 +161,37 @@ class MapScreenState extends State<MapScreen> {
   }
 
   Future<void> _loadData() async {
-    final docDir = Directory(await StorageHelper.getAppStorageDirectory());
-    final db = DbHelper();
-    final villages = await db.getAllVillages();
-    final polygons = await db.getAllPolygons();
-    // Load saved KML files and show on map
-    final kmlFiles = await db.getAllKmlFiles();
-    final allShapes = <KmlShape>[];
-    for (final kf in kmlFiles) {
-      if (!kf.isVisible) continue;
+    try {
+      final docDir = Directory(await StorageHelper.getAppStorageDirectory());
+      final db = DbHelper();
+      final villages = await db.getAllVillages();
+      final polygons = await db.getAllPolygons();
+      // Load saved KML files and show on map
+      final kmlFiles = await db.getAllKmlFiles();
+      final allShapes = <KmlShape>[];
+      for (final kf in kmlFiles) {
+        if (!kf.isVisible) continue;
+        try {
+          final shapes = await KmlEngine.parseFile(kf.filepath, smartOpacity: kf.smartOpacity);
+          final coloredShapes = shapes
+              .map((s) => s.copyWith(color: kf.layerColor, opacity: kf.opacity))
+              .toList();
+          allShapes.addAll(coloredShapes);
+        } catch (_) {}
+      }
+      if (mounted) {
+        setState(() {
+          _appDocDir = docDir.path;
+          _villages = villages;
+          _savedPolygons = polygons;
+        });
+        _mapController.loadKmlShapes(allShapes);
+      }
+    } catch (_) {
       try {
-        final shapes = await KmlEngine.parseFile(kf.filepath, smartOpacity: kf.smartOpacity);
-        final coloredShapes = shapes
-            .map((s) => s.copyWith(color: kf.layerColor, opacity: kf.opacity))
-            .toList();
-        allShapes.addAll(coloredShapes);
+        final fallback = await getApplicationDocumentsDirectory();
+        if (mounted) setState(() => _appDocDir = fallback.path);
       } catch (_) {}
-    }
-    if (mounted) {
-      setState(() {
-        _appDocDir = docDir.path;
-        _villages = villages;
-        _savedPolygons = polygons;
-      });
-      _mapController.loadKmlShapes(allShapes);
     }
   }
 
@@ -1895,21 +1902,23 @@ $wpPlacemarks
                       ),
                     ),
                     children: [
-                      if (_appDocDir != null)
-                        fmap.TileLayer(
-                          urlTemplate: _mapController.mapStyle == 'Satellite'
-                              ? 'https://mt0.google.com/vt/lyrs=s&x={x}&y={y}&z={z}'
-                              : _mapController.mapStyle == 'Hybrid'
-                                  ? 'https://mt0.google.com/vt/lyrs=y&x={x}&y={y}&z={z}'
-                                  : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                          userAgentPackageName: 'com.kashi.kashi_geofield_pro',
-                          maxZoom: 20,
-                          maxNativeZoom: 20,
-                          tileProvider: OfflineTileProvider(
-                            baseDir: _appDocDir!,
-                            isSatellite: _mapController.mapStyle == 'Satellite' || _mapController.mapStyle == 'Hybrid',
-                          ),
-                        ),
+                      fmap.TileLayer(
+                        urlTemplate: _mapController.mapStyle == 'Satellite'
+                            ? 'https://mt0.google.com/vt/lyrs=s&x={x}&y={y}&z={z}'
+                            : _mapController.mapStyle == 'Hybrid'
+                                ? 'https://mt0.google.com/vt/lyrs=y&x={x}&y={y}&z={z}'
+                                : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                        userAgentPackageName: 'com.kashi.kashi_geofield_pro',
+                        maxZoom: 20,
+                        maxNativeZoom: 20,
+                        tileProvider: _appDocDir != null
+                            ? OfflineTileProvider(
+                                baseDir: _appDocDir!,
+                                isSatellite: _mapController.mapStyle == 'Satellite' ||
+                                    _mapController.mapStyle == 'Hybrid',
+                              )
+                            : fmap.NetworkTileProvider(),
+                      ),
                       // Geo-referenced PDF overlay images
                       if (_geoRefImages.isNotEmpty)
                         fmap.OverlayImageLayer(
