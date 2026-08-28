@@ -5,6 +5,7 @@ import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../shared/theme.dart';
 import '../../core/database/db_helper.dart';
+import '../../core/utils/backup_helper.dart';
 
 // ---------------------------------------------------------------------------
 // Constants – SharedPreferences keys
@@ -150,6 +151,57 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
     setState(() => _polygonColor = temp);
     await _saveSetting(_Keys.polygonColor, temp.value);
+  }
+
+  Future<void> _exportBackup() async {
+    setState(() => _saving = true);
+    try {
+      final result = await BackupHelper.exportAllData(context);
+      if (!mounted) return;
+      _showResultDialog(
+        title: result.success ? '✅ Backup Exported!' : '❌ Export Failed',
+        message: result.message,
+        success: result.success,
+      );
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _importBackup() async {
+    setState(() => _saving = true);
+    try {
+      final result = await BackupHelper.importData(context);
+      if (!mounted) return;
+      if (!result.cancelled) {
+        _showResultDialog(
+          title: result.success ? '✅ Restore Complete!' : '❌ Restore Failed',
+          message: result.message,
+          success: result.success,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  void _showResultDialog({required String title, required String message, required bool success}) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: success ? AppTheme.primaryColor : AppTheme.errorColor,
+            ),
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('OK', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _exportAllPolygonsAsKml() async {
@@ -329,6 +381,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   _buildOcrSection(),
                   const SizedBox(height: 24),
                   _buildDataManagementSection(),
+                const SizedBox(height: 16),
+                _buildBackupSection(),
                 const SizedBox(height: 16),
                 _buildAppInfoSection(),
                 const SizedBox(height: 32),
@@ -693,7 +747,66 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   // ---------------------------------------------------------------------------
-  // Section 5 – App Info
+  // Section 5 – Data Backup & Transfer
+  // ---------------------------------------------------------------------------
+
+  Widget _buildBackupSection() {
+    return _SettingsCard(
+      title: 'Data Backup & Transfer',
+      icon: Icons.sync_alt_rounded,
+      children: [
+        // Info banner
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1565C0).withOpacity(0.12),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: const Color(0xFF1565C0).withOpacity(0.4)),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(Icons.info_outline_rounded, color: Color(0xFF1565C0), size: 18),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Transfer ALL your data (polygons, village maps, KML files, duty diary, settings) '
+                  'to another phone in one tap. Share the backup file via WhatsApp, Bluetooth, '
+                  'Google Drive or Nearby Share.',
+                  style: AppTheme.bodySmall.copyWith(height: 1.5),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // Export button
+        _ActionTile(
+          icon: Icons.backup_rounded,
+          iconColor: const Color(0xFF2E7D32),
+          label: 'Export All App Data (Backup)',
+          subtitle: 'Creates a .kgfp backup file with all your data',
+          onTap: _saving ? null : _exportBackup,
+          isLoading: _saving,
+        ),
+        const Divider(height: 20),
+
+        // Import button
+        _ActionTile(
+          icon: Icons.restore_rounded,
+          iconColor: const Color(0xFF1565C0),
+          label: 'Import / Restore App Data',
+          subtitle: 'Restore data from a .kgfp backup file on this device',
+          onTap: _saving ? null : _importBackup,
+          isLoading: _saving,
+        ),
+      ],
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Section 6 – App Info
   // ---------------------------------------------------------------------------
 
   Widget _buildAppInfoSection() {
