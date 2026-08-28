@@ -53,13 +53,48 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
-            <!-- File provider for sharing -->
+            <!-- ── Intent Filters for Opening KML, KMZ, GeoJSON & KGFP Backup Files ── -->
             <intent-filter>
-                <action android:name="android.intent.action.VIEW"/>
-                <category android:name="android.intent.category.DEFAULT"/>
-                <data android:scheme="file"/>
-                <data android:mimeType="application/vnd.google-earth.kml+xml"/>
-                <data android:mimeType="application/vnd.google-earth.kmz"/>
+                <action android:name="android.intent.action.VIEW" />
+                <action android:name="android.intent.action.EDIT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+
+                <!-- Extensions -->
+                <data android:pathPattern=".*\\.kml" />
+                <data android:pathPattern=".*\\..*\\.kml" />
+                <data android:pathPattern=".*\\..*\\..*\\.kml" />
+
+                <data android:pathPattern=".*\\.kmz" />
+                <data android:pathPattern=".*\\..*\\.kmz" />
+                <data android:pathPattern=".*\\..*\\..*\\.kmz" />
+
+                <data android:pathPattern=".*\\.geojson" />
+                <data android:pathPattern=".*\\..*\\.geojson" />
+
+                <data android:pathPattern=".*\\.kgfp" />
+                <data android:pathPattern=".*\\..*\\.kgfp" />
+            </intent-filter>
+
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <action android:name="android.intent.action.EDIT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+
+                <data android:mimeType="application/vnd.google-earth.kml+xml" />
+                <data android:mimeType="application/vnd.google-earth.kmz" />
+                <data android:mimeType="application/kml+xml" />
+                <data android:mimeType="application/kmz" />
+                <data android:mimeType="application/geo+json" />
+                <data android:mimeType="application/json" />
+                <data android:mimeType="application/octet-stream" />
             </intent-filter>
         </activity>
 
