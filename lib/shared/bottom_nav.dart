@@ -1,4 +1,14 @@
+import 'dart:async';
+import 'dart:io';
+import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+import 'package:uri_to_file/uri_to_file.dart';
+import '../core/models/kml_file_model.dart';
+import '../core/database/db_helper.dart';
+import '../core/utils/backup_helper.dart';
+import '../core/utils/kml_engine.dart';
 import '../features/map/map_screen.dart';
 import '../features/villages/villages_screen.dart';
 import '../features/kml/kml_screen.dart';
@@ -17,6 +27,9 @@ class _MainScaffoldState extends State<MainScaffold> {
   int _currentIndex = 0;
   int _previousIndex = 0;
   final GlobalKey<MapScreenState> _mapKey = GlobalKey<MapScreenState>();
+  
+  late AppLinks _appLinks;
+  StreamSubscription<Uri>? _linkSubscription;
 
   List<Widget> get _screens => [
     MapScreen(key: _mapKey),
@@ -25,6 +38,116 @@ class _MainScaffoldState extends State<MainScaffold> {
     const OfflineMapsScreen(),
     const SettingsScreen(),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _initAppLinks();
+  }
+
+  @override
+  void dispose() {
+    _linkSubscription?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _initAppLinks() async {
+    _appLinks = AppLinks();
+    
+    // Check initial link if app was closed
+    try {
+      final initialUri = await _appLinks.getInitialLink();
+      if (initialUri != null) {
+        _handleIncomingUri(initialUri);
+      }
+    } catch (e) {
+      debugPrint("Failed to get initial link: $e");
+    }
+
+    // Handle link when app is in background/foreground
+    _linkSubscription = _appLinks.uriLinkStream.listen((uri) {
+      _handleIncomingUri(uri);
+    }, onError: (err) {
+      debugPrint("AppLinks error: $err");
+    });
+  }
+
+  Future<void> _handleIncomingUri(Uri uri) async {
+    try {
+      // Convert content:// or file:// URI to standard File
+      File file = await toFile(uri.toString());
+      
+      final ext = p.extension(file.path).toLowerCase();
+      
+      if (ext == '.kgfp') {
+        // Handle backup restore
+        if (mounted) {
+          final result = await BackupHelper.importData(context, externalFile: file);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(result.message),
+              backgroundColor: result.success ? AppTheme.greenPrimary : AppTheme.warningColor,
+            ),
+          );
+        }
+      } else if (ext == '.kml' || ext == '.kmz' || ext == '.geojson') {
+        // Handle Map Data Import
+        final appDocDir = await getApplicationDocumentsDirectory();
+        final importsDir = Directory('${appDocDir.path}/kml_imports');
+        if (!await importsDir.exists()) {
+          await importsDir.create(recursive: true);
+        }
+        
+        final fileName = p.basename(file.path);
+        final newFile = await file.copy('${importsDir.path}/$fileName');
+        
+        final db = DbHelper();
+        final kmlModel = KmlFileModel(
+          filepath: newFile.path,
+          filename: fileName,
+          layerColor: '#2EA043',
+          createdAt: DateTime.now().toIso8601String(),
+        );
+        await db.insertKmlFile(kmlModel);
+        
+        // Switch to Map Screen
+        if (_currentIndex != 0 && mounted) {
+          setState(() {
+            _previousIndex = _currentIndex;
+            _currentIndex = 0;
+          });
+        }
+        
+        // Parse and center Map
+        final shapes = await KmlEngine.parseFile(newFile.path, smartOpacity: kmlModel.smartOpacity);
+        if (mounted && shapes.isNotEmpty) {
+          final coloredShapes = shapes
+              .map((s) => s.copyWith(color: kmlModel.layerColor, opacity: kmlModel.opacity))
+              .toList();
+          
+          await _mapKey.currentState?.reloadKmlLayers();
+          _mapKey.currentState?.centerMapOnShapes(coloredShapes);
+          
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Successfully imported and opened $fileName'),
+              backgroundColor: AppTheme.greenPrimary,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint("Error handling incoming file: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error opening file: $e'),
+            backgroundColor: AppTheme.warningColor,
+          ),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {

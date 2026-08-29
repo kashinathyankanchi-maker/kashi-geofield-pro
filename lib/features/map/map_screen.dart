@@ -131,6 +131,36 @@ class MapScreenState extends State<MapScreen> {
     } catch (_) {}
   }
 
+  /// Centers the map on the given KML shapes.
+  void centerMapOnShapes(List<KmlShape> shapes) {
+    if (shapes.isEmpty || !mounted) return;
+    try {
+      double minLat = 90.0, maxLat = -90.0;
+      double minLng = 180.0, maxLng = -180.0;
+      bool hasPoints = false;
+      
+      for (final shape in shapes) {
+        for (final pt in shape.coordinates) {
+          final lat = pt['lat']!;
+          final lng = pt['lng']!;
+          if (lat < minLat) minLat = lat;
+          if (lat > maxLat) maxLat = lat;
+          if (lng < minLng) minLng = lng;
+          if (lng > maxLng) maxLng = lng;
+          hasPoints = true;
+        }
+      }
+      
+      if (hasPoints) {
+        final bounds = fmap.LatLngBounds(LatLng(minLat, minLng), LatLng(maxLat, maxLng));
+        _flutterMapController.fitBounds(
+          bounds,
+          options: const fmap.FitBoundsOptions(padding: EdgeInsets.all(40.0)),
+        );
+      }
+    } catch (_) {}
+  }
+
   /// Start continuous GPS position stream for the blue dot + live tracking
   void _startLocationStream() async {
     try {

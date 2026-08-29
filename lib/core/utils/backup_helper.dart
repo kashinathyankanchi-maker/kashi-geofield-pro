@@ -131,21 +131,27 @@ class BackupHelper {
 
   // ─── IMPORT ────────────────────────────────────────────────────────────────
 
-  /// Picks a `.kgfp` file, parses it, and restores all data.
-  static Future<BackupResult> importData(BuildContext context) async {
+  /// Picks a `.kgfp` file (or uses the provided [externalFile]), parses it, and restores all data.
+  static Future<BackupResult> importData(BuildContext context, {File? externalFile}) async {
     try {
-      // 1. Let user pick backup file
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.any,
-        allowMultiple: false,
-        dialogTitle: 'Select Kashi GeoField Backup (.kgfp)',
-      );
+      String? pickedPath;
 
-      if (result == null || result.files.isEmpty) {
-        return BackupResult.cancelled('Import cancelled.');
+      if (externalFile != null) {
+        pickedPath = externalFile.path;
+      } else {
+        // 1. Let user pick backup file
+        final result = await FilePicker.platform.pickFiles(
+          type: FileType.any,
+          allowMultiple: false,
+          dialogTitle: 'Select Kashi GeoField Backup (.kgfp)',
+        );
+
+        if (result == null || result.files.isEmpty) {
+          return BackupResult.cancelled('Import cancelled.');
+        }
+        pickedPath = result.files.first.path;
       }
 
-      final pickedPath = result.files.first.path;
       if (pickedPath == null) {
         return BackupResult.error('Could not read backup file path.');
       }
