@@ -306,7 +306,10 @@ class MapScreenState extends State<MapScreen> {
   }
 
   void _onMapTap(fmap.TapPosition tapPos, LatLng latLng) {
-    if (_mapController.drawMode != DrawMode.none) {
+    if (_mapController.drawMode == DrawMode.marker) {
+      // Show rich mark location dialog before placing marker
+      _showMarkLocationDialog(latLng);
+    } else if (_mapController.drawMode != DrawMode.none) {
       _mapController.addPoint(latLng);
       if (!_showWaypointPanel && _mapController.drawMode == DrawMode.polygon) {
         setState(() => _showWaypointPanel = true);
@@ -317,7 +320,369 @@ class MapScreenState extends State<MapScreen> {
     }
   }
 
-  /// Long-press on map → collect coordinates at that point
+  // ── Mark Location Dialog ──────────────────────────────────────────────────
+
+  Future<void> _showMarkLocationDialog(LatLng latLng) async {
+    // Category definitions: emoji, name, color
+    final categories = [
+      {'emoji': '🌳', 'name': 'Tree', 'color': const Color(0xFF43A047)},
+      {'emoji': '🐘', 'name': 'Wildlife', 'color': const Color(0xFF795548)},
+      {'emoji': '🔥', 'name': 'Fire', 'color': const Color(0xFFE53935)},
+      {'emoji': '🚨', 'name': 'Illegal activity', 'color': const Color(0xFFD81B60)},
+      {'emoji': '💧', 'name': 'Water source', 'color': const Color(0xFF1E88E5)},
+      {'emoji': '🛤️', 'name': 'Road/track', 'color': const Color(0xFF757575)},
+      {'emoji': '⛺', 'name': 'Camp', 'color': const Color(0xFFFF8F00)},
+      {'emoji': '⚠️', 'name': 'Danger', 'color': const Color(0xFFFDD835)},
+      {'emoji': '📍', 'name': 'Other', 'color': const Color(0xFF2EA043)},
+    ];
+
+    String? selectedCategory;
+    String customName = '';
+    String description = '';
+    String? photoPath;
+    String? voiceNotePath;
+    String officerName = '';
+    String gpsAccuracy = '';
+    String altitude = '';
+    DateTime markerTime = DateTime.now();
+
+    // Fetch GPS accuracy and altitude if available
+    try {
+      final pos = await Geolocator.getLastKnownPosition();
+      if (pos != null) {
+        gpsAccuracy = '${pos.accuracy.toStringAsFixed(1)} m';
+        altitude = '${pos.altitude.toStringAsFixed(1)} m';
+      }
+    } catch (_) {}
+
+    final nameCtrl = TextEditingController();
+    final descCtrl = TextEditingController();
+    final officerCtrl = TextEditingController();
+    final picker = ImagePicker();
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) {
+          return Container(
+            height: MediaQuery.of(ctx).size.height * 0.92,
+            decoration: const BoxDecoration(
+              color: Color(0xFF1A1A2E),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: Column(
+              children: [
+                // Handle bar
+                Container(
+                  margin: const EdgeInsets.symmetric(vertical: 10),
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                // Header
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  child: Row(
+                    children: [
+                      const Text('📍', style: TextStyle(fontSize: 22)),
+                      const SizedBox(width: 10),
+                      const Text(
+                        'Mark Location',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const Spacer(),
+                      IconButton(
+                        icon: const Icon(Icons.close, color: Colors.white54),
+                        onPressed: () => Navigator.pop(ctx),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(color: Colors.white12),
+                // Content
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Custom Name
+                        _mlLabel('🏷️', 'Name'),
+                        const SizedBox(height: 6),
+                        _mlTextField(nameCtrl, 'Custom name (optional)', onChanged: (v) => customName = v),
+                        const SizedBox(height: 18),
+                        // Category selection
+                        _mlLabel('📁', 'Category'),
+                        const SizedBox(height: 10),
+                        ...categories.map((cat) {
+                          final isSelected = selectedCategory == cat['name'];
+                          return Column(
+                            children: [
+                              // Category tile
+                              GestureDetector(
+                                onTap: () => setLocal(() {
+                                  selectedCategory = isSelected ? null : cat['name'] as String;
+                                }),
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 200),
+                                  margin: const EdgeInsets.only(bottom: 6),
+                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                  decoration: BoxDecoration(
+                                    color: isSelected
+                                        ? (cat['color'] as Color).withValues(alpha: 0.18)
+                                        : Colors.white.withValues(alpha: 0.05),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: isSelected
+                                          ? (cat['color'] as Color)
+                                          : Colors.white.withValues(alpha: 0.1),
+                                      width: isSelected ? 2 : 1,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Text(cat['emoji'] as String, style: const TextStyle(fontSize: 22)),
+                                      const SizedBox(width: 14),
+                                      Expanded(
+                                        child: Text(
+                                          cat['name'] as String,
+                                          style: TextStyle(
+                                            color: isSelected
+                                                ? (cat['color'] as Color)
+                                                : Colors.white,
+                                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                            fontSize: 15,
+                                          ),
+                                        ),
+                                      ),
+                                      Icon(
+                                        isSelected ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+                                        color: isSelected ? (cat['color'] as Color) : Colors.white38,
+                                        size: 20,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              // Sub-options (expanded when category selected)
+                              if (isSelected)
+                                AnimatedContainer(
+                                  duration: const Duration(milliseconds: 250),
+                                  margin: const EdgeInsets.only(left: 16, bottom: 12),
+                                  padding: const EdgeInsets.all(14),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black26,
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(color: (cat['color'] as Color).withValues(alpha: 0.3)),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      // Take Photo
+                                      _mlSubOption(
+                                        '📷', 'Take Photo',
+                                        trailing: photoPath != null
+                                            ? Row(mainAxisSize: MainAxisSize.min, children: [
+                                                const Icon(Icons.check_circle, color: Color(0xFF43A047), size: 16),
+                                                const SizedBox(width: 4),
+                                                const Text('1 photo', style: TextStyle(color: Color(0xFF43A047), fontSize: 12)),
+                                              ])
+                                            : null,
+                                        onTap: () async {
+                                          final img = await picker.pickImage(source: ImageSource.camera, imageQuality: 85);
+                                          if (img != null) setLocal(() => photoPath = img.path);
+                                        },
+                                      ),
+                                      const SizedBox(height: 8),
+                                      // Voice Note
+                                      _mlSubOption(
+                                        '🎙️', 'Voice Note',
+                                        trailing: voiceNotePath != null
+                                            ? const Icon(Icons.mic, color: Color(0xFF43A047), size: 16)
+                                            : null,
+                                        onTap: () {
+                                          // placeholder – hook to speech_to_text if needed
+                                          setLocal(() => voiceNotePath = 'voice_recorded');
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            const SnackBar(content: Text('Voice note recorded (placeholder)')),
+                                          );
+                                        },
+                                      ),
+                                      const SizedBox(height: 8),
+                                      // Description
+                                      _mlSubOption('📝', 'Description', showField: true,
+                                        fieldChild: _mlTextField(descCtrl, 'Enter description...', onChanged: (v) => description = v, maxLines: 2),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      // GPS Accuracy
+                                      _mlInfoRow('📐', 'GPS Accuracy', gpsAccuracy.isEmpty ? 'Fetching...' : gpsAccuracy),
+                                      const SizedBox(height: 6),
+                                      // Altitude
+                                      _mlInfoRow('🧭', 'Altitude', altitude.isEmpty ? 'Fetching...' : altitude),
+                                      const SizedBox(height: 6),
+                                      // Date & Time
+                                      _mlInfoRow('🕐', 'Date & Time',
+                                        '${markerTime.day}/${markerTime.month}/${markerTime.year}  '
+                                        '${markerTime.hour.toString().padLeft(2, '0')}:${markerTime.minute.toString().padLeft(2, '0')}'),
+                                      const SizedBox(height: 8),
+                                      // Officer Name
+                                      _mlSubOption('👤', 'Officer/Beat Name', showField: true,
+                                        fieldChild: _mlTextField(officerCtrl, 'Officer or Beat name (optional)', onChanged: (v) => officerName = v),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                            ],
+                          );
+                        }).toList(),
+                        const SizedBox(height: 80),
+                      ],
+                    ),
+                  ),
+                ),
+                const Divider(color: Colors.white12),
+                // Save button
+                Padding(
+                  padding: EdgeInsets.only(
+                    left: 18, right: 18, bottom: MediaQuery.of(ctx).viewInsets.bottom + 18, top: 12),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: () => Navigator.pop(ctx),
+                      icon: const Icon(Icons.check_circle_outline_rounded, size: 20),
+                      label: const Text('Save Marker', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF43A047),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+
+    // Build metadata map and place marker
+    final meta = <String, String>{
+      'name': nameCtrl.text.trim(),
+      if (selectedCategory != null) 'category': selectedCategory!,
+      if (descCtrl.text.isNotEmpty) 'description': descCtrl.text.trim(),
+      if (photoPath != null) 'photoPath': photoPath!,
+      if (voiceNotePath != null) 'voiceNotePath': voiceNotePath!,
+      if (officerCtrl.text.isNotEmpty) 'officerName': officerCtrl.text.trim(),
+      if (gpsAccuracy.isNotEmpty) 'gpsAccuracy': gpsAccuracy,
+      if (altitude.isNotEmpty) 'altitude': altitude,
+    };
+
+    if (mounted) {
+      // Re-enter marker draw mode temporarily to call addPoint properly
+      _mapController.setDrawMode(DrawMode.marker);
+      _mapController.addPoint(latLng, markerMeta: meta);
+      setState(() {});
+    }
+  }
+
+
+  // ── Mark Location Dialog helper widgets ───────────────────────────────────
+
+  Widget _mlLabel(String emoji, String text) => Row(
+    children: [
+      Text(emoji, style: const TextStyle(fontSize: 18)),
+      const SizedBox(width: 8),
+      Text(text,
+        style: const TextStyle(color: Colors.white70, fontSize: 13,
+          fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+    ],
+  );
+
+  Widget _mlTextField(
+    TextEditingController ctrl,
+    String hint, {
+    ValueChanged<String>? onChanged,
+    int maxLines = 1,
+  }) =>
+    TextField(
+      controller: ctrl,
+      maxLines: maxLines,
+      style: const TextStyle(color: Colors.white, fontSize: 14),
+      onChanged: onChanged,
+      decoration: InputDecoration(
+        hintText: hint,
+        hintStyle: const TextStyle(color: Colors.white38),
+        filled: true,
+        fillColor: Colors.white.withValues(alpha: 0.07),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: Colors.white12),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: Colors.white12),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: Color(0xFF43A047), width: 1.5),
+        ),
+      ),
+    );
+
+  Widget _mlSubOption(String emoji, String label,
+      {VoidCallback? onTap, Widget? trailing, bool showField = false, Widget? fieldChild}) =>
+    Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        GestureDetector(
+          onTap: onTap,
+          child: Row(
+            children: [
+              Text(emoji, style: const TextStyle(fontSize: 18)),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(label,
+                  style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
+              ),
+              if (trailing != null) trailing,
+              if (onTap != null && !showField)
+                const Icon(Icons.chevron_right, color: Colors.white38, size: 18),
+            ],
+          ),
+        ),
+        if (showField && fieldChild != null) ...[
+          const SizedBox(height: 6),
+          fieldChild,
+        ],
+      ],
+    );
+
+  Widget _mlInfoRow(String emoji, String label, String value) => Row(
+    children: [
+      Text(emoji, style: const TextStyle(fontSize: 16)),
+      const SizedBox(width: 10),
+      Expanded(
+        child: Text(label,
+          style: const TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600)),
+      ),
+      Text(value,
+        style: const TextStyle(color: Color(0xFF43A047), fontSize: 12, fontWeight: FontWeight.bold)),
+    ],
+  );
+
+
   void _onMapLongPress(fmap.TapPosition tapPos, LatLng latLng) {
     setState(() => _tappedPosition = latLng);
     // Show a snackbar with copy option

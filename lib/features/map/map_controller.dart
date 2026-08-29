@@ -23,6 +23,15 @@ class DrawnShape {
   // DB row id for persistence
   int? dbId;
 
+  // Marker-specific metadata
+  String? description;
+  String? category;
+  String? photoPath;
+  String? voiceNotePath;
+  String? officerName;
+  String? gpsAccuracy;
+  String? altitude;
+
   DrawnShape({
     required this.id,
     required this.name,
@@ -32,6 +41,13 @@ class DrawnShape {
     this.areaHectares = 0,
     this.perimeterMeters = 0,
     this.dbId,
+    this.description,
+    this.category,
+    this.photoPath,
+    this.voiceNotePath,
+    this.officerName,
+    this.gpsAccuracy,
+    this.altitude,
   });
 }
 
@@ -110,14 +126,14 @@ class MapController extends ChangeNotifier {
     }
   }
 
-  void addPoint(LatLng point) {
+  void addPoint(LatLng point, {Map<String, String>? markerMeta}) {
     if (_drawMode == DrawMode.none) return;
     _undoStack.add(List.from(_currentPoints));
     _redoStack.clear();
     _currentPoints.add(point);
 
     if (_drawMode == DrawMode.marker) {
-      _finalizeMarker(point);
+      _finalizeMarker(point, meta: markerMeta);
     } else {
       notifyListeners();
     }
@@ -184,12 +200,23 @@ class MapController extends ChangeNotifier {
     _autoSaveShape(shape);
   }
 
-  void _finalizeMarker(LatLng point) {
+  void _finalizeMarker(LatLng point, {Map<String, String>? meta}) {
+    final name = meta?['name']?.isNotEmpty == true
+        ? meta!['name']!
+        : '${meta?['category'] ?? 'Marker'} ${_drawnShapes.length + 1}';
     final shape = DrawnShape(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
-      name: 'Marker ${_drawnShapes.length + 1}',
+      name: name,
       type: DrawMode.marker,
       points: [point],
+      color: _markerCategoryColor(meta?['category']),
+      description: meta?['description'],
+      category: meta?['category'],
+      photoPath: meta?['photoPath'],
+      voiceNotePath: meta?['voiceNotePath'],
+      officerName: meta?['officerName'],
+      gpsAccuracy: meta?['gpsAccuracy'],
+      altitude: meta?['altitude'],
     );
     _drawnShapes.add(shape);
     _currentPoints.clear();
@@ -197,6 +224,20 @@ class MapController extends ChangeNotifier {
     setDrawMode(DrawMode.none);
     notifyListeners();
     _autoSaveShape(shape);
+  }
+
+  Color _markerCategoryColor(String? category) {
+    switch (category) {
+      case 'Tree': return const Color(0xFF43A047);
+      case 'Wildlife': return const Color(0xFF795548);
+      case 'Fire': return const Color(0xFFE53935);
+      case 'Illegal activity': return const Color(0xFFD81B60);
+      case 'Water source': return const Color(0xFF1E88E5);
+      case 'Road/track': return const Color(0xFF757575);
+      case 'Camp': return const Color(0xFFFF8F00);
+      case 'Danger': return const Color(0xFFFDD835);
+      default: return const Color(0xFF2EA043);
+    }
   }
 
   void finalizePath() {
