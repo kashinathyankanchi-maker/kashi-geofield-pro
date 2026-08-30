@@ -10,7 +10,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:printing/printing.dart';
 import '../../../core/utils/pdf_generator.dart';
 
-class ShapeDetailSheet extends StatelessWidget {
+class ShapeDetailSheet extends StatefulWidget {
   final DrawnShape shape;
   final MapController controller;
   final Future<Uint8List?> Function()? takeScreenshot;
@@ -23,6 +23,14 @@ class ShapeDetailSheet extends StatelessWidget {
   });
 
   @override
+  State<ShapeDetailSheet> createState() => _ShapeDetailSheetState();
+}
+
+class _ShapeDetailSheetState extends State<ShapeDetailSheet> {
+  DrawnShape get shape => widget.shape;
+  MapController get controller => widget.controller;
+
+  @override
   Widget build(BuildContext context) {
     return Container(
       decoration: const BoxDecoration(
@@ -31,7 +39,7 @@ class ShapeDetailSheet extends StatelessWidget {
         border: Border(top: BorderSide(color: AppTheme.borderColor)),
       ),
       child: Column(
-        mainAxisSize: MainAxisSize.min,
+        mainAxisSize: shape.type == DrawMode.marker ? MainAxisSize.max : MainAxisSize.min,
         children: [
           // Handle
           Center(
@@ -136,13 +144,92 @@ class ShapeDetailSheet extends StatelessWidget {
               ),
             ),
 
+          // ── Marker metadata panel ───────────────────────────────────
           if (shape.type == DrawMode.marker)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: _CoordCard(point: shape.points.first),
-            ),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Category badge
+                    if (shape.category != null) ...[  
+                      _MetaBadge(
+                        emoji: _categoryEmoji(shape.category!),
+                        label: shape.category!,
+                        color: _categoryColor(shape.category!),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
 
-          const SizedBox(height: 12),
+                    // Photo
+                    if (shape.photoPath != null && File(shape.photoPath!).existsSync()) ...[  
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: Image.file(
+                          File(shape.photoPath!),
+                          width: double.infinity,
+                          height: 200,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+
+                    // Description
+                    if (shape.description != null && shape.description!.isNotEmpty) ...[  
+                      _MetaInfoTile(
+                        emoji: '📝',
+                        label: 'Description',
+                        value: shape.description!,
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+
+                    // GPS Accuracy
+                    if (shape.gpsAccuracy != null && shape.gpsAccuracy!.isNotEmpty)
+                      _MetaInfoTile(
+                        emoji: '📐',
+                        label: 'GPS Accuracy',
+                        value: shape.gpsAccuracy!,
+                        valueColor: const Color(0xFF43A047),
+                      ),
+
+                    // Altitude
+                    if (shape.altitude != null && shape.altitude!.isNotEmpty)
+                      _MetaInfoTile(
+                        emoji: '🧭',
+                        label: 'Altitude',
+                        value: shape.altitude!,
+                        valueColor: const Color(0xFF43A047),
+                      ),
+
+                    // Coordinates
+                    _MetaInfoTile(
+                      emoji: '📍',
+                      label: 'Coordinates',
+                      value:
+                          'Lat: ${shape.points.first.latitude.toStringAsFixed(6)}\n'
+                          'Lng: ${shape.points.first.longitude.toStringAsFixed(6)}',
+                    ),
+
+                    // Officer name
+                    if (shape.officerName != null && shape.officerName!.isNotEmpty) ...[  
+                      const SizedBox(height: 4),
+                      _MetaInfoTile(
+                        emoji: '👤',
+                        label: 'Officer / Beat',
+                        value: shape.officerName!,
+                      ),
+                    ],
+
+                    const SizedBox(height: 4),
+                  ],
+                ),
+              ),
+            )
+          else
+            const SizedBox(height: 12),
 
           // Action buttons
           Padding(
@@ -222,6 +309,9 @@ class ShapeDetailSheet extends StatelessWidget {
   }
 
   String _typeLabel(DrawMode type) {
+    if (type == DrawMode.marker && shape.category != null) {
+      return shape.category!;
+    }
     switch (type) {
       case DrawMode.polygon:
         return 'Polygon';
@@ -232,6 +322,25 @@ class ShapeDetailSheet extends StatelessWidget {
       default:
         return 'Shape';
     }
+  }
+
+  String _categoryEmoji(String cat) {
+    const map = {
+      'Tree': '🌳', 'Wildlife': '🐘', 'Fire': '🔥',
+      'Illegal activity': '🚨', 'Water source': '💧',
+      'Road/track': '🛤️', 'Camp': '⛺', 'Danger': '⚠️', 'Other': '📍',
+    };
+    return map[cat] ?? '📍';
+  }
+
+  Color _categoryColor(String cat) {
+    const map = {
+      'Tree': Color(0xFF43A047), 'Wildlife': Color(0xFF795548),
+      'Fire': Color(0xFFE53935), 'Illegal activity': Color(0xFFD81B60),
+      'Water source': Color(0xFF1E88E5), 'Road/track': Color(0xFF757575),
+      'Camp': Color(0xFFFF8F00), 'Danger': Color(0xFFFDD835),
+    };
+    return map[cat] ?? const Color(0xFF2EA043);
   }
 
   void _showRenameDialog(BuildContext context) {
@@ -445,39 +554,7 @@ class _StatCard extends StatelessWidget {
   }
 }
 
-class _CoordCard extends StatelessWidget {
-  final dynamic point;
-  const _CoordCard({required this.point});
 
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppTheme.bgSurface,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppTheme.borderColor),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('Location',
-              style: TextStyle(color: AppTheme.textSecondary, fontSize: 11)),
-          const SizedBox(height: 4),
-          Text(
-            'Lat: ${point.latitude.toStringAsFixed(6)}',
-            style: const TextStyle(color: AppTheme.textPrimary, fontSize: 13),
-          ),
-          Text(
-            'Lng: ${point.longitude.toStringAsFixed(6)}',
-            style: const TextStyle(color: AppTheme.textPrimary, fontSize: 13),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 class _ActionChip extends StatelessWidget {
   final IconData icon;
@@ -512,6 +589,100 @@ class _ActionChip extends StatelessWidget {
             Text(label, style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w500)),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ── Marker metadata widgets ───────────────────────────────────────────────────
+
+class _MetaBadge extends StatelessWidget {
+  final String emoji;
+  final String label;
+  final Color color;
+  const _MetaBadge({required this.emoji, required this.label, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(30),
+        border: Border.all(color: color.withValues(alpha: 0.5)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(emoji, style: const TextStyle(fontSize: 20)),
+          const SizedBox(width: 8),
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontSize: 15,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MetaInfoTile extends StatelessWidget {
+  final String emoji;
+  final String label;
+  final String value;
+  final Color? valueColor;
+  const _MetaInfoTile({
+    required this.emoji,
+    required this.label,
+    required this.value,
+    this.valueColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppTheme.bgSurface,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppTheme.borderColor),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(emoji, style: const TextStyle(fontSize: 18)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                    color: AppTheme.textSecondary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.8,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  style: TextStyle(
+                    color: valueColor ?? AppTheme.textPrimary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
