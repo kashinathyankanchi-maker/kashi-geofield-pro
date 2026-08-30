@@ -19,6 +19,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:gal/gal.dart';
 import 'package:exif/exif.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+import 'package:record/record.dart';
 import '../../shared/theme.dart';
 import '../globe/terrain_3d_screen.dart';
 import 'historical_imagery_screen.dart';
@@ -504,16 +505,51 @@ class MapScreenState extends State<MapScreen> {
                                       ),
                                       const SizedBox(height: 8),
                                       // Voice Note
-                                      _mlSubOption(
-                                        '🎙️', 'Voice Note',
-                                        trailing: voiceNotePath != null
-                                            ? const Icon(Icons.mic, color: Color(0xFF43A047), size: 16)
-                                            : null,
-                                        onTap: () {
-                                          // placeholder – hook to speech_to_text if needed
-                                          setLocal(() => voiceNotePath = 'voice_recorded');
-                                          ScaffoldMessenger.of(context).showSnackBar(
-                                            const SnackBar(content: Text('Voice note recorded (placeholder)')),
+                                      StatefulBuilder(
+                                        builder: (ctx2, setVoice) {
+                                          bool isRecording = false;
+                                          AudioRecorder? recorder;
+                                          return _mlSubOption(
+                                            '🎙️',
+                                            isRecording ? 'Recording... tap to stop' : 'Voice Note',
+                                            trailing: voiceNotePath != null
+                                                ? Row(mainAxisSize: MainAxisSize.min, children: [
+                                                    const Icon(Icons.check_circle, color: Color(0xFF43A047), size: 16),
+                                                    const SizedBox(width: 4),
+                                                    Text(isRecording ? 'REC' : 'Recorded',
+                                                        style: const TextStyle(color: Color(0xFF43A047), fontSize: 12)),
+                                                  ])
+                                                : isRecording
+                                                    ? const Icon(Icons.stop_circle, color: Colors.red, size: 20)
+                                                    : null,
+                                            onTap: () async {
+                                              if (isRecording && recorder != null) {
+                                                // Stop recording
+                                                final path = await recorder!.stop();
+                                                recorder = null;
+                                                setLocal(() => voiceNotePath = path);
+                                                setVoice(() => isRecording = false);
+                                              } else {
+                                                // Start recording
+                                                recorder = AudioRecorder();
+                                                final hasPermission = await recorder!.hasPermission();
+                                                if (!hasPermission) {
+                                                  if (context.mounted) {
+                                                    ScaffoldMessenger.of(context).showSnackBar(
+                                                      const SnackBar(content: Text('Microphone permission denied')),
+                                                    );
+                                                  }
+                                                  return;
+                                                }
+                                                final dir = await getApplicationDocumentsDirectory();
+                                                final filePath = '${dir.path}/voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
+                                                await recorder!.start(
+                                                  const RecordConfig(encoder: AudioEncoder.aacLc),
+                                                  path: filePath,
+                                                );
+                                                setVoice(() => isRecording = true);
+                                              }
+                                            },
                                           );
                                         },
                                       ),

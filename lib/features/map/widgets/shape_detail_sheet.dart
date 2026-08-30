@@ -9,6 +9,7 @@ import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:printing/printing.dart';
 import '../../../core/utils/pdf_generator.dart';
+import 'package:audioplayers/audioplayers.dart';
 
 class ShapeDetailSheet extends StatefulWidget {
   final DrawnShape shape;
@@ -174,6 +175,15 @@ class _ShapeDetailSheetState extends State<ShapeDetailSheet> {
                         ),
                       ),
                       const SizedBox(height: 10),
+                    ],
+
+                    // Voice Note Player
+                    if (shape.voiceNotePath != null &&
+                        shape.voiceNotePath!.isNotEmpty &&
+                        shape.voiceNotePath != 'voice_recorded' &&
+                        File(shape.voiceNotePath!).existsSync()) ...[  
+                      _VoiceNotePlayer(path: shape.voiceNotePath!),
+                      const SizedBox(height: 8),
                     ],
 
                     // Description
@@ -681,6 +691,143 @@ class _MetaInfoTile extends StatelessWidget {
                 ),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Voice Note Player ─────────────────────────────────────────────────────────
+
+class _VoiceNotePlayer extends StatefulWidget {
+  final String path;
+  const _VoiceNotePlayer({required this.path});
+
+  @override
+  State<_VoiceNotePlayer> createState() => _VoiceNotePlayerState();
+}
+
+class _VoiceNotePlayerState extends State<_VoiceNotePlayer> {
+  final AudioPlayer _player = AudioPlayer();
+  PlayerState _state = PlayerState.stopped;
+  Duration _position = Duration.zero;
+  Duration _duration = Duration.zero;
+
+  @override
+  void initState() {
+    super.initState();
+    _player.onPlayerStateChanged.listen((s) {
+      if (mounted) setState(() => _state = s);
+    });
+    _player.onPositionChanged.listen((p) {
+      if (mounted) setState(() => _position = p);
+    });
+    _player.onDurationChanged.listen((d) {
+      if (mounted) setState(() => _duration = d);
+    });
+    // Pre-load duration
+    _player.setSource(DeviceFileSource(widget.path));
+  }
+
+  @override
+  void dispose() {
+    _player.dispose();
+    super.dispose();
+  }
+
+  String _fmt(Duration d) =>
+      '${d.inMinutes.toString().padLeft(2, '0')}:${(d.inSeconds % 60).toString().padLeft(2, '0')}';
+
+  @override
+  Widget build(BuildContext context) {
+    final isPlaying = _state == PlayerState.playing;
+    final progress = _duration.inMilliseconds > 0
+        ? _position.inMilliseconds / _duration.inMilliseconds
+        : 0.0;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1A2A1A),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFF43A047).withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        children: [
+          // Play / Pause button
+          GestureDetector(
+            onTap: () async {
+              if (isPlaying) {
+                await _player.pause();
+              } else {
+                await _player.play(DeviceFileSource(widget.path));
+              }
+            },
+            child: Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: const Color(0xFF43A047),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                color: Colors.white,
+                size: 24,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          // Progress + waveform
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Text('🎙️', style: TextStyle(fontSize: 13)),
+                    const SizedBox(width: 4),
+                    const Text(
+                      'Voice Note',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const Spacer(),
+                    Text(
+                      '${_fmt(_position)} / ${_fmt(_duration)}',
+                      style: const TextStyle(
+                        color: Color(0xFF43A047),
+                        fontSize: 11,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(
+                    value: progress.clamp(0.0, 1.0),
+                    backgroundColor: Colors.white12,
+                    valueColor: const AlwaysStoppedAnimation(Color(0xFF43A047)),
+                    minHeight: 4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          // Stop button
+          GestureDetector(
+            onTap: () async {
+              await _player.stop();
+              setState(() => _position = Duration.zero);
+            },
+            child: const Icon(Icons.stop_rounded, color: Colors.white38, size: 22),
           ),
         ],
       ),
