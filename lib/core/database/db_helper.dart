@@ -13,7 +13,7 @@ class DbHelper {
   DbHelper._internal();
 
   static const String _dbName = 'kashi_geofield.db';
-  static const int _dbVersion = 6;
+  static const int _dbVersion = 7;
 
   Future<Database> get database async {
     _db ??= await _initDb();
@@ -35,7 +35,14 @@ class DbHelper {
         area_hectares REAL NOT NULL,
         perimeter_meters REAL NOT NULL,
         color TEXT NOT NULL,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        description TEXT,
+        category TEXT,
+        photo_path TEXT,
+        voice_note_path TEXT,
+        officer_name TEXT,
+        gps_accuracy TEXT,
+        altitude TEXT
       )
     ''');
 
@@ -159,8 +166,22 @@ class DbHelper {
       try {
         await db.execute(
             'ALTER TABLE kml_files ADD COLUMN smart_opacity INTEGER DEFAULT 0');
-      } catch (_) {
-        // Column may already exist
+      } catch (e) {
+        // Table already created
+      }
+    }
+
+    if (oldVersion < 7) {
+      try {
+        await db.execute('ALTER TABLE polygons ADD COLUMN description TEXT;');
+        await db.execute('ALTER TABLE polygons ADD COLUMN category TEXT;');
+        await db.execute('ALTER TABLE polygons ADD COLUMN photo_path TEXT;');
+        await db.execute('ALTER TABLE polygons ADD COLUMN voice_note_path TEXT;');
+        await db.execute('ALTER TABLE polygons ADD COLUMN officer_name TEXT;');
+        await db.execute('ALTER TABLE polygons ADD COLUMN gps_accuracy TEXT;');
+        await db.execute('ALTER TABLE polygons ADD COLUMN altitude TEXT;');
+      } catch (e) {
+        // Columns might already exist if previously added manually
       }
     }
   }

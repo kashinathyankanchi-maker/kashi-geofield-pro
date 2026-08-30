@@ -34,7 +34,7 @@ class BackupHelper {
       final dutyDiaries = await db.getAllDutyDiaries();
       final printHistory = await db.getPrintHistory();
 
-      // 2. Encode KML/KMZ file bytes as Base64
+      // 2. Encode KML/KMZ and Marker media files as Base64
       final kmlPayloads = <Map<String, dynamic>>[];
       for (final kml in kmlFiles) {
         final map = kml.toMap();
@@ -47,6 +47,27 @@ class BackupHelper {
           }
         } catch (_) {}
         kmlPayloads.add(map);
+      }
+
+      final polygonPayloads = <Map<String, dynamic>>[];
+      for (final p in polygons) {
+        final map = p.toMap();
+        map.remove('id');
+        try {
+          if (p.photoPath != null && p.photoPath!.isNotEmpty) {
+            final file = File(p.photoPath!);
+            if (await file.exists()) {
+              map['photo_bytes_b64'] = base64Encode(await file.readAsBytes());
+            }
+          }
+          if (p.voiceNotePath != null && p.voiceNotePath!.isNotEmpty && p.voiceNotePath != 'voice_recorded') {
+            final file = File(p.voiceNotePath!);
+            if (await file.exists()) {
+              map['voice_note_bytes_b64'] = base64Encode(await file.readAsBytes());
+            }
+          }
+        } catch (_) {}
+        polygonPayloads.add(map);
       }
 
       // 3. Collect SharedPreferences
@@ -72,11 +93,7 @@ class BackupHelper {
       final payload = {
         'version': _version,
         'exported_at': DateTime.now().toIso8601String(),
-        'polygons': polygons.map((p) {
-          final m = p.toMap();
-          m.remove('id');
-          return m;
-        }).toList(),
+        'polygons': polygonPayloads,
         'village_maps': villages.map((v) {
           final m = v.toMap();
           m.remove('id');
@@ -174,8 +191,25 @@ class BackupHelper {
 
       // ── Polygons ──
       final polygons = payload['polygons'] as List? ?? [];
+      final docsDir = await getApplicationDocumentsDirectory();
       for (final p in polygons) {
         try {
+          String? photoPath = p['photo_path'] as String?;
+          if (p['photo_bytes_b64'] != null) {
+            final bytes = base64Decode(p['photo_bytes_b64'] as String);
+            final file = File('${docsDir.path}/img_${DateTime.now().millisecondsSinceEpoch}.jpg');
+            await file.writeAsBytes(bytes);
+            photoPath = file.path;
+          }
+
+          String? voiceNotePath = p['voice_note_path'] as String?;
+          if (p['voice_note_bytes_b64'] != null) {
+            final bytes = base64Decode(p['voice_note_bytes_b64'] as String);
+            final file = File('${docsDir.path}/voice_${DateTime.now().millisecondsSinceEpoch}.m4a');
+            await file.writeAsBytes(bytes);
+            voiceNotePath = file.path;
+          }
+
           final model = PolygonModel(
             name: p['name'] as String,
             coordinates: p['coordinates'] as String,
@@ -183,6 +217,13 @@ class BackupHelper {
             perimeterMeters: (p['perimeter_meters'] as num).toDouble(),
             color: p['color'] as String? ?? '#2EA043',
             createdAt: p['created_at'] as String? ?? DateTime.now().toIso8601String(),
+            description: p['description'] as String?,
+            category: p['category'] as String?,
+            photoPath: photoPath,
+            voiceNotePath: voiceNotePath,
+            officerName: p['officer_name'] as String?,
+            gpsAccuracy: p['gps_accuracy'] as String?,
+            altitude: p['altitude'] as String?,
           );
           await db.insertPolygon(model);
           polyCount++;

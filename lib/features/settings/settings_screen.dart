@@ -382,7 +382,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const SizedBox(height: 24),
                   _buildDataManagementSection(),
                 const SizedBox(height: 16),
-                _buildBackupSection(),
+                _buildSendReceiveSection(),
                 const SizedBox(height: 16),
                 _buildAppInfoSection(),
                 const SizedBox(height: 32),
@@ -750,9 +750,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // Section 5 – Data Backup & Transfer
   // ---------------------------------------------------------------------------
 
-  Widget _buildBackupSection() {
+  Widget _buildSendReceiveSection() {
     return _SettingsCard(
-      title: 'Data Backup & Transfer',
+      title: 'Send & Receive Data (Sync)',
       icon: Icons.sync_alt_rounded,
       children: [
         // Info banner
@@ -770,9 +770,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  'Transfer ALL your data (polygons, village maps, KML files, duty diary, settings) '
-                  'to another phone in one tap. Share the backup file via WhatsApp, Bluetooth, '
-                  'Google Drive or Nearby Share.',
+                  'Transfer ALL your data (Polygons, Map Markers, Photos, Voice Notes, KML files, Duty Diary, Settings) '
+                  'to a newly installed app on another phone. Share via WhatsApp, Bluetooth, or Nearby Share.',
                   style: AppTheme.bodySmall.copyWith(height: 1.5),
                 ),
               ),
@@ -781,23 +780,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
         const SizedBox(height: 16),
 
-        // Export button
+        // Export (Send) button
         _ActionTile(
-          icon: Icons.backup_rounded,
+          icon: Icons.send_to_mobile_rounded,
           iconColor: const Color(0xFF2E7D32),
-          label: 'Export All App Data (Backup)',
-          subtitle: 'Creates a .kgfp backup file with all your data',
+          label: 'Send Data to Another Mobile',
+          subtitle: 'Creates a sync file with all your app data',
           onTap: _saving ? null : _exportBackup,
           isLoading: _saving,
         ),
         const Divider(height: 20),
 
-        // Import button
+        // Import (Receive) button
         _ActionTile(
-          icon: Icons.restore_rounded,
+          icon: Icons.install_mobile_rounded,
           iconColor: const Color(0xFF1565C0),
-          label: 'Import / Restore App Data',
-          subtitle: 'Restore data from a .kgfp backup file on this device',
+          label: 'Receive Data',
+          subtitle: 'Restore data from a sync file received from another phone',
           onTap: _saving ? null : _importBackup,
           isLoading: _saving,
         ),

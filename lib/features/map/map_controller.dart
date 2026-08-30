@@ -431,6 +431,13 @@ class MapController extends ChangeNotifier {
         perimeterMeters: shape.perimeterMeters,
         color: colorHex,
         createdAt: DateTime.now().toIso8601String(),
+        description: shape.description,
+        category: shape.category,
+        photoPath: shape.photoPath,
+        voiceNotePath: shape.voiceNotePath,
+        officerName: shape.officerName,
+        gpsAccuracy: shape.gpsAccuracy,
+        altitude: shape.altitude,
       );
       if (shape.dbId != null) {
         await DbHelper().updatePolygon(model);
@@ -480,6 +487,13 @@ class MapController extends ChangeNotifier {
           areaHectares: poly.areaHectares,
           perimeterMeters: poly.perimeterMeters,
           dbId: poly.id,
+          description: poly.description,
+          category: poly.category,
+          photoPath: poly.photoPath,
+          voiceNotePath: poly.voiceNotePath,
+          officerName: poly.officerName,
+          gpsAccuracy: poly.gpsAccuracy,
+          altitude: poly.altitude,
         );
         _drawnShapes.add(shape);
       }
