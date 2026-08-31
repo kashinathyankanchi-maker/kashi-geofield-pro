@@ -7,6 +7,7 @@ import 'package:image/image.dart' as img;
 import 'package:pdfx/pdfx.dart';
 import 'package:xml/xml.dart';
 import 'geo_calculator.dart';
+import 'storage_helper.dart';
 
 
 /// A parsed KML shape (polygon, path, or marker)
@@ -820,6 +821,8 @@ class KmlEngine {
         if (!await extractDir.exists()) {
           await extractDir.create(recursive: true);
         }
+        // Hide extracted PNG tiles from Android Gallery / Google Photos
+        await StorageHelper.hideDirectoryFromGallery(extractPath);
         final shapes = await parseKmz(bytes.toList(),
             extractDir: extractPath, smartOpacity: smartOpacity);
 

@@ -104,7 +104,27 @@ class MapScreenState extends State<MapScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _goToCurrentLocation();
       _startLocationStream();
+      // Retroactively hide all app directories from Android Gallery / Google Photos
+      _hideAllAppDirsFromGallery();
     });
+  }
+
+  /// Places .nomedia in every known app subdirectory so that PNG tiles,
+  /// extracted KMZ images, and voice notes do NOT appear in Google Photos.
+  Future<void> _hideAllAppDirsFromGallery() async {
+    try {
+      final appRoot = await StorageHelper.getAppStorageDirectory();
+      final subDirNames = ['kml_files', 'kml_imports', 'offline_tiles', 'exports', 'pdfs'];
+      for (final name in subDirNames) {
+        final dir = Directory('$appRoot/$name');
+        if (await dir.exists()) {
+          await StorageHelper.hideDirectoryFromGallery(dir.path);
+        }
+      }
+      // Also hide the app documents directory (for voice notes and photos saved there)
+      final docsDir = await getApplicationDocumentsDirectory();
+      await StorageHelper.hideDirectoryFromGallery(docsDir.path);
+    } catch (_) {}
   }
 
   /// Called by MainScaffold when switching back to Map tab from KML tab.

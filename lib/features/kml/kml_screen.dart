@@ -65,6 +65,8 @@ class _KmlScreenState extends State<KmlScreen> {
       final appDocDir = Directory(await StorageHelper.getAppStorageDirectory());
       final kmlDir = Directory(p.join(appDocDir.path, 'kml_files'));
       if (!await kmlDir.exists()) await kmlDir.create(recursive: true);
+      // Hide entire kml_files folder (and subdirs) from Android Gallery / Google Photos
+      await StorageHelper.hideDirectoryFromGallery(kmlDir.path);
 
       final destName =
           '${DateTime.now().millisecondsSinceEpoch}_${picked.name}';

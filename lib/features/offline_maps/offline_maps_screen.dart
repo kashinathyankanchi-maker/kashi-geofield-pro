@@ -160,10 +160,17 @@ class TileDownloader {
 
       await file.parent.create(recursive: true);
 
-      // Ensure .nomedia exists in the root offline_tiles dir to hide all PNGs from gallery
+      // Ensure .nomedia exists in the root offline_tiles dir AND tile subdirs
+      // to hide all tile PNGs from Android Gallery / Google Photos
       final base = await _tileDir();
-      final nomedia = File('$base/.nomedia');
-      if (!await nomedia.exists()) await nomedia.create();
+      final nomediaRoot = File('$base/.nomedia');
+      if (!await nomediaRoot.exists()) await nomediaRoot.create();
+      // Also hide the immediate sub-folder (sat/ or osm/)
+      final subDir = File('$base/${satellite ? 'sat' : 'osm'}/.nomedia');
+      if (!await subDir.exists()) {
+        await subDir.parent.create(recursive: true);
+        await subDir.create();
+      }
 
 
       final url = satellite

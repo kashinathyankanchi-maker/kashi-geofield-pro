@@ -30,10 +30,7 @@ class StorageHelper {
         }
         
         // Prevent Android MediaScanner from showing these files in the Gallery
-        final nomedia = File('${directory.path}/.nomedia');
-        if (!await nomedia.exists()) {
-          await nomedia.create();
-        }
+        await _ensureNoMedia(directory.path);
 
         return directory.path;
       }
@@ -48,11 +45,46 @@ class StorageHelper {
     }
     
     // Prevent MediaScanner scanning in fallback folder as well
-    final nomedia = File('${directory.path}/.nomedia');
-    if (!await nomedia.exists()) {
-      await nomedia.create();
-    }
+    await _ensureNoMedia(directory.path);
 
     return directory.path;
+  }
+
+  /// Creates a .nomedia file in the given directory path so Android's
+  /// Media Scanner ignores ALL media files (images, audio) inside it.
+  /// Should be called every time a new app directory is created.
+  static Future<void> _ensureNoMedia(String dirPath) async {
+    try {
+      final nomedia = File('$dirPath/.nomedia');
+      if (!await nomedia.exists()) {
+        await nomedia.create();
+      }
+    } catch (_) {}
+  }
+
+  /// Creates a subdirectory under [parentPath] and immediately places a
+  /// .nomedia file inside so the gallery never indexes its contents.
+  static Future<Directory> createHiddenSubDir(String parentPath, String name) async {
+    final dir = Directory('$parentPath/$name');
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+    await _ensureNoMedia(dir.path);
+    return dir;
+  }
+
+  /// Places a .nomedia file in [dirPath] and all immediate subdirectories.
+  /// Call this after extracting a KMZ or creating any folder with media.
+  static Future<void> hideDirectoryFromGallery(String dirPath) async {
+    await _ensureNoMedia(dirPath);
+    try {
+      final dir = Directory(dirPath);
+      if (!await dir.exists()) return;
+      await for (final entity in dir.list()) {
+        if (entity is Directory) {
+          await _ensureNoMedia(entity.path);
+        }
+      }
+    } catch (_) {}
   }
 }
