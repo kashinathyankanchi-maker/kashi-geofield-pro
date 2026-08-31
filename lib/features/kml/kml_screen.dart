@@ -45,6 +45,7 @@ class _KmlScreenState extends State<KmlScreen> {
         type: FileType.custom,
         allowedExtensions: ['kml', 'kmz'],
         allowMultiple: false,
+        withData: true, // Always load bytes for Samsung/content:// URIs
       );
 
       if (result == null || result.files.isEmpty) {
@@ -53,21 +54,39 @@ class _KmlScreenState extends State<KmlScreen> {
       }
 
       final picked = result.files.first;
-      if (picked.path == null) {
-        _showSnack('Could not access file', isError: true);
+
+      // Must have either path OR bytes to proceed
+      if (picked.path == null && picked.bytes == null) {
+        _showSnack('Could not access file — unsupported file provider', isError: true);
         setState(() => _isImporting = false);
         return;
       }
 
-      final sourceFile = File(picked.path!);
       final appDocDir = Directory(await StorageHelper.getAppStorageDirectory());
       final kmlDir = Directory(p.join(appDocDir.path, 'kml_files'));
       if (!await kmlDir.exists()) await kmlDir.create(recursive: true);
 
       final destName =
-          '${DateTime.now().millisecondsSinceEpoch}_${p.basename(picked.path!)}';
+          '${DateTime.now().millisecondsSinceEpoch}_${picked.name}';
       final destPath = p.join(kmlDir.path, destName);
-      await sourceFile.copy(destPath);
+
+      // Try direct copy first (fastest), fall back to writing bytes
+      try {
+        if (picked.path != null) {
+          await File(picked.path!).copy(destPath);
+        } else {
+          await File(destPath).writeAsBytes(picked.bytes!);
+        }
+      } catch (_) {
+        // content:// URI: direct File() access fails — write bytes instead
+        if (picked.bytes != null) {
+          await File(destPath).writeAsBytes(picked.bytes!);
+        } else {
+          _showSnack('Cannot read file — try copying it to internal storage first', isError: true);
+          setState(() => _isImporting = false);
+          return;
+        }
+      }
 
       // Ask for Smart Opacity if it's a KMZ or KML
       bool useSmartOpacity = false;

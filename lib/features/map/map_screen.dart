@@ -40,7 +40,6 @@ import 'widgets/layer_panel.dart';
 import 'widgets/shape_detail_sheet.dart';
 import '../calculators/cbm_screen.dart';
 import '../reference/reference_library_screen.dart';
-import '../ar/ar_measure_screen.dart';
 import '../offline_maps/offline_maps_screen.dart';
 import 'offline_tile_provider.dart';
 import 'geo_reference_screen.dart';
@@ -342,6 +341,8 @@ class MapScreenState extends State<MapScreen> {
     String description = '';
     String? photoPath;
     String? voiceNotePath;
+    bool isRecording = false;
+    AudioRecorder? recorder;
     String officerName = '';
     String gpsAccuracy = '';
     String altitude = '';
@@ -507,8 +508,6 @@ class MapScreenState extends State<MapScreen> {
                                       // Voice Note
                                       StatefulBuilder(
                                         builder: (ctx2, setVoice) {
-                                          bool isRecording = false;
-                                          AudioRecorder? recorder;
                                           return _mlSubOption(
                                             '🎙️',
                                             isRecording ? 'Recording... tap to stop' : 'Voice Note',
@@ -527,8 +526,9 @@ class MapScreenState extends State<MapScreen> {
                                                 // Stop recording
                                                 final path = await recorder!.stop();
                                                 recorder = null;
+                                                isRecording = false;
                                                 setLocal(() => voiceNotePath = path);
-                                                setVoice(() => isRecording = false);
+                                                setVoice(() {});
                                               } else {
                                                 // Start recording
                                                 recorder = AudioRecorder();
@@ -536,9 +536,10 @@ class MapScreenState extends State<MapScreen> {
                                                 if (!hasPermission) {
                                                   if (context.mounted) {
                                                     ScaffoldMessenger.of(context).showSnackBar(
-                                                      const SnackBar(content: Text('Microphone permission denied')),
+                                                      const SnackBar(content: Text('Microphone permission denied. Please allow it in App Settings.')),
                                                     );
                                                   }
+                                                  recorder = null;
                                                   return;
                                                 }
                                                 final dir = await getApplicationDocumentsDirectory();
@@ -547,7 +548,8 @@ class MapScreenState extends State<MapScreen> {
                                                   const RecordConfig(encoder: AudioEncoder.aacLc),
                                                   path: filePath,
                                                 );
-                                                setVoice(() => isRecording = true);
+                                                isRecording = true;
+                                                setVoice(() {});
                                               }
                                             },
                                           );
@@ -2841,18 +2843,6 @@ $wpPlacemarks
                           Navigator.push(
                             context,
                             MaterialPageRoute(builder: (context) => const ReferenceLibraryScreen()),
-                          );
-                        },
-                      ),
-                      const SizedBox(height: 6),
-                      _MapFab(
-                        icon: Icons.straighten_rounded,
-                        tooltip: 'AR Measure',
-                        color: const Color(0xFF00ACC1),
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (context) => const ArMeasureScreen()),
                           );
                         },
                       ),
