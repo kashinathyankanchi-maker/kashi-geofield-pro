@@ -6,7 +6,4 @@
     <include domain="sharedpref" path="." />
     <!-- Include internal storage files -->
     <include domain="file" path="." />
-    
-    <!-- Exclude cache -->
-    <exclude domain="cache" path="." />
 </full-backup-content>
