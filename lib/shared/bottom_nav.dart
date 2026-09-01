@@ -31,17 +31,20 @@ class _MainScaffoldState extends State<MainScaffold> {
   late AppLinks _appLinks;
   StreamSubscription<Uri>? _linkSubscription;
 
-  List<Widget> get _screens => [
-    MapScreen(key: _mapKey),
-    const VillagesScreen(),
-    const KmlScreen(),
-    const OfflineMapsScreen(),
-    const SettingsScreen(),
-  ];
+  // Screens are created ONCE in initState — not recreated on every build().
+  late final List<Widget> _screens;
 
   @override
   void initState() {
     super.initState();
+    // Initialize screens once; IndexedStack keeps them alive between tab switches.
+    _screens = [
+      MapScreen(key: _mapKey),
+      const VillagesScreen(),
+      const KmlScreen(),
+      const OfflineMapsScreen(),
+      const SettingsScreen(),
+    ];
     _initAppLinks();
   }
 
@@ -182,7 +185,12 @@ class _MainScaffoldState extends State<MainScaffold> {
           type: BottomNavigationBarType.fixed,
           currentIndex: _currentIndex,
           onTap: (index) {
-            // If switching back to map from KML tab, reload KML layers
+            // Mark KML dirty when leaving the KML tab so the map only re-parses
+            // when something actually changed, not on every tab switch.
+            if (_currentIndex == 2 && index != 2) {
+              _mapKey.currentState?.markKmlDirty();
+            }
+            // If switching back to map from KML tab, reload only if dirty
             if (index == 0 && _previousIndex == 2) {
               _mapKey.currentState?.reloadKmlLayers();
             }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import '../map_controller.dart';
@@ -172,6 +173,9 @@ class _ShapeDetailSheetState extends State<ShapeDetailSheet> {
                           width: double.infinity,
                           height: 200,
                           fit: BoxFit.cover,
+                          // Limit decoded resolution to avoid OOM on low-end devices
+                          cacheWidth: 900,
+                          cacheHeight: 600,
                         ),
                       ),
                       const SizedBox(height: 10),
@@ -713,17 +717,21 @@ class _VoiceNotePlayerState extends State<_VoiceNotePlayer> {
   PlayerState _state = PlayerState.stopped;
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
+  // Store subscriptions so we can cancel them and avoid memory leaks
+  StreamSubscription? _stateSub;
+  StreamSubscription? _posSub;
+  StreamSubscription? _durSub;
 
   @override
   void initState() {
     super.initState();
-    _player.onPlayerStateChanged.listen((s) {
+    _stateSub = _player.onPlayerStateChanged.listen((s) {
       if (mounted) setState(() => _state = s);
     });
-    _player.onPositionChanged.listen((p) {
+    _posSub = _player.onPositionChanged.listen((p) {
       if (mounted) setState(() => _position = p);
     });
-    _player.onDurationChanged.listen((d) {
+    _durSub = _player.onDurationChanged.listen((d) {
       if (mounted) setState(() => _duration = d);
     });
     // Pre-load duration
@@ -732,6 +740,9 @@ class _VoiceNotePlayerState extends State<_VoiceNotePlayer> {
 
   @override
   void dispose() {
+    _stateSub?.cancel();
+    _posSub?.cancel();
+    _durSub?.cancel();
     _player.dispose();
     super.dispose();
   }

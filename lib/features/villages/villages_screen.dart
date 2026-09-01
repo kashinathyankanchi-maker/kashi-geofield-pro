@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -18,9 +19,11 @@ class VillagesScreen extends StatefulWidget {
 
 class _VillagesScreenState extends State<VillagesScreen> {
   List<VillageModel> _villages = [];
+  List<VillageModel> _filteredVillages = [];
   String _search = '';
   bool _isImporting = false;
   final TextEditingController _searchController = TextEditingController();
+  Timer? _searchDebounce;
 
   @override
   void initState() {
@@ -31,22 +34,29 @@ class _VillagesScreenState extends State<VillagesScreen> {
   @override
   void dispose() {
     _searchController.dispose();
+    _searchDebounce?.cancel();
     super.dispose();
+  }
+
+  void _updateFilter() {
+    final q = _search.trim().toLowerCase();
+    _filteredVillages = q.isEmpty
+        ? _villages
+        : _villages.where((v) {
+            return v.villageName.toLowerCase().contains(q) ||
+                v.district.toLowerCase().contains(q) ||
+                v.state.toLowerCase().contains(q);
+          }).toList();
   }
 
   Future<void> _loadVillages() async {
     final villages = await DbHelper().getAllVillages();
-    if (mounted) setState(() => _villages = villages);
-  }
-
-  List<VillageModel> get _filteredVillages {
-    if (_search.trim().isEmpty) return _villages;
-    final q = _search.trim().toLowerCase();
-    return _villages.where((v) {
-      return v.villageName.toLowerCase().contains(q) ||
-          v.district.toLowerCase().contains(q) ||
-          v.state.toLowerCase().contains(q);
-    }).toList();
+    if (mounted) {
+      setState(() {
+        _villages = villages;
+        _updateFilter();
+      });
+    }
   }
 
   Future<void> _importFiles() async {
@@ -221,7 +231,16 @@ class _VillagesScreenState extends State<VillagesScreen> {
                       )
                     : null,
               ),
-              onChanged: (v) => setState(() => _search = v),
+              onChanged: (v) {
+                // Debounce: wait 200ms after last keystroke before refiltering
+                _searchDebounce?.cancel();
+                _searchDebounce = Timer(const Duration(milliseconds: 200), () {
+                  setState(() {
+                    _search = v;
+                    _updateFilter();
+                  });
+                });
+              },
             ),
           ),
 

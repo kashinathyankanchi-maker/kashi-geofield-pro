@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:collection/collection.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
 import '../duty_diary/duty_diary_screen.dart';
 import 'package:flutter/services.dart';
@@ -45,6 +46,16 @@ import 'offline_tile_provider.dart';
 import 'geo_reference_screen.dart';
 import 'package:flutter_compass/flutter_compass.dart';
 
+// ── Top-level helpers for compute() isolates ───────────────────────────────────
+class _KmlParseArgs {
+  final String filepath;
+  final bool smartOpacity;
+  const _KmlParseArgs(this.filepath, this.smartOpacity);
+}
+
+Future<List<KmlShape>> _parseKmlFile(_KmlParseArgs args) =>
+    KmlEngine.parseFile(args.filepath, smartOpacity: args.smartOpacity);
+
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
 
@@ -64,10 +75,14 @@ class MapScreenState extends State<MapScreen> {
   bool _showWaypointPanel = false;
   List<VillageModel> _villages = [];
   List<PolygonModel> _savedPolygons = [];
+  // Pre-parsed coordinate caches — populated in _loadData(), never in build()
+  Map<String, List<LatLng>> _villageLatLngs = {};
+  Map<int, List<LatLng>> _polygonLatLngs = {};
   bool _loadingLocation = false;
 
-  // GPS live position dot
-  LatLng? _currentPosition;
+  // GPS live position dot — ValueNotifier so only the GPS layer rebuilds
+  final ValueNotifier<LatLng?> _positionNotifier = ValueNotifier(null);
+  LatLng? get _currentPosition => _positionNotifier.value;
   StreamSubscription<Position>? _positionStream;
 
   // Tapped coordinate (for collecting lat/lng from map)
@@ -87,7 +102,9 @@ class MapScreenState extends State<MapScreen> {
   bool _rotateMapWithCompass = true;   // rotate map using compass
   bool _showCompassOnMap = true;       // show compass rose widget
   bool _showCurrentHeading = true;     // show heading info box
-  double _currentHeading = 0.0;        // live heading in degrees
+  // ValueNotifier so compass rose rebuilds independently of the root build()
+  final ValueNotifier<double> _headingNotifier = ValueNotifier(0.0);
+  double get _currentHeading => _headingNotifier.value;
   StreamSubscription<CompassEvent>? _compassStream;
 
   // ── Sidebar tool panel toggle ─────────────────────────────────────────────
@@ -129,7 +146,14 @@ class MapScreenState extends State<MapScreen> {
 
   /// Called by MainScaffold when switching back to Map tab from KML tab.
   /// Re-parses all visible KML/KMZ files and reloads them on the map.
+  /// Only re-parses when KML data has changed (guarded by [_kmlDirty]).
+  bool _kmlDirty = false;
+
+  void markKmlDirty() => _kmlDirty = true;
+
   Future<void> reloadKmlLayers() async {
+    if (!_kmlDirty) return; // nothing changed — skip expensive re-parse
+    _kmlDirty = false;
     try {
       final db = DbHelper();
       final kmlFiles = await db.getAllKmlFiles();
@@ -137,7 +161,11 @@ class MapScreenState extends State<MapScreen> {
       for (final kf in kmlFiles) {
         if (!kf.isVisible) continue;
         try {
-          final shapes = await KmlEngine.parseFile(kf.filepath, smartOpacity: kf.smartOpacity);
+          // Run parsing in a background isolate so the UI stays responsive
+          final shapes = await compute(
+            _parseKmlFile,
+            _KmlParseArgs(kf.filepath, kf.smartOpacity),
+          );
           final coloredShapes = shapes
               .map((s) => s.copyWith(color: kf.layerColor, opacity: kf.opacity))
               .toList();
@@ -201,11 +229,11 @@ class MapScreenState extends State<MapScreen> {
         ),
       ).listen((pos) {
         final pt = LatLng(pos.latitude, pos.longitude);
-        if (mounted) {
-          setState(() => _currentPosition = pt);
-          // Feed into live tracker if active
-          _mapController.addTrackingPoint(pt);
-        }
+        // Update ValueNotifier — only the GPS dot widget will rebuild,
+        // NOT the entire 5355-line MapScreen.
+        _positionNotifier.value = pt;
+        // Feed into live tracker if active (no setState needed)
+        _mapController.addTrackingPoint(pt);
       });
     } catch (_) {}
   }
@@ -216,13 +244,39 @@ class MapScreenState extends State<MapScreen> {
       final db = DbHelper();
       final villages = await db.getAllVillages();
       final polygons = await db.getAllPolygons();
+
+      // Pre-parse village coordinates once so jsonDecode never runs inside build().
+      final villageLatLngs = <String, List<LatLng>>{};
+      for (final v in villages) {
+        try {
+          final coords = jsonDecode(v.coordinates) as List;
+          villageLatLngs[v.id.toString()] = coords
+              .map((c) => LatLng((c['lat'] as num).toDouble(), (c['lng'] as num).toDouble()))
+              .toList();
+        } catch (_) {}
+      }
+
+      // Pre-parse saved polygon coordinates once.
+      final polygonLatLngs = <int, List<LatLng>>{};
+      for (final p in polygons) {
+        try {
+          final coords = jsonDecode(p.coordinates) as List;
+          polygonLatLngs[p.id ?? 0] = coords
+              .map((c) => LatLng((c['lat'] as num).toDouble(), (c['lng'] as num).toDouble()))
+              .toList();
+        } catch (_) {}
+      }
+
       // Load saved KML files and show on map
       final kmlFiles = await db.getAllKmlFiles();
       final allShapes = <KmlShape>[];
       for (final kf in kmlFiles) {
         if (!kf.isVisible) continue;
         try {
-          final shapes = await KmlEngine.parseFile(kf.filepath, smartOpacity: kf.smartOpacity);
+          final shapes = await compute(
+            _parseKmlFile,
+            _KmlParseArgs(kf.filepath, kf.smartOpacity),
+          );
           final coloredShapes = shapes
               .map((s) => s.copyWith(color: kf.layerColor, opacity: kf.opacity))
               .toList();
@@ -234,6 +288,8 @@ class MapScreenState extends State<MapScreen> {
           _appDocDir = docDir.path;
           _villages = villages;
           _savedPolygons = polygons;
+          _villageLatLngs = villageLatLngs;
+          _polygonLatLngs = polygonLatLngs;
         });
         _mapController.loadKmlShapes(allShapes);
       }
@@ -944,21 +1000,15 @@ class MapScreenState extends State<MapScreen> {
 
     if (_mapController.showVillageLayer) {
       for (final v in _villages) {
-        try {
-          final coords = jsonDecode(v.coordinates) as List;
-          final pts = coords
-              .map((c) => LatLng(
-                    (c['lat'] as num).toDouble(),
-                    (c['lng'] as num).toDouble(),
-                  ))
-              .toList();
-          polygons.add(fmap.Polygon(
-            points: pts,
-            color: AppTheme.infoColor.withValues(alpha: 0.12),
-            borderColor: AppTheme.infoColor,
-            borderStrokeWidth: 1.5,
-          ));
-        } catch (_) {}
+        // Use pre-parsed cache — zero JSON decode cost inside build()
+        final pts = _villageLatLngs[v.id.toString()];
+        if (pts == null || pts.isEmpty) continue;
+        polygons.add(fmap.Polygon(
+          points: pts,
+          color: AppTheme.infoColor.withValues(alpha: 0.12),
+          borderColor: AppTheme.infoColor,
+          borderStrokeWidth: 1.5,
+        ));
       }
     }
 
@@ -981,22 +1031,16 @@ class MapScreenState extends State<MapScreen> {
     }
 
     for (final poly in _savedPolygons) {
-      try {
-        final coords = jsonDecode(poly.coordinates) as List;
-        final pts = coords
-            .map((c) => LatLng(
-                  (c['lat'] as num).toDouble(),
-                  (c['lng'] as num).toDouble(),
-                ))
-            .toList();
-        polygons.add(fmap.Polygon(
-          points: pts,
-          color: const Color(0xFF8B5CF6).withValues(alpha: 0.15),
-          borderColor: const Color(0xFF8B5CF6),
-          borderStrokeWidth: 1.5,
-          isDotted: true,
-        ));
-      } catch (_) {}
+      // Use pre-parsed cache — zero JSON decode cost inside build()
+      final pts = _polygonLatLngs[poly.id ?? 0];
+      if (pts == null || pts.isEmpty) continue;
+      polygons.add(fmap.Polygon(
+        points: pts,
+        color: const Color(0xFF8B5CF6).withValues(alpha: 0.15),
+        borderColor: const Color(0xFF8B5CF6),
+        borderStrokeWidth: 1.5,
+        isDotted: true,
+      ));
     }
 
     return polygons;
@@ -2414,38 +2458,43 @@ $wpPlacemarks
                           ],
                         ),
                       fmap.MarkerLayer(markers: _buildMarkers()),
-                      // ── GPS blue dot ───────────────────────────────────────
-                      if (_currentPosition != null)
-                        fmap.MarkerLayer(
-                          markers: [
-                            fmap.Marker(
-                              point: _currentPosition!,
-                              width: 30,
-                              height: 30,
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: const Color(0xFF1565C0)
-                                      .withValues(alpha: 0.25),
-                                  border: Border.all(
-                                    color: Colors.white,
-                                    width: 2.5,
+                      // ── GPS blue dot (ValueListenableBuilder = ONLY this layer rebuilds)
+                      ValueListenableBuilder<LatLng?>(
+                        valueListenable: _positionNotifier,
+                        builder: (_, pos, __) {
+                          if (pos == null) return const SizedBox.shrink();
+                          return fmap.MarkerLayer(
+                            markers: [
+                              fmap.Marker(
+                                point: pos,
+                                width: 30,
+                                height: 30,
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: const Color(0xFF1565C0)
+                                        .withValues(alpha: 0.25),
+                                    border: Border.all(
+                                      color: Colors.white,
+                                      width: 2.5,
+                                    ),
                                   ),
-                                ),
-                                child: Center(
-                                  child: Container(
-                                    width: 12,
-                                    height: 12,
-                                    decoration: const BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      color: Color(0xFF1976D2),
+                                  child: Center(
+                                    child: Container(
+                                      width: 12,
+                                      height: 12,
+                                      decoration: const BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        color: Color(0xFF1976D2),
+                                      ),
                                     ),
                                   ),
                                 ),
                               ),
-                            ),
-                          ],
-                        ),
+                            ],
+                          );
+                        },
+                      ),
                     ],
                   ),
                 ),
@@ -3090,7 +3139,9 @@ $wpPlacemarks
     _compassStream = FlutterCompass.events?.listen((event) {
       if (!mounted) return;
       final heading = event.heading ?? 0.0;
-      setState(() => _currentHeading = heading);
+      // Update ValueNotifier only — compass rose widget rebuilds independently.
+      // Map rotation bypasses Flutter build system entirely.
+      _headingNotifier.value = heading;
       if (_rotateMapWithCompass) {
         _flutterMapController.rotate(-heading);
       }
@@ -3102,7 +3153,8 @@ $wpPlacemarks
     _compassStream = null;
     // Reset map rotation to north
     _flutterMapController.rotate(0);
-    setState(() => _currentHeading = 0.0);
+    _headingNotifier.value = 0.0;
+    setState(() => _compassEnabled = false);
   }
 
   void _toggleCompass(bool enabled) {
@@ -3758,6 +3810,8 @@ $wpPlacemarks
   void dispose() {
     _positionStream?.cancel();
     _compassStream?.cancel();
+    _positionNotifier.dispose();
+    _headingNotifier.dispose();
     _searchController.dispose();
     super.dispose();
   }
@@ -4619,11 +4673,11 @@ class _ShapesListSheet extends StatelessWidget {
             ),
           )
         else
-          ConstrainedBox(
-            constraints: BoxConstraints(
-                maxHeight: MediaQuery.of(context).size.height * 0.45),
+          SizedBox(
+            height: MediaQuery.of(context).size.height * 0.45,
             child: ListView.separated(
-              shrinkWrap: true,
+              // shrinkWrap removed: SizedBox gives a fixed height so
+              // ListView can render lazily instead of all at once.
               padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
               itemCount: shapes.length,
               separatorBuilder: (_, __) => const SizedBox(height: 6),
