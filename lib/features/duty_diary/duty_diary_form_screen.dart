@@ -17,33 +17,43 @@ class DutyDiaryFormScreen extends StatefulWidget {
 
 class _DutyDiaryFormScreenState extends State<DutyDiaryFormScreen> {
   final _formKey = GlobalKey<FormState>();
-  late TextEditingController _locationsCtrl;
-  late TextEditingController _activitiesCtrl;
-  late TextEditingController _distanceCtrl;
-  
+
+  // ── Controllers for all 6 Kannada diary columns ──────────────────────────
+  late TextEditingController _campStationCtrl;   // ಕೇಂದ್ರ, ಸ್ಥಾನ (ಮುಕ್ಕಾಂ)
+  late TextEditingController _departureTimeCtrl; // ಹೊರಟ ವೇಳೆ
+  late TextEditingController _placesVisitedCtrl; // ತಿರುಗಾಡಿದ ಸ್ಥಳ
+  late TextEditingController _returnTimeCtrl;    // ಹಿಂತಿರುಗಿದ ವೇಳೆ
+  late TextEditingController _modeAndKmCtrl;     // ತಿರುಗಾಡಿದ ರೀತಿ & ಕಿ.ಮೀ
+  late TextEditingController _workDoneCtrl;      // ಕೆಲಸ ಮಾಡಿದ ವಿವರ
+
   late DateTime _selectedDate;
-  late TimeOfDay _selectedTime;
 
   stt.SpeechToText _speech = stt.SpeechToText();
   bool _isListening = false;
   String? _activeField;
 
-
   @override
   void initState() {
     super.initState();
-    _locationsCtrl = TextEditingController(text: widget.entry?.locations ?? '');
-    _activitiesCtrl = TextEditingController(text: widget.entry?.activities ?? '');
-    _distanceCtrl = TextEditingController(text: widget.entry?.distance.toString() ?? '');
+    final e = widget.entry;
+    _campStationCtrl   = TextEditingController(text: e?.campStation   ?? '');
+    _departureTimeCtrl = TextEditingController(text: e?.departureTime ?? '');
+    _placesVisitedCtrl = TextEditingController(text: e?.placesVisited ?? '');
+    _returnTimeCtrl    = TextEditingController(text: e?.returnTime    ?? '');
+    _modeAndKmCtrl     = TextEditingController(text: e?.modeAndKm    ?? '');
+    _workDoneCtrl      = TextEditingController(text: e?.workDone     ?? '');
+    _selectedDate = e != null ? DateTime.parse(e.date) : DateTime.now();
+  }
 
-    if (widget.entry != null) {
-      _selectedDate = DateTime.parse(widget.entry!.date);
-      final timeParts = widget.entry!.time.split(':');
-      _selectedTime = TimeOfDay(hour: int.parse(timeParts[0]), minute: int.parse(timeParts[1]));
-    } else {
-      _selectedDate = DateTime.now();
-      _selectedTime = TimeOfDay.now();
-    }
+  @override
+  void dispose() {
+    _campStationCtrl.dispose();
+    _departureTimeCtrl.dispose();
+    _placesVisitedCtrl.dispose();
+    _returnTimeCtrl.dispose();
+    _modeAndKmCtrl.dispose();
+    _workDoneCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _pickDate() async {
@@ -52,61 +62,45 @@ class _DutyDiaryFormScreenState extends State<DutyDiaryFormScreen> {
       initialDate: _selectedDate,
       firstDate: DateTime(2020),
       lastDate: DateTime.now().add(const Duration(days: 365)),
-      builder: (context, child) {
-        return Theme(
-          data: ThemeData.dark().copyWith(
-            colorScheme: const ColorScheme.dark(
-              primary: AppTheme.greenPrimary,
-              surface: AppTheme.bgCard,
-            ),
+      builder: (context, child) => Theme(
+        data: ThemeData.dark().copyWith(
+          colorScheme: const ColorScheme.dark(
+            primary: AppTheme.greenPrimary,
+            surface: AppTheme.bgCard,
           ),
-          child: child!,
-        );
-      },
+        ),
+        child: child!,
+      ),
     );
-    if (picked != null) {
-      setState(() => _selectedDate = picked);
-    }
+    if (picked != null) setState(() => _selectedDate = picked);
   }
 
-  Future<void> _pickTime() async {
-    final picked = await showTimePicker(
-      context: context,
-      initialTime: _selectedTime,
-      builder: (context, child) {
-        return Theme(
-          data: ThemeData.dark().copyWith(
-            colorScheme: const ColorScheme.dark(
-              primary: AppTheme.greenPrimary,
-              surface: AppTheme.bgCard,
-            ),
-          ),
-          child: child!,
-        );
-      },
-    );
-    if (picked != null) {
-      setState(() => _selectedTime = picked);
+  // ── Voice input ───────────────────────────────────────────────────────────
+  TextEditingController _controllerFor(String field) {
+    switch (field) {
+      case 'campStation':   return _campStationCtrl;
+      case 'placesVisited': return _placesVisitedCtrl;
+      case 'modeAndKm':     return _modeAndKmCtrl;
+      case 'workDone':      return _workDoneCtrl;
+      default:              return _workDoneCtrl;
     }
   }
 
   void _listen(String field) async {
     if (_isListening) {
-      // ── Stop current session first, then update UI ──────────────────────
       await _speech.stop();
-      setState(() {
-        _isListening = false;
-        _activeField = null;
-      });
+      setState(() { _isListening = false; _activeField = null; });
       return;
     }
 
-    // ── Start new session ─────────────────────────────────────────────────
     var status = await Permission.microphone.request();
     if (status != PermissionStatus.granted) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Microphone permission denied', style: TextStyle(color: Colors.white)), backgroundColor: Colors.red),
+          const SnackBar(
+            content: Text('Microphone permission denied', style: TextStyle(color: Colors.white)),
+            backgroundColor: Colors.red,
+          ),
         );
       }
       return;
@@ -118,44 +112,23 @@ class _DutyDiaryFormScreenState extends State<DutyDiaryFormScreen> {
           if (mounted) setState(() => _isListening = false);
         }
       },
-      onError: (val) {
-        if (mounted) setState(() => _isListening = false);
-      },
+      onError: (val) { if (mounted) setState(() => _isListening = false); },
     );
-
     if (!available) return;
 
-    // Snapshot the current text ONCE at session start — new speech appends to this
-    final String textAtStart = field == 'locations' ? _locationsCtrl.text : _activitiesCtrl.text;
-    final String prefix = textAtStart.isEmpty
-        ? ''
-        : (textAtStart.endsWith(' ') ? textAtStart : '$textAtStart ');
+    final ctrl = _controllerFor(field);
+    final String prefix = ctrl.text.isEmpty ? '' : (ctrl.text.endsWith(' ') ? ctrl.text : '${ctrl.text} ');
 
-    setState(() {
-      _isListening = true;
-      _activeField = field;
-    });
+    setState(() { _isListening = true; _activeField = field; });
 
     _speech.listen(
-      localeId: 'kn_IN', // Kannada Language
+      localeId: 'kn_IN',
       onResult: (val) {
-        // Only update while THIS session is still the active one
         if (!_isListening || _activeField != field) return;
-
         if (mounted) {
           setState(() {
-            if (field == 'locations') {
-              _locationsCtrl.text = prefix + val.recognizedWords;
-              // Keep cursor at end
-              _locationsCtrl.selection = TextSelection.fromPosition(
-                TextPosition(offset: _locationsCtrl.text.length),
-              );
-            } else if (field == 'activities') {
-              _activitiesCtrl.text = prefix + val.recognizedWords;
-              _activitiesCtrl.selection = TextSelection.fromPosition(
-                TextPosition(offset: _activitiesCtrl.text.length),
-              );
-            }
+            ctrl.text = prefix + val.recognizedWords;
+            ctrl.selection = TextSelection.fromPosition(TextPosition(offset: ctrl.text.length));
           });
         }
       },
@@ -165,17 +138,16 @@ class _DutyDiaryFormScreenState extends State<DutyDiaryFormScreen> {
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
 
-    final dateFormat = DateFormat('yyyy-MM-dd');
-    final timeFormat = '${_selectedTime.hour.toString().padLeft(2, '0')}:${_selectedTime.minute.toString().padLeft(2, '0')}';
-
     final entry = DutyDiaryModel(
-      id: widget.entry?.id,
-      date: dateFormat.format(_selectedDate),
-      time: timeFormat,
-      locations: _locationsCtrl.text.trim(),
-      activities: _activitiesCtrl.text.trim(),
-      distance: double.tryParse(_distanceCtrl.text.trim()) ?? 0.0,
-      createdAt: widget.entry?.createdAt ?? DateTime.now().toIso8601String(),
+      id:            widget.entry?.id,
+      date:          DateFormat('yyyy-MM-dd').format(_selectedDate),
+      campStation:   _campStationCtrl.text.trim(),
+      departureTime: _departureTimeCtrl.text.trim(),
+      placesVisited: _placesVisitedCtrl.text.trim(),
+      returnTime:    _returnTimeCtrl.text.trim(),
+      modeAndKm:     _modeAndKmCtrl.text.trim(),
+      workDone:      _workDoneCtrl.text.trim(),
+      createdAt:     widget.entry?.createdAt ?? DateTime.now().toIso8601String(),
     );
 
     if (entry.id == null) {
@@ -198,11 +170,17 @@ class _DutyDiaryFormScreenState extends State<DutyDiaryFormScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final dayName = DateFormat('EEEE').format(_selectedDate);
+    final weekStr = 'ವಾರ ${_weekNumber(_selectedDate)}';
+
     return Scaffold(
       backgroundColor: AppTheme.bgSurface,
       appBar: AppBar(
         backgroundColor: AppTheme.bgCard,
-        title: Text(widget.entry == null ? 'New Diary Entry' : 'Edit Entry', style: const TextStyle(color: Colors.white)),
+        title: Text(
+          widget.entry == null ? 'ದಿನಚರಿ ನಮೂದು' : 'ದಿನಚರಿ ಸಂಪಾದನೆ',
+          style: const TextStyle(color: Colors.white),
+        ),
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [
           IconButton(
@@ -219,68 +197,141 @@ class _DutyDiaryFormScreenState extends State<DutyDiaryFormScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Date and Time Pickers
+              // ── Date & Week row ──────────────────────────────────────────
+              InkWell(
+                onTap: _pickDate,
+                borderRadius: BorderRadius.circular(14),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                  decoration: BoxDecoration(
+                    color: AppTheme.bgCard,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: AppTheme.greenPrimary.withOpacity(0.5)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.calendar_today, color: AppTheme.greenAccent, size: 22),
+                      const SizedBox(width: 14),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'ವಾರ/ದಿನಾಂಕ  •  $weekStr',
+                            style: const TextStyle(color: AppTheme.textMuted, fontSize: 11),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '$dayName  –  ${DateFormat('dd/MM/yyyy').format(_selectedDate)}',
+                            style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                      const Spacer(),
+                      const Icon(Icons.edit_calendar_outlined, color: AppTheme.textMuted, size: 18),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // ── Column 2: ಕೇಂದ್ರ, ಸ್ಥಾನ (ಮುಕ್ಕಾಂ) ──────────────────────
+              _buildField(
+                controller: _campStationCtrl,
+                labelKannada: 'ಕೇಂದ್ರ, ಸ್ಥಾನ (ಮುಕ್ಕಾಂ)',
+                labelEnglish: 'Camp / Head Station',
+                icon: Icons.home_work_outlined,
+                fieldKey: 'campStation',
+                voiceEnabled: true,
+                required: true,
+              ),
+              const SizedBox(height: 14),
+
+              // ── Column 3 & 5: Departure / Return times ───────────────────
               Row(
                 children: [
                   Expanded(
-                    child: _buildDateTimeCard(
-                      icon: Icons.calendar_today,
-                      label: 'Date',
-                      value: DateFormat('MMM d, yyyy').format(_selectedDate),
-                      onTap: _pickDate,
+                    child: _buildField(
+                      controller: _departureTimeCtrl,
+                      labelKannada: 'ಹೊರಟ ವೇಳೆ',
+                      labelEnglish: 'Departure Time',
+                      icon: Icons.arrow_upward_rounded,
+                      fieldKey: 'departureTime',
+                      voiceEnabled: false,
+                      hint: 'e.g. 06:30',
                     ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: _buildDateTimeCard(
-                      icon: Icons.access_time,
-                      label: 'Time',
-                      value: _selectedTime.format(context),
-                      onTap: _pickTime,
+                    child: _buildField(
+                      controller: _returnTimeCtrl,
+                      labelKannada: 'ಹಿಂತಿರುಗಿದ ವೇಳೆ',
+                      labelEnglish: 'Return Time',
+                      icon: Icons.arrow_downward_rounded,
+                      fieldKey: 'returnTime',
+                      voiceEnabled: false,
+                      hint: 'e.g. 18:00',
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 24),
-              
-              _buildVoiceTextField(
-                controller: _locationsCtrl,
-                label: 'Locations / Compartments',
-                fieldKey: 'locations',
-                maxLines: 2,
-              ),
-              const SizedBox(height: 16),
-              
-              _buildVoiceTextField(
-                controller: _activitiesCtrl,
-                label: 'Key Activities & Observations',
-                fieldKey: 'activities',
-                maxLines: 4,
-              ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 14),
 
-              TextFormField(
-                controller: _distanceCtrl,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                style: const TextStyle(color: AppTheme.textPrimary),
-                decoration: _inputDeco('Distance Traveled (km)', Icons.directions_walk),
-                validator: (v) => v!.isEmpty ? 'Enter distance' : null,
+              // ── Column 4: ತಿರುಗಾಡಿದ ಸ್ಥಳ ──────────────────────────────
+              _buildField(
+                controller: _placesVisitedCtrl,
+                labelKannada: 'ತಿರುಗಾಡಿದ ಸ್ಥಳ',
+                labelEnglish: 'Places Visited / Compartments',
+                icon: Icons.place_outlined,
+                fieldKey: 'placesVisited',
+                voiceEnabled: true,
+                maxLines: 3,
+                required: true,
+              ),
+              const SizedBox(height: 14),
+
+              // ── Column 6: ತಿರುಗಾಡಿದ ರೀತಿ & ಕಿ.ಮೀ ─────────────────────
+              _buildField(
+                controller: _modeAndKmCtrl,
+                labelKannada: 'ತಿರುಗಾಡಿದ ರೀತಿ & ಕಿ.ಮೀ',
+                labelEnglish: 'Mode of Travel & KM',
+                icon: Icons.directions_bike_outlined,
+                fieldKey: 'modeAndKm',
+                voiceEnabled: true,
+                hint: 'e.g. ಪಾದಚಾರಿ 12 ಕಿ.ಮೀ',
+              ),
+              const SizedBox(height: 14),
+
+              // ── Column 7: ಕೆಲಸ ಮಾಡಿದ ವಿವರ ─────────────────────────────
+              _buildField(
+                controller: _workDoneCtrl,
+                labelKannada: 'ಕೆಲಸ ಮಾಡಿದ ವಿವರ',
+                labelEnglish: 'Work Done Details',
+                icon: Icons.assignment_outlined,
+                fieldKey: 'workDone',
+                voiceEnabled: true,
+                maxLines: 5,
+                required: true,
               ),
               const SizedBox(height: 32),
 
+              // ── Save button ───────────────────────────────────────────────
               SizedBox(
                 width: double.infinity,
-                height: 50,
+                height: 52,
                 child: ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppTheme.greenPrimary,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                   ),
                   onPressed: _save,
-                  icon: const Icon(Icons.check, color: Colors.white),
-                  label: const Text('Save Entry', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                  icon: const Icon(Icons.check_circle_outline, color: Colors.white),
+                  label: const Text('ಉಳಿಸಿ  /  Save Entry',
+                    style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
                 ),
               ),
+              const SizedBox(height: 16),
             ],
           ),
         ),
@@ -288,88 +339,87 @@ class _DutyDiaryFormScreenState extends State<DutyDiaryFormScreen> {
     );
   }
 
-  Widget _buildDateTimeCard({required IconData icon, required String label, required String value, required VoidCallback onTap}) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
-          color: AppTheme.bgCard,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppTheme.borderColor),
-        ),
-        child: Row(
-          children: [
-            Icon(icon, color: AppTheme.greenAccent, size: 20),
-            const SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+  // ── Field builder ─────────────────────────────────────────────────────────
+  Widget _buildField({
+    required TextEditingController controller,
+    required String labelKannada,
+    required String labelEnglish,
+    required IconData icon,
+    required String fieldKey,
+    bool voiceEnabled = false,
+    int maxLines = 1,
+    bool required = false,
+    String? hint,
+  }) {
+    final isActive = _isListening && _activeField == fieldKey;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Bilingual label
+        Padding(
+          padding: const EdgeInsets.only(left: 4, bottom: 6),
+          child: RichText(
+            text: TextSpan(
               children: [
-                Text(label, style: const TextStyle(color: AppTheme.textMuted, fontSize: 10)),
-                Text(value, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+                TextSpan(
+                  text: labelKannada,
+                  style: const TextStyle(
+                    color: AppTheme.greenAccent,
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                TextSpan(
+                  text: '  •  $labelEnglish',
+                  style: const TextStyle(
+                    color: AppTheme.textMuted,
+                    fontSize: 11,
+                  ),
+                ),
               ],
             ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildVoiceTextField({
-    required TextEditingController controller,
-    required String label,
-    required String fieldKey,
-    required int maxLines,
-  }) {
-    bool isActive = _isListening && _activeField == fieldKey;
-
-    return TextFormField(
-      controller: controller,
-      maxLines: maxLines,
-      style: const TextStyle(color: AppTheme.textPrimary),
-      decoration: InputDecoration(
-        labelText: label,
-        alignLabelWithHint: true,
-        filled: true,
-        fillColor: AppTheme.bgCard,
-        suffixIcon: IconButton(
-          icon: Icon(
-            isActive ? Icons.mic : Icons.mic_none,
-            color: isActive ? Colors.redAccent : AppTheme.greenAccent,
           ),
-          onPressed: () => _listen(fieldKey),
         ),
-        labelStyle: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
-        border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: AppTheme.borderColor)),
-        enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: AppTheme.borderColor)),
-        focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: AppTheme.greenPrimary, width: 2)),
-      ),
-      validator: (v) => v!.isEmpty ? 'Field required' : null,
+        TextFormField(
+          controller: controller,
+          maxLines: maxLines,
+          style: const TextStyle(color: AppTheme.textPrimary, fontSize: 14),
+          decoration: InputDecoration(
+            hintText: hint,
+            hintStyle: const TextStyle(color: AppTheme.textMuted, fontSize: 12),
+            prefixIcon: Icon(icon, color: AppTheme.textMuted, size: 20),
+            filled: true,
+            fillColor: AppTheme.bgCard,
+            suffixIcon: voiceEnabled
+                ? IconButton(
+                    icon: Icon(
+                      isActive ? Icons.mic : Icons.mic_none,
+                      color: isActive ? Colors.redAccent : AppTheme.greenAccent,
+                    ),
+                    tooltip: 'Voice Input (Kannada)',
+                    onPressed: () => _listen(fieldKey),
+                  )
+                : null,
+            border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: AppTheme.borderColor)),
+            enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: AppTheme.borderColor)),
+            focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: AppTheme.greenPrimary, width: 2)),
+          ),
+          validator: required ? (v) => (v == null || v.trim().isEmpty) ? 'Required / ಅಗತ್ಯ' : null : null,
+        ),
+      ],
     );
   }
 
-  InputDecoration _inputDeco(String label, IconData icon) => InputDecoration(
-        labelText: label,
-        prefixIcon: Icon(icon, color: AppTheme.textMuted, size: 20),
-        filled: true,
-        fillColor: AppTheme.bgCard,
-        labelStyle: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
-        border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: AppTheme.borderColor)),
-        enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: AppTheme.borderColor)),
-        focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: AppTheme.greenPrimary, width: 2)),
-      );
+  // ── Compute ISO week number ───────────────────────────────────────────────
+  int _weekNumber(DateTime date) {
+    final startOfYear = DateTime(date.year, 1, 1);
+    final diff = date.difference(startOfYear).inDays;
+    return (diff / 7).ceil() + 1;
+  }
 }
-

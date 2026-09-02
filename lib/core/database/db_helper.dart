@@ -13,7 +13,7 @@ class DbHelper {
   DbHelper._internal();
 
   static const String _dbName = 'kashi_geofield.db';
-  static const int _dbVersion = 7;
+  static const int _dbVersion = 8;
 
   Future<Database> get database async {
     _db ??= await _initDb();
@@ -86,10 +86,16 @@ class DbHelper {
       CREATE TABLE duty_diary (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         date TEXT NOT NULL,
-        time TEXT NOT NULL,
-        locations TEXT NOT NULL,
-        activities TEXT NOT NULL,
-        distance REAL NOT NULL,
+        time TEXT NOT NULL DEFAULT '',
+        locations TEXT NOT NULL DEFAULT '',
+        activities TEXT NOT NULL DEFAULT '',
+        distance REAL NOT NULL DEFAULT 0,
+        camp_station TEXT NOT NULL DEFAULT '',
+        departure_time TEXT NOT NULL DEFAULT '',
+        places_visited TEXT NOT NULL DEFAULT '',
+        return_time TEXT NOT NULL DEFAULT '',
+        mode_and_km TEXT NOT NULL DEFAULT '',
+        work_done TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL
       )
     ''');
@@ -182,6 +188,18 @@ class DbHelper {
         await db.execute('ALTER TABLE polygons ADD COLUMN altitude TEXT;');
       } catch (e) {
         // Columns might already exist if previously added manually
+      }
+    }
+    if (oldVersion < 8) {
+      try {
+        await db.execute("ALTER TABLE duty_diary ADD COLUMN camp_station TEXT NOT NULL DEFAULT '';");
+        await db.execute("ALTER TABLE duty_diary ADD COLUMN departure_time TEXT NOT NULL DEFAULT '';");
+        await db.execute("ALTER TABLE duty_diary ADD COLUMN places_visited TEXT NOT NULL DEFAULT '';");
+        await db.execute("ALTER TABLE duty_diary ADD COLUMN return_time TEXT NOT NULL DEFAULT '';");
+        await db.execute("ALTER TABLE duty_diary ADD COLUMN mode_and_km TEXT NOT NULL DEFAULT '';");
+        await db.execute("ALTER TABLE duty_diary ADD COLUMN work_done TEXT NOT NULL DEFAULT '';");
+      } catch (_) {
+        // Columns may already exist
       }
     }
   }
