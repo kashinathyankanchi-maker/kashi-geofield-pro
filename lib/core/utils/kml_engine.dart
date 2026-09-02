@@ -604,10 +604,12 @@ class KmlEngine {
         final shapes = await parseAndExtractImages(entry);
         allShapes.addAll(shapes);
       }
-      // Sort shapes by area descending (largest first)
-      // This ensures SuperOverlay root tiles (low-res, large area) are drawn FIRST
-      // and high-res tiles (small area) are drawn ON TOP of them, fixing blurry maps.
-      allShapes.sort((a, b) {
+      // Filter out redundant low-resolution parent overview tiles if child tiles exist
+      final filteredShapes = _filterRedundantParentOverlays(allShapes);
+
+      // Sort remaining overlay shapes by area descending (largest first)
+      // This ensures background tiles render below detailed tiles cleanly.
+      filteredShapes.sort((a, b) {
         if (a.type != 'overlay' || b.type != 'overlay') return 0;
         if (a.north == null || a.south == null || a.east == null || a.west == null) return 0;
         if (b.north == null || b.south == null || b.east == null || b.west == null) return 0;
@@ -616,12 +618,72 @@ class KmlEngine {
         return areaB.compareTo(areaA);
       });
       
-      return allShapes;
+      return filteredShapes;
     } catch (_) {
       // Return empty on error
     }
     return [];
   }
+
+  /// Filters out redundant low-resolution parent overview tiles from SuperOverlays.
+  /// If a larger tile is >65% covered by smaller higher-resolution child tiles,
+  /// the larger low-res tile is removed so it doesn't cause blurry patches or slow down loading.
+  static List<KmlShape> _filterRedundantParentOverlays(List<KmlShape> shapes) {
+    final overlays = shapes
+        .where((s) =>
+            s.type == 'overlay' &&
+            s.north != null &&
+            s.south != null &&
+            s.east != null &&
+            s.west != null)
+        .toList();
+    if (overlays.length <= 1) return shapes;
+
+    final nonOverlays = shapes.where((s) => s.type != 'overlay').toList();
+    final toRemove = <KmlShape>{};
+
+    for (final parent in overlays) {
+      final pNorth = parent.north!;
+      final pSouth = parent.south!;
+      final pEast  = parent.east!;
+      final pWest  = parent.west!;
+      final parentArea = (pNorth - pSouth).abs() * (pEast - pWest).abs();
+      if (parentArea <= 0) continue;
+
+      double coveredArea = 0.0;
+      for (final child in overlays) {
+        if (identical(parent, child)) continue;
+        final cNorth = child.north!;
+        final cSouth = child.south!;
+        final cEast  = child.east!;
+        final cWest  = child.west!;
+        final childArea = (cNorth - cSouth).abs() * (cEast - cWest).abs();
+
+        // Only consider strictly smaller child tiles (< 85% parent area)
+        if (childArea >= parentArea * 0.85) continue;
+
+        // Calculate intersection rectangle between parent and child
+        final iNorth = math.min(pNorth, cNorth);
+        final iSouth = math.max(pSouth, cSouth);
+        final iEast  = math.min(pEast, cEast);
+        final iWest  = math.max(pWest, cWest);
+
+        if (iNorth > iSouth && iEast > iWest) {
+          final interArea = (iNorth - iSouth) * (iEast - iWest);
+          coveredArea += interArea;
+        }
+      }
+
+      // If child tiles cover > 65% of parent area, parent is a low-res overview tile
+      if (coveredArea / parentArea > 0.65) {
+        toRemove.add(parent);
+      }
+    }
+
+    final filteredOverlays = overlays.where((s) => !toRemove.contains(s)).toList();
+    return [...nonOverlays, ...filteredOverlays];
+  }
+
 
   /// Parse GeoJSON string into KmlShape list
   static List<KmlShape> parseGeoJson(String geoJsonContent) {

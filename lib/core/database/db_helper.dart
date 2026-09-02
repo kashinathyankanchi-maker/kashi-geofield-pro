@@ -1,9 +1,11 @@
+import 'dart:io';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import '../models/polygon_model.dart';
 import '../models/village_model.dart';
 import '../models/kml_file_model.dart';
 import '../models/print_history_model.dart';
+import '../utils/storage_helper.dart';
 
 class DbHelper {
   static final DbHelper _instance = DbHelper._internal();
@@ -23,7 +25,10 @@ class DbHelper {
   Future<Database> _initDb() async {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, _dbName);
-    return openDatabase(path, version: _dbVersion, onCreate: _onCreate, onUpgrade: _onUpgrade);
+    final db = await openDatabase(path, version: _dbVersion, onCreate: _onCreate, onUpgrade: _onUpgrade);
+    // Auto-restore data from persistent external storage backup if local DB is fresh/empty
+    await checkAndRestoreBackup(db);
+    return db;
   }
 
   Future<void> _onCreate(Database db, int version) async {
@@ -208,7 +213,9 @@ class DbHelper {
 
   Future<int> insertDutyDiary(Map<String, dynamic> row) async {
     final db = await database;
-    return await db.insert('duty_diary', row);
+    final res = await db.insert('duty_diary', row);
+    autoBackup();
+    return res;
   }
 
   Future<List<Map<String, dynamic>>> getAllDutyDiaries() async {
@@ -219,20 +226,26 @@ class DbHelper {
   Future<int> updateDutyDiary(Map<String, dynamic> row) async {
     final db = await database;
     int id = row['id'] as int;
-    return await db.update('duty_diary', row, where: 'id = ?', whereArgs: [id]);
+    final res = await db.update('duty_diary', row, where: 'id = ?', whereArgs: [id]);
+    autoBackup();
+    return res;
   }
 
   Future<int> deleteDutyDiary(int id) async {
     final db = await database;
-    return await db.delete('duty_diary', where: 'id = ?', whereArgs: [id]);
+    final res = await db.delete('duty_diary', where: 'id = ?', whereArgs: [id]);
+    autoBackup();
+    return res;
   }
 
   // ─────────────────── POLYGONS ──────────────────────────────────────────────
 
   Future<int> insertPolygon(PolygonModel polygon) async {
     final db = await database;
-    return db.insert('polygons', polygon.toMap(),
+    final res = await db.insert('polygons', polygon.toMap(),
         conflictAlgorithm: ConflictAlgorithm.replace);
+    autoBackup();
+    return res;
   }
 
   Future<List<PolygonModel>> getAllPolygons() async {
@@ -249,14 +262,105 @@ class DbHelper {
 
   Future<int> updatePolygon(PolygonModel polygon) async {
     final db = await database;
-    return db.update('polygons', polygon.toMap(),
+    final res = await db.update('polygons', polygon.toMap(),
         where: 'id = ?', whereArgs: [polygon.id]);
+    autoBackup();
+    return res;
   }
 
   Future<int> deletePolygon(int id) async {
     final db = await database;
-    return db.delete('polygons', where: 'id = ?', whereArgs: [id]);
+    final res = await db.delete('polygons', where: 'id = ?', whereArgs: [id]);
+    autoBackup();
+    return res;
   }
+
+  // ─────────────────── PERSISTENT EXTERNAL BACKUP & RESTORE ─────────────────
+
+  /// Copies the SQLite database file to external public storage
+  /// (/storage/emulated/0/kashi geofild pro/backups/kashi_geofield_backup.db)
+  /// so that markers, polygons, and diary entries SURVIVE app uninstallation & reinstallation!
+  Future<void> autoBackup() async {
+    try {
+      final dbPath = await getDatabasesPath();
+      final srcPath = join(dbPath, _dbName);
+      final srcFile = File(srcPath);
+      if (!await srcFile.exists()) return;
+
+      final appStorageDir = await StorageHelper.getAppStorageDirectory();
+      final backupDir = Directory('$appStorageDir/backups');
+      if (!await backupDir.exists()) {
+        await backupDir.create(recursive: true);
+      }
+      final backupFile = File('${backupDir.path}/kashi_geofield_backup.db');
+      await srcFile.copy(backupFile.path);
+    } catch (_) {}
+  }
+
+  /// Checks if external persistent backup exists and restores saved markers/polygons/diaries
+  /// if the local database is fresh/empty (e.g. after uninstalling & reinstalling the app).
+  Future<void> checkAndRestoreBackup(Database db) async {
+    try {
+      final polyCount = Sqflite.firstIntValue(
+        await db.rawQuery('SELECT COUNT(*) FROM polygons')
+      ) ?? 0;
+      final diaryCount = Sqflite.firstIntValue(
+        await db.rawQuery('SELECT COUNT(*) FROM duty_diary')
+      ) ?? 0;
+
+      // Only auto-restore if current local DB is empty
+      if (polyCount > 0 || diaryCount > 0) return;
+
+      final appStorageDir = await StorageHelper.getAppStorageDirectory();
+      final backupFile = File('$appStorageDir/backups/kashi_geofield_backup.db');
+      if (!await backupFile.exists()) return;
+
+      final backupDb = await openDatabase(backupFile.path, readOnly: true);
+
+      // Restore Polygons & Markers
+      try {
+        final polygons = await backupDb.query('polygons');
+        for (final row in polygons) {
+          final copy = Map<String, dynamic>.from(row);
+          copy.remove('id'); // let SQLite assign new auto-increment ID
+          await db.insert('polygons', copy, conflictAlgorithm: ConflictAlgorithm.ignore);
+        }
+      } catch (_) {}
+
+      // Restore Duty Diary
+      try {
+        final diaries = await backupDb.query('duty_diary');
+        for (final row in diaries) {
+          final copy = Map<String, dynamic>.from(row);
+          copy.remove('id');
+          await db.insert('duty_diary', copy, conflictAlgorithm: ConflictAlgorithm.ignore);
+        }
+      } catch (_) {}
+
+      // Restore Village Maps
+      try {
+        final villages = await backupDb.query('village_maps');
+        for (final row in villages) {
+          final copy = Map<String, dynamic>.from(row);
+          copy.remove('id');
+          await db.insert('village_maps', copy, conflictAlgorithm: ConflictAlgorithm.ignore);
+        }
+      } catch (_) {}
+
+      // Restore KML Files
+      try {
+        final kmlFiles = await backupDb.query('kml_files');
+        for (final row in kmlFiles) {
+          final copy = Map<String, dynamic>.from(row);
+          copy.remove('id');
+          await db.insert('kml_files', copy, conflictAlgorithm: ConflictAlgorithm.ignore);
+        }
+      } catch (_) {}
+
+      await backupDb.close();
+    } catch (_) {}
+  }
+
 
   Future<int> deleteAllPolygons() async {
     final db = await database;
