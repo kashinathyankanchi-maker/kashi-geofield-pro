@@ -56,6 +56,21 @@ class _KmlParseArgs {
 Future<List<KmlShape>> _parseKmlFile(_KmlParseArgs args) =>
     KmlEngine.parseFile(args.filepath, smartOpacity: args.smartOpacity);
 
+/// Returns the appropriate Flutter icon for a marker category.
+IconData _iconForCategory(String? category) {
+  switch (category) {
+    case 'Tree':             return Icons.park;
+    case 'Wildlife':         return Icons.pets;
+    case 'Fire':             return Icons.local_fire_department;
+    case 'Illegal activity': return Icons.report_problem_rounded;
+    case 'Water source':     return Icons.water_drop;
+    case 'Road/track':       return Icons.route;
+    case 'Camp':             return Icons.cabin;
+    case 'Danger':           return Icons.warning_amber_rounded;
+    default:                 return Icons.place;
+  }
+}
+
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
 
@@ -1231,10 +1246,16 @@ class MapScreenState extends State<MapScreen> {
         }
 
         if (shape.type == DrawMode.marker) {
+          final catIcon  = _iconForCategory(shape.category);
+          final catColor = shape.color;
+          final displayName = shape.name.length > 12
+              ? '${shape.name.substring(0, 11)}…'
+              : shape.name;
+
           markers.add(fmap.Marker(
             point: shape.points.first,
-            width: 40,
-            height: 44,
+            width: 56,
+            height: 68,
             alignment: Alignment.bottomCenter,
             child: GestureDetector(
               onTap: () {
@@ -1244,18 +1265,70 @@ class MapScreenState extends State<MapScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  // ── Name label bubble ──────────────────────────────────────
                   Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
-                      color: AppTheme.bgCard,
-                      borderRadius: BorderRadius.circular(4),
-                      border: Border.all(color: shape.color),
+                      color: AppTheme.bgCard.withValues(alpha: 0.92),
+                      borderRadius: BorderRadius.circular(5),
+                      border: Border.all(color: catColor.withValues(alpha: 0.7), width: 1),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.35),
+                          blurRadius: 3,
+                          offset: const Offset(0, 1),
+                        ),
+                      ],
                     ),
-                    child: Text(shape.name,
-                        style: TextStyle(color: shape.color, fontSize: 8)),
+                    child: Text(
+                      displayName,
+                      style: TextStyle(
+                        color: catColor,
+                        fontSize: 8,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.3,
+                      ),
+                    ),
                   ),
-                  Icon(Icons.place, color: shape.color, size: 28),
+                  const SizedBox(height: 2),
+                  // ── Category icon circle ──────────────────────────────────
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: catColor,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 2.5),
+                      boxShadow: [
+                        BoxShadow(
+                          color: catColor.withValues(alpha: 0.55),
+                          blurRadius: 8,
+                          spreadRadius: 1,
+                        ),
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.3),
+                          blurRadius: 4,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Icon(catIcon, color: Colors.white, size: 18),
+                  ),
+                  // ── Pin stem ──────────────────────────────────────────────
+                  Container(
+                    width: 3,
+                    height: 8,
+                    color: catColor,
+                  ),
+                  // ── Pin tip dot ──────────────────────────────────────────
+                  Container(
+                    width: 5,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: catColor,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
                 ],
               ),
             ),
