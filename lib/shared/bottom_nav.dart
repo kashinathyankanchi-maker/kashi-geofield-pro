@@ -95,12 +95,14 @@ class _MainScaffoldState extends State<MainScaffold> {
         // Handle backup restore
         if (mounted) {
           final result = await BackupHelper.importData(context, externalFile: file);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(result.message),
-              backgroundColor: result.success ? AppTheme.greenPrimary : AppTheme.warningColor,
-            ),
-          );
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(result.message),
+                backgroundColor: result.success ? AppTheme.greenPrimary : AppTheme.warningColor,
+              ),
+            );
+          }
         }
       } else if (ext == '.kml' || ext == '.kmz' || ext == '.geojson') {
         // Handle Map Data Import
