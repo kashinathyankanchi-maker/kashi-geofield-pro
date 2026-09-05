@@ -185,6 +185,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _autoScanRestore() async {
+    setState(() => _saving = true);
+    try {
+      final db = DbHelper();
+      final dbObj = await db.database;
+      await db.checkAndRestoreBackup(dbObj);
+      if (!mounted) return;
+      _showResultDialog(
+        title: '✅ Device Scan Complete',
+        message: 'Scanned device storage for auto-backups. All missing markers, village maps, KML files, and duty diary entries have been restored successfully.\n\nSwitch tabs or restart the app for all data to refresh on the map.',
+        success: true,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      _showResultDialog(
+        title: '❌ Scan Failed',
+        message: 'Error scanning device storage: $e',
+        success: false,
+      );
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
   void _showResultDialog({required String title, required String message, required bool success}) {
     showDialog<void>(
       context: context,
@@ -795,9 +819,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _ActionTile(
           icon: Icons.install_mobile_rounded,
           iconColor: const Color(0xFF1565C0),
-          label: 'Receive Data',
-          subtitle: 'Restore data from a sync file received from another phone',
+          label: 'Receive Data / Restore Backup',
+          subtitle: 'Restore markers & data from a backup file (.kgfp or .db)',
           onTap: _saving ? null : _importBackup,
+          isLoading: _saving,
+        ),
+        const Divider(height: 20),
+
+        // Auto-Scan Device Storage button
+        _ActionTile(
+          icon: Icons.youtube_searched_for_rounded,
+          iconColor: const Color(0xFFE65100),
+          label: 'Auto-Scan & Restore Device Storage',
+          subtitle: 'Scans phone storage to restore old saved markers & diary data automatically',
+          onTap: _saving ? null : _autoScanRestore,
           isLoading: _saving,
         ),
       ],

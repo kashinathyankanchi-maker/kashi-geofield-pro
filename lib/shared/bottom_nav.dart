@@ -46,6 +46,15 @@ class _MainScaffoldState extends State<MainScaffold> {
       const SettingsScreen(),
     ];
     _initAppLinks();
+    _checkAndRestoreOnStartup();
+  }
+
+  Future<void> _checkAndRestoreOnStartup() async {
+    try {
+      final db = DbHelper();
+      final dbObj = await db.database;
+      await db.checkAndRestoreBackup(dbObj);
+    } catch (_) {}
   }
 
   @override
@@ -82,7 +91,7 @@ class _MainScaffoldState extends State<MainScaffold> {
       
       final ext = p.extension(file.path).toLowerCase();
       
-      if (ext == '.kgfp') {
+      if (ext == '.kgfp' || ext == '.db' || ext == '.json' || ext == '.bin') {
         // Handle backup restore
         if (mounted) {
           final result = await BackupHelper.importData(context, externalFile: file);

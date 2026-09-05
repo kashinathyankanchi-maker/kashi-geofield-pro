@@ -277,8 +277,7 @@ class DbHelper {
 
   // ─────────────────── PERSISTENT EXTERNAL BACKUP & RESTORE ─────────────────
 
-  /// Copies the SQLite database file to external public storage
-  /// (/storage/emulated/0/kashi geofild pro/backups/kashi_geofield_backup.db)
+  /// Copies the SQLite database file to multiple persistent external storage locations
   /// so that markers, polygons, and diary entries SURVIVE app uninstallation & reinstallation!
   Future<void> autoBackup() async {
     try {
@@ -287,35 +286,65 @@ class DbHelper {
       final srcFile = File(srcPath);
       if (!await srcFile.exists()) return;
 
-      final appStorageDir = await StorageHelper.getAppStorageDirectory();
-      final backupDir = Directory('$appStorageDir/backups');
-      if (!await backupDir.exists()) {
-        await backupDir.create(recursive: true);
+      final candidates = <String>[];
+      try {
+        final appStorageDir = await StorageHelper.getAppStorageDirectory();
+        candidates.add('$appStorageDir/backups');
+      } catch (_) {}
+
+      if (Platform.isAndroid) {
+        candidates.addAll([
+          '/storage/emulated/0/kashi geofild pro/backups',
+          '/storage/emulated/0/KashiGeoField/backups',
+          '/storage/emulated/0/Download/KashiGeoField',
+          '/storage/emulated/0/Download',
+        ]);
       }
-      final backupFile = File('${backupDir.path}/kashi_geofield_backup.db');
-      await srcFile.copy(backupFile.path);
+
+      for (final dirPath in candidates) {
+        try {
+          final dir = Directory(dirPath);
+          if (!await dir.exists()) {
+            await dir.create(recursive: true);
+          }
+          final destFile = File('${dir.path}/kashi_geofield_backup.db');
+          await srcFile.copy(destFile.path);
+        } catch (_) {}
+      }
     } catch (_) {}
   }
 
-  /// Checks if external persistent backup exists and restores saved markers/polygons/diaries
-  /// if the local database is fresh/empty (e.g. after uninstalling & reinstalling the app).
+  /// Searches all external backup locations and auto-restores saved markers, polygons, village maps,
+  /// and duty diary entries if they are missing from the current database.
   Future<void> checkAndRestoreBackup(Database db) async {
     try {
-      final polyCount = Sqflite.firstIntValue(
-        await db.rawQuery('SELECT COUNT(*) FROM polygons')
-      ) ?? 0;
-      final diaryCount = Sqflite.firstIntValue(
-        await db.rawQuery('SELECT COUNT(*) FROM duty_diary')
-      ) ?? 0;
+      final searchPaths = <String>[];
+      try {
+        final appStorageDir = await StorageHelper.getAppStorageDirectory();
+        searchPaths.add('$appStorageDir/backups/kashi_geofield_backup.db');
+      } catch (_) {}
 
-      // Only auto-restore if current local DB is empty
-      if (polyCount > 0 || diaryCount > 0) return;
+      if (Platform.isAndroid) {
+        searchPaths.addAll([
+          '/storage/emulated/0/kashi geofild pro/backups/kashi_geofield_backup.db',
+          '/storage/emulated/0/KashiGeoField/backups/kashi_geofield_backup.db',
+          '/storage/emulated/0/Download/KashiGeoField/kashi_geofield_backup.db',
+          '/storage/emulated/0/Download/kashi_geofield_backup.db',
+        ]);
+      }
 
-      final appStorageDir = await StorageHelper.getAppStorageDirectory();
-      final backupFile = File('$appStorageDir/backups/kashi_geofield_backup.db');
-      if (!await backupFile.exists()) return;
+      File? targetBackupFile;
+      for (final path in searchPaths) {
+        final f = File(path);
+        if (await f.exists()) {
+          targetBackupFile = f;
+          break;
+        }
+      }
 
-      final backupDb = await openDatabase(backupFile.path, readOnly: true);
+      if (targetBackupFile == null) return;
+
+      final backupDb = await openDatabase(targetBackupFile.path, readOnly: true);
 
       // Restore Polygons & Markers
       try {

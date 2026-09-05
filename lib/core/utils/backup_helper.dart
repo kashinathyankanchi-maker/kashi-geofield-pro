@@ -148,7 +148,7 @@ class BackupHelper {
 
   // ─── IMPORT ────────────────────────────────────────────────────────────────
 
-  /// Picks a `.kgfp` file (or uses the provided [externalFile]), parses it, and restores all data.
+  /// Picks a backup file (.kgfp, .db, .json, or any sync file), parses it, and restores all data.
   static Future<BackupResult> importData(BuildContext context, {File? externalFile}) async {
     try {
       String? pickedPath;
@@ -156,11 +156,11 @@ class BackupHelper {
       if (externalFile != null) {
         pickedPath = externalFile.path;
       } else {
-        // 1. Let user pick backup file
+        // 1. Let user pick backup file (allow any extension since Android pickers may rename files)
         final result = await FilePicker.platform.pickFiles(
           type: FileType.any,
           allowMultiple: false,
-          dialogTitle: 'Select Kashi GeoField Backup (.kgfp)',
+          dialogTitle: 'Select Kashi GeoField Backup (.kgfp or .db)',
         );
 
         if (result == null || result.files.isEmpty) {
@@ -169,52 +169,145 @@ class BackupHelper {
         pickedPath = result.files.first.path;
       }
 
-      if (pickedPath == null) {
+      if (pickedPath == null || pickedPath.isEmpty) {
         return BackupResult.error('Could not read backup file path.');
       }
 
-      // Validate extension
-      if (!pickedPath.endsWith(_ext)) {
-        return BackupResult.error(
-          'Invalid file type. Please select a .kgfp backup file created by Kashi GeoField Pro.');
+      final file = File(pickedPath);
+      if (!await file.exists()) {
+        return BackupResult.error('Backup file does not exist at selected path.');
       }
 
-      final file = File(pickedPath);
-      final jsonStr = await file.readAsString(encoding: utf8);
-      final payload = jsonDecode(jsonStr) as Map<String, dynamic>;
-
-      // 2. Restore all data
       final db = DbHelper();
-      final storageDir = await StorageHelper.getAppStorageDirectory();
-
       int polyCount = 0, villageCount = 0, kmlCount = 0, diaryCount = 0;
 
-      // ── Polygons ──
-      final polygons = payload['polygons'] as List? ?? [];
+      // ── TYPE 1: Check if file is a SQLite database (.db or SQLite header bytes) ──
+      bool isSqlite = pickedPath.toLowerCase().endsWith('.db');
+      if (!isSqlite) {
+        try {
+          final headerBytes = await file.openRead(0, 16).first;
+          final headerStr = String.fromCharCodes(headerBytes);
+          if (headerStr.startsWith('SQLite format 3')) {
+            isSqlite = true;
+          }
+        } catch (_) {}
+      }
+
+      if (isSqlite) {
+        try {
+          final backupDb = await openDatabase(pickedPath, readOnly: true);
+
+          // Polygons
+          try {
+            final rows = await backupDb.query('polygons');
+            for (final row in rows) {
+              final copy = Map<String, dynamic>.from(row);
+              copy.remove('id');
+              await db.insertPolygon(PolygonModel.fromMap(row));
+              polyCount++;
+            }
+          } catch (_) {}
+
+          // Duty Diary
+          try {
+            final rows = await backupDb.query('duty_diary');
+            for (final row in rows) {
+              final copy = Map<String, dynamic>.from(row);
+              copy.remove('id');
+              await db.insertDutyDiary(copy);
+              diaryCount++;
+            }
+          } catch (_) {}
+
+          // Village Maps
+          try {
+            final rows = await backupDb.query('village_maps');
+            for (final row in rows) {
+              final copy = Map<String, dynamic>.from(row);
+              copy.remove('id');
+              await db.insertVillage(VillageModel.fromMap(row));
+              villageCount++;
+            }
+          } catch (_) {}
+
+          // KML Files
+          try {
+            final rows = await backupDb.query('kml_files');
+            for (final row in rows) {
+              await db.insertKmlFile(KmlFileModel.fromMap(row));
+              kmlCount++;
+            }
+          } catch (_) {}
+
+          await backupDb.close();
+          await db.autoBackup();
+
+          return BackupResult.success(
+            'SQLite Database Backup Restored Successfully!\n'
+            '• $polyCount Markers & Polygons\n'
+            '• $villageCount Village Maps\n'
+            '• $kmlCount KML Files\n'
+            '• $diaryCount Duty Diary Entries\n\n'
+            'Please restart the app or switch tabs to see your restored data.',
+          );
+        } catch (e) {
+          // If SQLite open fails, fall back to JSON parsing below
+        }
+      }
+
+      // ── TYPE 2: JSON Payload (.kgfp, .json, .txt, .bin) ──
+      String jsonStr = '';
+      try {
+        jsonStr = await file.readAsString(encoding: utf8);
+      } catch (_) {
+        try {
+          final bytes = await file.readAsBytes();
+          jsonStr = utf8.decode(bytes, allowMalformed: true);
+        } catch (_) {}
+      }
+
+      Map<String, dynamic>? payload;
+      try {
+        final decoded = jsonDecode(jsonStr);
+        if (decoded is Map<String, dynamic>) {
+          payload = decoded;
+        }
+      } catch (_) {}
+
+      if (payload == null) {
+        return BackupResult.error(
+          'Unrecognized backup file format. Please select a valid .kgfp or .db backup file created by Kashi GeoField Pro.',
+        );
+      }
+
+      final storageDir = await StorageHelper.getAppStorageDirectory();
       final docsDir = await getApplicationDocumentsDirectory();
+
+      // ── Restore Polygons / Markers ──
+      final polygons = payload['polygons'] as List? ?? [];
       for (final p in polygons) {
         try {
           String? photoPath = p['photo_path'] as String?;
           if (p['photo_bytes_b64'] != null) {
             final bytes = base64Decode(p['photo_bytes_b64'] as String);
-            final file = File('${docsDir.path}/img_${DateTime.now().millisecondsSinceEpoch}.jpg');
-            await file.writeAsBytes(bytes);
-            photoPath = file.path;
+            final imgFile = File('${docsDir.path}/img_${DateTime.now().millisecondsSinceEpoch}_${polyCount}.jpg');
+            await imgFile.writeAsBytes(bytes);
+            photoPath = imgFile.path;
           }
 
           String? voiceNotePath = p['voice_note_path'] as String?;
           if (p['voice_note_bytes_b64'] != null) {
             final bytes = base64Decode(p['voice_note_bytes_b64'] as String);
-            final file = File('${docsDir.path}/voice_${DateTime.now().millisecondsSinceEpoch}.m4a');
-            await file.writeAsBytes(bytes);
-            voiceNotePath = file.path;
+            final voiceFile = File('${docsDir.path}/voice_${DateTime.now().millisecondsSinceEpoch}_${polyCount}.m4a');
+            await voiceFile.writeAsBytes(bytes);
+            voiceNotePath = voiceFile.path;
           }
 
           final model = PolygonModel(
-            name: p['name'] as String,
-            coordinates: p['coordinates'] as String,
-            areaHectares: (p['area_hectares'] as num).toDouble(),
-            perimeterMeters: (p['perimeter_meters'] as num).toDouble(),
+            name: p['name'] as String? ?? 'Marker ${polyCount + 1}',
+            coordinates: p['coordinates'] as String? ?? '[]',
+            areaHectares: (p['area_hectares'] as num? ?? 0).toDouble(),
+            perimeterMeters: (p['perimeter_meters'] as num? ?? 0).toDouble(),
             color: p['color'] as String? ?? '#2EA043',
             createdAt: p['created_at'] as String? ?? DateTime.now().toIso8601String(),
             description: p['description'] as String?,
@@ -230,16 +323,16 @@ class BackupHelper {
         } catch (_) {}
       }
 
-      // ── Village Maps ──
+      // ── Restore Village Maps ──
       final villages = payload['village_maps'] as List? ?? [];
       for (final v in villages) {
         try {
           final model = VillageModel(
-            villageName: v['village_name'] as String,
+            villageName: v['village_name'] as String? ?? 'Village',
             district: v['district'] as String? ?? '',
             state: v['state'] as String? ?? '',
-            coordinates: v['coordinates'] as String,
-            areaHectares: (v['area_hectares'] as num).toDouble(),
+            coordinates: v['coordinates'] as String? ?? '[]',
+            areaHectares: (v['area_hectares'] as num? ?? 0).toDouble(),
             sourceFile: v['source_file'] as String? ?? '',
             createdAt: v['created_at'] as String? ?? DateTime.now().toIso8601String(),
           );
@@ -248,17 +341,16 @@ class BackupHelper {
         } catch (_) {}
       }
 
-      // ── KML Files (restore physical file then DB record) ──
+      // ── Restore KML Files ──
       final kmlFiles = payload['kml_files'] as List? ?? [];
       final kmlDir = Directory('$storageDir/kml_imports');
       if (!await kmlDir.exists()) await kmlDir.create(recursive: true);
 
       for (final k in kmlFiles) {
         try {
-          final filename = k['filename'] as String;
-          String filepath = k['filepath'] as String? ?? '$storageDir/kml_imports/$filename';
+          final filename = k['filename'] as String? ?? 'layer.kml';
+          String filepath = k['filepath'] as String? ?? '${kmlDir.path}/$filename';
 
-          // Restore the physical file if bytes were backed up
           final b64 = k['file_bytes_b64'] as String?;
           if (b64 != null && b64.isNotEmpty) {
             final bytes = base64Decode(b64);
@@ -281,23 +373,29 @@ class BackupHelper {
         } catch (_) {}
       }
 
-      // ── Duty Diary ──
+      // ── Restore Duty Diary ──
       final diary = payload['duty_diary'] as List? ?? [];
       for (final d in diary) {
         try {
           await db.insertDutyDiary({
-            'date': d['date'],
-            'time': d['time'],
-            'locations': d['locations'],
-            'activities': d['activities'],
-            'distance': (d['distance'] as num).toDouble(),
+            'date': d['date'] ?? DateTime.now().toString().substring(0, 10),
+            'time': d['time'] ?? '',
+            'locations': d['locations'] ?? '',
+            'activities': d['activities'] ?? '',
+            'distance': (d['distance'] as num? ?? 0).toDouble(),
+            'camp_station': d['camp_station'] ?? '',
+            'departure_time': d['departure_time'] ?? '',
+            'places_visited': d['places_visited'] ?? '',
+            'return_time': d['return_time'] ?? '',
+            'mode_and_km': d['mode_and_km'] ?? '',
+            'work_done': d['work_done'] ?? '',
             'created_at': d['created_at'] ?? DateTime.now().toIso8601String(),
           });
           diaryCount++;
         } catch (_) {}
       }
 
-      // ── Settings ──
+      // ── Restore Settings ──
       final settings = payload['settings'] as Map<String, dynamic>? ?? {};
       if (settings.isNotEmpty) {
         final prefs = await SharedPreferences.getInstance();
@@ -310,13 +408,16 @@ class BackupHelper {
         }
       }
 
+      // Update persistent external backup immediately
+      await db.autoBackup();
+
       return BackupResult.success(
-        'Restore completed successfully!\n'
-        '• $polyCount Polygons\n'
+        'Restore Completed Successfully!\n'
+        '• $polyCount Markers & Polygons\n'
         '• $villageCount Village Maps\n'
         '• $kmlCount KML Files\n'
         '• $diaryCount Duty Diary Entries\n\n'
-        'Restart the app for all data to appear on the map.',
+        'All data is saved and backed up. Switch tabs or restart app to update map display.',
       );
     } catch (e) {
       return BackupResult.error('Import failed: $e');
