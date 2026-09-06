@@ -142,12 +142,14 @@ class _MainScaffoldState extends State<MainScaffold> {
           await _mapKey.currentState?.reloadKmlLayers();
           _mapKey.currentState?.centerMapOnShapes(coloredShapes);
           
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Successfully imported and opened $fileName'),
-              backgroundColor: AppTheme.greenPrimary,
-            ),
-          );
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Successfully imported and opened $fileName'),
+                backgroundColor: AppTheme.greenPrimary,
+              ),
+            );
+          }
         }
       }
     } catch (e) {
