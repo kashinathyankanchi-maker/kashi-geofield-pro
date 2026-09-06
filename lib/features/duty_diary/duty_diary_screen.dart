@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'models/duty_diary_model.dart';
 import 'duty_diary_form_screen.dart';
 import 'diary_pdf_generator.dart';
@@ -148,67 +149,235 @@ class _DutyDiaryScreenState extends State<DutyDiaryScreen> {
   }
 
   void _showOfficerInfoDialog(DateTime monday, List<DutyDiaryModel> weekEntries) {
-    final nameCtrl = TextEditingController();
-    final subDivCtrl = TextEditingController();
-    final rangeCtrl = TextEditingController();
-    final divCtrl = TextEditingController();
-
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppTheme.bgCard,
-        title: const Text('ಅಧಿಕಾರಿಯ ವಿವರಗಳು (PDF ಹೆಡರ್‌ಗಾಗಿ)',
-            style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _dialogField(nameCtrl, 'ಅಧಿಕಾರಿಯ ಹೆಸರು (Officer Name)'),
-              const SizedBox(height: 10),
-              _dialogField(subDivCtrl, 'ಉಪವಲಯ (Sub-Division)'),
-              const SizedBox(height: 10),
-              _dialogField(rangeCtrl, 'ವಲಯ (Range)'),
-              const SizedBox(height: 10),
-              _dialogField(divCtrl, 'ವಿಭಾಗ (Division)'),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('ರದ್ದುಗೊಳಿಸಿ', style: TextStyle(color: AppTheme.textMuted)),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.greenPrimary),
-            onPressed: () {
-              Navigator.pop(ctx);
-              DiaryPdfGenerator.generateWeeklyPdf(
-                context,
-                monday,
-                weekEntries,
-                officerName: nameCtrl.text.trim(),
-                subDivision: subDivCtrl.text.trim(),
-                range: rangeCtrl.text.trim(),
-                division: divCtrl.text.trim(),
-              );
-            },
-            child: const Text('PDF ರಚಿಸಿ', style: TextStyle(color: Colors.white)),
-          ),
-        ],
+      builder: (ctx) => _OfficerInfoDialog(
+        monday: monday,
+        weekEntries: weekEntries,
       ),
     );
   }
+}
 
-  Widget _dialogField(TextEditingController ctrl, String label) {
+class _OfficerInfoDialog extends StatefulWidget {
+  final DateTime monday;
+  final List<DutyDiaryModel> weekEntries;
+
+  const _OfficerInfoDialog({
+    required this.monday,
+    required this.weekEntries,
+  });
+
+  @override
+  State<_OfficerInfoDialog> createState() => _OfficerInfoDialogState();
+}
+
+class _OfficerInfoDialogState extends State<_OfficerInfoDialog> {
+  late TextEditingController _nameCtrl;
+  late TextEditingController _customDesigCtrl;
+  late TextEditingController _rangeCtrl;
+  late TextEditingController _divCtrl;
+
+  final List<String> _designationOptions = [
+    'ಉಪವಲಯ ಅರಣ್ಯಾಧಿಕಾರಿ',
+    'ಗಸ್ತು ವನಪಾಲಕ',
+    'ವಲಯ ಅರಣ್ಯಾಧಿಕಾರಿ',
+    'ಅರಣ್ಯ ರಕ್ಷಕ',
+    'ವನಪಾಲಕ',
+    'ವಿಭಾಗಾಧಿಕಾರಿ',
+    'ಇತರೆ / Custom',
+  ];
+
+  String _selectedDesignation = 'ಉಪವಲಯ ಅರಣ್ಯಾಧಿಕಾರಿ';
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameCtrl = TextEditingController();
+    _customDesigCtrl = TextEditingController();
+    _rangeCtrl = TextEditingController();
+    _divCtrl = TextEditingController();
+    _loadSavedHeaderData();
+  }
+
+  Future<void> _loadSavedHeaderData() async {
+    final prefs = await SharedPreferences.getInstance();
+    final name = prefs.getString('diary_officer_name') ?? '';
+    final desig = prefs.getString('diary_designation') ?? 'ಉಪವಲಯ ಅರಣ್ಯಾಧಿಕಾರಿ';
+    final range = prefs.getString('diary_range_name') ?? '';
+    final div = prefs.getString('diary_division_name') ?? '';
+
+    setState(() {
+      _nameCtrl.text = name;
+      _rangeCtrl.text = range;
+      _divCtrl.text = div;
+      if (_designationOptions.contains(desig)) {
+        _selectedDesignation = desig;
+      } else {
+        _selectedDesignation = 'ಇತರೆ / Custom';
+        _customDesigCtrl.text = desig;
+      }
+      _isLoading = false;
+    });
+  }
+
+  Future<void> _saveAndGeneratePdf() async {
+    final name = _nameCtrl.text.trim();
+    final desig = _selectedDesignation == 'ಇತರೆ / Custom'
+        ? _customDesigCtrl.text.trim()
+        : _selectedDesignation;
+    final range = _rangeCtrl.text.trim();
+    final div = _divCtrl.text.trim();
+
+    // Persist user fed data so they don't need to re-enter every time
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('diary_officer_name', name);
+    await prefs.setString('diary_designation', desig);
+    await prefs.setString('diary_range_name', range);
+    await prefs.setString('diary_division_name', div);
+
+    if (!mounted) return;
+    Navigator.pop(context);
+
+    DiaryPdfGenerator.generateWeeklyPdf(
+      context,
+      widget.monday,
+      widget.weekEntries,
+      officerName: name,
+      designation: desig,
+      range: range,
+      division: div,
+    );
+  }
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _customDesigCtrl.dispose();
+    _rangeCtrl.dispose();
+    _divCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: AppTheme.bgCard,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: Row(
+        children: const [
+          Icon(Icons.assignment_ind_outlined, color: AppTheme.greenAccent, size: 22),
+          SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'ಅಧಿಕಾರಿಯ ವಿವರಗಳು (PDF Header)',
+              style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+      content: _isLoading
+          ? const SizedBox(
+              height: 120,
+              child: Center(child: CircularProgressIndicator(color: AppTheme.greenPrimary)),
+            )
+          : SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'ದಾಖಲಿಸಿದ ವಿವರಗಳು ಉಳಿಯುತ್ತವೆ (Persistent Data). ಪ್ರತಿ ಬಾರಿಯೂ ಮರು-ನಮೂದಿಸುವ ಅಗತ್ಯವಿಲ್ಲ.',
+                    style: TextStyle(color: AppTheme.textMuted, fontSize: 11),
+                  ),
+                  const SizedBox(height: 14),
+
+                  // 1. Officer Name
+                  _dialogField(_nameCtrl, 'ಅಧಿಕಾರಿಯ ಹೆಸರು (Officer Name)', Icons.person_outline),
+                  const SizedBox(height: 12),
+
+                  // 2. Designation Dropdown
+                  const Text(
+                    'ಹುದ್ದೆ (Designation)',
+                    style: TextStyle(color: AppTheme.greenAccent, fontSize: 12, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 4),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    decoration: BoxDecoration(
+                      color: AppTheme.bgSurface,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: AppTheme.borderColor),
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        value: _selectedDesignation,
+                        isExpanded: true,
+                        dropdownColor: AppTheme.bgCard,
+                        style: const TextStyle(color: Colors.white, fontSize: 13),
+                        items: _designationOptions.map((d) {
+                          return DropdownMenuItem(
+                            value: d,
+                            child: Text(d),
+                          );
+                        }).toList(),
+                        onChanged: (val) {
+                          if (val != null) setState(() => _selectedDesignation = val);
+                        },
+                      ),
+                    ),
+                  ),
+                  if (_selectedDesignation == 'ಇತರೆ / Custom') ...[
+                    const SizedBox(height: 8),
+                    _dialogField(_customDesigCtrl, 'ನಿಮ್ಮ ಹುದ್ದೆಯನ್ನು ಟೈಪ್ ಮಾಡಿ', Icons.badge_outlined),
+                  ],
+                  const SizedBox(height: 12),
+
+                  // 3. Range Name
+                  _dialogField(_rangeCtrl, 'ವಲಯ ಹೆಸರು (Range Name)', Icons.landscape_outlined),
+                  const SizedBox(height: 12),
+
+                  // 4. Division Name
+                  _dialogField(_divCtrl, 'ವಿಭಾಗ ಹೆಸರು (Division Name)', Icons.business_outlined),
+                ],
+              ),
+            ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('ರದ್ದುಗೊಳಿಸಿ', style: TextStyle(color: AppTheme.textMuted)),
+        ),
+        ElevatedButton.icon(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppTheme.greenPrimary,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+          onPressed: _saveAndGeneratePdf,
+          icon: const Icon(Icons.picture_as_pdf, color: Colors.white, size: 18),
+          label: const Text('PDF ರಚಿಸಿ', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        ),
+      ],
+    );
+  }
+
+  Widget _dialogField(TextEditingController ctrl, String label, IconData icon) {
     return TextField(
       controller: ctrl,
       style: const TextStyle(color: Colors.white, fontSize: 13),
       decoration: InputDecoration(
         labelText: label,
         labelStyle: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+        prefixIcon: Icon(icon, color: AppTheme.textMuted, size: 18),
         filled: true,
         fillColor: AppTheme.bgSurface,
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+        enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: const BorderSide(color: AppTheme.borderColor)),
+        focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: const BorderSide(color: AppTheme.greenPrimary)),
         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       ),
     );

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'models/duty_diary_model.dart';
 import '../../core/database/db_helper.dart';
 import '../../shared/theme.dart';
@@ -43,6 +44,18 @@ class _DutyDiaryFormScreenState extends State<DutyDiaryFormScreen> {
     _modeAndKmCtrl     = TextEditingController(text: e?.modeAndKm    ?? '');
     _workDoneCtrl      = TextEditingController(text: e?.workDone     ?? '');
     _selectedDate = e != null ? DateTime.parse(e.date) : DateTime.now();
+
+    if (e == null) {
+      _loadDefaultCamp();
+    }
+  }
+
+  Future<void> _loadDefaultCamp() async {
+    final prefs = await SharedPreferences.getInstance();
+    final defaultCamp = prefs.getString('diary_default_camp') ?? '';
+    if (defaultCamp.isNotEmpty && _campStationCtrl.text.isEmpty && mounted) {
+      setState(() => _campStationCtrl.text = defaultCamp);
+    }
   }
 
   @override
@@ -154,6 +167,11 @@ class _DutyDiaryFormScreenState extends State<DutyDiaryFormScreen> {
       await DbHelper().insertDutyDiary(entry.toMap());
     } else {
       await DbHelper().updateDutyDiary(entry.toMap());
+    }
+
+    if (entry.campStation.isNotEmpty) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('diary_default_camp', entry.campStation);
     }
 
     if (mounted) {

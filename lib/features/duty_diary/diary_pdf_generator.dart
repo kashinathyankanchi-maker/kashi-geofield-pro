@@ -33,7 +33,7 @@ class DiaryPdfGenerator {
     DateTime startOfWeek,
     List<DutyDiaryModel> entries, {
     String officerName   = '',
-    String subDivision   = '',
+    String designation   = '',
     String range         = '',
     String division      = '',
     int    weekNumber    = 0,
@@ -53,26 +53,27 @@ class DiaryPdfGenerator {
 
     final wn  = weekNumber > 0 ? weekNumber : _isoWeek(startOfWeek);
     final yr  = year > 0 ? year : startOfWeek.year;
+    final yrShort = yr.toString().length >= 2 ? yr.toString().substring(yr.toString().length - 2) : yr.toString();
     final mn  = month.isNotEmpty ? month : DateFormat('MMMM').format(startOfWeek);
-    final rfo = officerName.isNotEmpty ? officerName : '______________';
-    final sd  = subDivision.isNotEmpty ? subDivision : '______________';
-    final rng = range.isNotEmpty      ? range        : '______________';
-    final div = division.isNotEmpty   ? division     : '______________';
+    final rfo = officerName.isNotEmpty ? officerName : '..............';
+    final desig = designation.isNotEmpty ? designation : 'ಉಪವಲಯ ಅರಣ್ಯಾಧಿಕಾರಿ / ಗಸ್ತು ವನ ಪಾಲಕ';
+    final rng = range.isNotEmpty      ? range        : '_______';
+    final div = division.isNotEmpty   ? division     : '_______';
 
     // ── Pre-render Header, Table Headers, and Table Content as PNGs via dart:ui ──
     // Using dart:ui guarantees full Kannada complex text shaping (no black box ☒ glyph errors)
 
-    // Header Line 1: ಶ್ರೀ [Officer] ಉಪವಲಯ ಅರಣ್ಯಾಧಿಕಾರಿ. [SubDiv] ವಲಯ [Range] ವಿಭಾಗ [Div]
+    // Header Line 1: ಶ್ರೀ [Officer] [Designation]. [Range] ವಲಯ [Division] ವಿಭಾಗ
     final headerLine1Bytes = await _renderText(
-      'ಶ್ರೀ $rfo         ಉಪವಲಯ ಅರಣ್ಯಾಧಿಕಾರಿ. $sd         ವಲಯ $rng         ವಿಭಾಗ $div',
+      'ಶ್ರೀ $rfo     $desig.     $rng ವಲಯ     $div ವಿಭಾಗ',
       785,
       fontSize: 12.0,
       bold: true,
     );
 
-    // Header Line 2: ಇವರ [Year] ನೇ ಸಾಲಿನ [Month] ತಿಂಗಳ ದಿನಾಂಕ [Start] ರಿಂದ [End] ರವರೆಗಿನ [Week] ನೇ ವಾರದ ದಿನಚರಿ ಯಾದಿ.
+    // Header Line 2: ಇವರ 20[YY] ನೇ ಸಾಲಿನ [Month] ತಿಂಗಳ ದಿನಾಂಕ [Start] ರಿಂದ [End] ರವರೆಗೆ [Week] ನೇ ವಾರದ ದಿನಚರಿ ಇದು.
     final headerLine2Bytes = await _renderText(
-      'ಇವರ $yr ನೇ ಸಾಲಿನ  $mn  ತಿಂಗಳ ದಿನಾಂಕ ${ddMM.format(startOfWeek)} ರಿಂದ ${ddMM.format(endOfWeek)} ರವರೆಗಿನ  $wn  ನೇ ವಾರದ ದಿನಚರಿ ಯಾದಿ.',
+      'ಇವರ 20$yrShort ನೇ ಸಾಲಿನ   $mn   ತಿಂಗಳ ದಿನಾಂಕ ${ddMM.format(startOfWeek)} ರಿಂದ ${ddMM.format(endOfWeek)} ರವರೆಗೆ   $wn   ನೇ ವಾರದ ದಿನಚರಿ ಇದು.',
       785,
       fontSize: 11.5,
       bold: true,

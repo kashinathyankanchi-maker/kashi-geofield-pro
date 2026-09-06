@@ -83,6 +83,11 @@ class BackupHelper {
         'settings_fire_detection_alerts',
         'settings_auto_gps',
         'settings_units',
+        'diary_officer_name',
+        'diary_designation',
+        'diary_range_name',
+        'diary_division_name',
+        'diary_default_camp',
       ];
       final savedPrefs = <String, dynamic>{};
       for (final key in prefKeys) {
