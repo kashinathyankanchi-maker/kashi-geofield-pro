@@ -157,6 +157,166 @@ class _DutyDiaryScreenState extends State<DutyDiaryScreen> {
       ),
     );
   }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppTheme.bgSurface,
+      appBar: AppBar(
+        backgroundColor: AppTheme.bgCard,
+        title: const Text('ದಿನಚರಿ ಯಾದಿ (Duty Diary)', style: TextStyle(color: Colors.white)),
+        iconTheme: const IconThemeData(color: Colors.white),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.picture_as_pdf_outlined, color: AppTheme.greenAccent),
+            tooltip: 'ವಾರದ ವರದಿ PDF ರಫ್ತು',
+            onPressed: _exportWeeklyReport,
+          ),
+        ],
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator(color: AppTheme.greenPrimary))
+          : _entries.isEmpty
+              ? _buildEmptyState()
+              : _buildList(),
+      floatingActionButton: FloatingActionButton.extended(
+        backgroundColor: AppTheme.greenPrimary,
+        onPressed: () => _openForm(),
+        icon: const Icon(Icons.add, color: Colors.white),
+        label: const Text('ಹೊಸ ನಮೂದು', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.menu_book_rounded, size: 64, color: AppTheme.textMuted.withOpacity(0.5)),
+          const SizedBox(height: 16),
+          const Text(
+            'ಇನ್ನೂ ಯಾವುದೇ ದಿನಚರಿ ದಾಖಲಾಗಿಲ್ಲ.',
+            style: TextStyle(color: AppTheme.textSecondary, fontSize: 16),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'ದೈನಂದಿನ ಗಸ್ತು ವಿವರ ಸೇರಿಸಲು + ಬಟನ್ ಒತ್ತಿ.',
+            style: TextStyle(color: AppTheme.textMuted, fontSize: 14),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildList() {
+    return ListView.builder(
+      padding: const EdgeInsets.only(top: 8, bottom: 80),
+      itemCount: _entries.length,
+      itemBuilder: (context, index) {
+        final entry = _entries[index];
+        final dt = DateTime.tryParse(entry.date);
+        
+        final dayNames = ['ಸೋಮವಾರ', 'ಮಂಗಳವಾರ', 'ಬುಧವಾರ', 'ಗುರುವಾರ', 'ಶುಕ್ರವಾರ', 'ಶನಿವಾರ', 'ಭಾನುವಾರ'];
+        String dateStr = entry.date;
+        if (dt != null) {
+          final knDay = dayNames[dt.weekday - 1];
+          dateStr = '$knDay, ${DateFormat('dd/MM/yyyy').format(dt)}';
+        }
+
+        final camp = entry.campStation.isNotEmpty ? entry.campStation : entry.locations;
+        final places = entry.placesVisited.isNotEmpty ? entry.placesVisited : entry.locations;
+        final work = entry.workDone.isNotEmpty ? entry.workDone : entry.activities;
+        final mode = entry.modeAndKm.isNotEmpty ? entry.modeAndKm : (entry.distance > 0 ? '${entry.distance} KM' : '');
+
+        return Card(
+          color: AppTheme.bgCard,
+          margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          child: InkWell(
+            onTap: () => _openForm(entry),
+            borderRadius: BorderRadius.circular(12),
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        dateStr,
+                        style: const TextStyle(
+                            color: AppTheme.greenAccent,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14),
+                      ),
+                      if (entry.departureTime.isNotEmpty || entry.returnTime.isNotEmpty)
+                        Text(
+                          '${entry.departureTime} ➔ ${entry.returnTime}',
+                          style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+                        )
+                      else if (entry.time.isNotEmpty)
+                        Text(
+                          entry.time,
+                          style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+                        ),
+                    ],
+                  ),
+                  const Divider(color: Colors.white12, height: 16),
+                  
+                  if (camp.isNotEmpty) ...[
+                    _buildRow(Icons.home_work_outlined, 'ಮುಕ್ಕಾಂ: $camp'),
+                    const SizedBox(height: 4),
+                  ],
+                  if (places.isNotEmpty) ...[
+                    _buildRow(Icons.place_outlined, 'ಸ್ಥಳ: $places'),
+                    const SizedBox(height: 4),
+                  ],
+                  if (mode.isNotEmpty) ...[
+                    _buildRow(Icons.directions_bike_outlined, 'ರೀತಿ/ಕಿ.ಮೀ: $mode'),
+                    const SizedBox(height: 6),
+                  ],
+                  if (work.isNotEmpty) ...[
+                    Text(
+                      work,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: AppTheme.textPrimary, fontSize: 13),
+                    ),
+                  ],
+
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: IconButton(
+                      icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      onPressed: () => _deleteEntry(entry.id!),
+                    ),
+                  )
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildRow(IconData icon, String text) {
+    return Row(
+      children: [
+        Icon(icon, size: 14, color: AppTheme.textMuted),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            text,
+            style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 class _OfficerInfoDialog extends StatefulWidget {
@@ -380,166 +540,6 @@ class _OfficerInfoDialogState extends State<_OfficerInfoDialog> {
             borderSide: const BorderSide(color: AppTheme.greenPrimary)),
         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppTheme.bgSurface,
-      appBar: AppBar(
-        backgroundColor: AppTheme.bgCard,
-        title: const Text('ದಿನಚರಿ ಯಾದಿ (Duty Diary)', style: TextStyle(color: Colors.white)),
-        iconTheme: const IconThemeData(color: Colors.white),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.picture_as_pdf_outlined, color: AppTheme.greenAccent),
-            tooltip: 'ವಾರದ ವರದಿ PDF ರಫ್ತು',
-            onPressed: _exportWeeklyReport,
-          ),
-        ],
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: AppTheme.greenPrimary))
-          : _entries.isEmpty
-              ? _buildEmptyState()
-              : _buildList(),
-      floatingActionButton: FloatingActionButton.extended(
-        backgroundColor: AppTheme.greenPrimary,
-        onPressed: () => _openForm(),
-        icon: const Icon(Icons.add, color: Colors.white),
-        label: const Text('ಹೊಸ ನಮೂದು', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-      ),
-    );
-  }
-
-  Widget _buildEmptyState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.menu_book_rounded, size: 64, color: AppTheme.textMuted.withOpacity(0.5)),
-          const SizedBox(height: 16),
-          const Text(
-            'ಇನ್ನೂ ಯಾವುದೇ ದಿನಚರಿ ದಾಖಲಾಗಿಲ್ಲ.',
-            style: TextStyle(color: AppTheme.textSecondary, fontSize: 16),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            'ದೈನಂದಿನ ಗಸ್ತು ವಿವರ ಸೇರಿಸಲು + ಬಟನ್ ಒತ್ತಿ.',
-            style: TextStyle(color: AppTheme.textMuted, fontSize: 14),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildList() {
-    return ListView.builder(
-      padding: const EdgeInsets.only(top: 8, bottom: 80),
-      itemCount: _entries.length,
-      itemBuilder: (context, index) {
-        final entry = _entries[index];
-        final dt = DateTime.tryParse(entry.date);
-        
-        final dayNames = ['ಸೋಮವಾರ', 'ಮಂಗಳವಾರ', 'ಬುಧವಾರ', 'ಗುರುವಾರ', 'ಶುಕ್ರವಾರ', 'ಶನಿವಾರ', 'ಭಾನುವಾರ'];
-        String dateStr = entry.date;
-        if (dt != null) {
-          final knDay = dayNames[dt.weekday - 1];
-          dateStr = '$knDay, ${DateFormat('dd/MM/yyyy').format(dt)}';
-        }
-
-        final camp = entry.campStation.isNotEmpty ? entry.campStation : entry.locations;
-        final places = entry.placesVisited.isNotEmpty ? entry.placesVisited : entry.locations;
-        final work = entry.workDone.isNotEmpty ? entry.workDone : entry.activities;
-        final mode = entry.modeAndKm.isNotEmpty ? entry.modeAndKm : (entry.distance > 0 ? '${entry.distance} KM' : '');
-
-        return Card(
-          color: AppTheme.bgCard,
-          margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          child: InkWell(
-            onTap: () => _openForm(entry),
-            borderRadius: BorderRadius.circular(12),
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        dateStr,
-                        style: const TextStyle(
-                            color: AppTheme.greenAccent,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14),
-                      ),
-                      if (entry.departureTime.isNotEmpty || entry.returnTime.isNotEmpty)
-                        Text(
-                          '${entry.departureTime} ➔ ${entry.returnTime}',
-                          style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
-                        )
-                      else if (entry.time.isNotEmpty)
-                        Text(
-                          entry.time,
-                          style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
-                        ),
-                    ],
-                  ),
-                  const Divider(color: Colors.white12, height: 16),
-                  
-                  if (camp.isNotEmpty) ...[
-                    _buildRow(Icons.home_work_outlined, 'ಮುಕ್ಕಾಂ: $camp'),
-                    const SizedBox(height: 4),
-                  ],
-                  if (places.isNotEmpty) ...[
-                    _buildRow(Icons.place_outlined, 'ಸ್ಥಳ: $places'),
-                    const SizedBox(height: 4),
-                  ],
-                  if (mode.isNotEmpty) ...[
-                    _buildRow(Icons.directions_bike_outlined, 'ರೀತಿ/ಕಿ.ಮೀ: $mode'),
-                    const SizedBox(height: 6),
-                  ],
-                  if (work.isNotEmpty) ...[
-                    Text(
-                      work,
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: AppTheme.textPrimary, fontSize: 13),
-                    ),
-                  ],
-
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: IconButton(
-                      icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                      onPressed: () => _deleteEntry(entry.id!),
-                    ),
-                  )
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildRow(IconData icon, String text) {
-    return Row(
-      children: [
-        Icon(icon, size: 14, color: AppTheme.textMuted),
-        const SizedBox(width: 6),
-        Expanded(
-          child: Text(
-            text,
-            style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
-          ),
-        ),
-      ],
     );
   }
 }
