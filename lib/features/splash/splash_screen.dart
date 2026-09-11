@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../shared/theme.dart';
 import '../../shared/bottom_nav.dart';
+import 'package:app_links/app_links.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -14,6 +15,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
   late AnimationController _animController;
   late Animation<double> _fadeAnimation;
   late Animation<double> _scaleAnimation;
+  Uri? _pendingUri; // URI from cold-start file open
 
   @override
   void initState() {
@@ -33,11 +35,15 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
 
     _animController.forward();
 
+    // Capture the initial URI BEFORE navigating so MainScaffold gets it
+    _captureInitialUri();
+
     Timer(const Duration(seconds: 3), () {
       if (mounted) {
         Navigator.of(context).pushReplacement(
           PageRouteBuilder(
-            pageBuilder: (context, animation, secondaryAnimation) => const MainScaffold(),
+            pageBuilder: (context, animation, secondaryAnimation) =>
+                MainScaffold(initialUri: _pendingUri),
             transitionsBuilder: (context, animation, secondaryAnimation, child) {
               return FadeTransition(opacity: animation, child: child);
             },
@@ -46,6 +52,16 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
         );
       }
     });
+  }
+
+  Future<void> _captureInitialUri() async {
+    try {
+      final appLinks = AppLinks();
+      final uri = await appLinks.getInitialLink();
+      if (uri != null) {
+        _pendingUri = uri;
+      }
+    } catch (_) {}
   }
 
   @override
