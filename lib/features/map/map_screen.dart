@@ -2577,6 +2577,15 @@ $wpPlacemarks
                 ),
               ),
 
+              // ── Solid Black Status Bar Background ──────────────────────────
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                height: MediaQuery.of(context).padding.top,
+                child: Container(color: Colors.black),
+              ),
+
               // ── Left: Waypoint Panel ─────────────────────────────────────────
               if (_showWaypointPanel)
                 Positioned(
