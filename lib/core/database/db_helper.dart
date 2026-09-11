@@ -16,7 +16,7 @@ class DbHelper {
   DbHelper._internal();
 
   static const String _dbName = 'kashi_geofield.db';
-  static const int _dbVersion = 8;
+  static const int _dbVersion = 9;
 
   Future<Database> get database async {
     _db ??= await _initDb();
@@ -27,8 +27,6 @@ class DbHelper {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, _dbName);
     final db = await openDatabase(path, version: _dbVersion, onCreate: _onCreate, onUpgrade: _onUpgrade);
-    // Auto-restore data from persistent external storage backup if local DB is fresh/empty
-    await checkAndRestoreBackup(db);
     return db;
   }
 
@@ -105,6 +103,9 @@ class DbHelper {
         created_at TEXT NOT NULL
       )
     ''');
+    
+    // Auto-restore data from persistent external storage backup if local DB is fresh/empty
+    await checkAndRestoreBackup(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -207,6 +208,35 @@ class DbHelper {
       } catch (_) {
         // Columns may already exist
       }
+    }
+    
+    if (oldVersion < 9) {
+      try {
+        await db.execute('''
+          DELETE FROM village_maps 
+          WHERE id NOT IN (
+            SELECT MIN(id) FROM village_maps GROUP BY village_name, coordinates
+          )
+        ''');
+        await db.execute('''
+          DELETE FROM polygons 
+          WHERE id NOT IN (
+            SELECT MIN(id) FROM polygons GROUP BY name, coordinates
+          )
+        ''');
+        await db.execute('''
+          DELETE FROM kml_files 
+          WHERE id NOT IN (
+            SELECT MIN(id) FROM kml_files GROUP BY filename, filepath
+          )
+        ''');
+        await db.execute('''
+          DELETE FROM duty_diary 
+          WHERE id NOT IN (
+            SELECT MIN(id) FROM duty_diary GROUP BY date, time, locations, activities
+          )
+        ''');
+      } catch (_) {}
     }
   }
 
