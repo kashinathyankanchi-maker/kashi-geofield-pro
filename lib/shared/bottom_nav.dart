@@ -46,15 +46,8 @@ class _MainScaffoldState extends State<MainScaffold> {
       const SettingsScreen(),
     ];
     _initAppLinks();
-    _checkAndRestoreOnStartup();
-  }
-
-  Future<void> _checkAndRestoreOnStartup() async {
-    try {
-      final db = DbHelper();
-      final dbObj = await db.database;
-      await db.checkAndRestoreBackup(dbObj);
-    } catch (_) {}
+    // NOTE: checkAndRestoreBackup is already called inside DbHelper._initDb()
+    // on first app launch. Calling it again here would cause duplicate entries.
   }
 
   @override

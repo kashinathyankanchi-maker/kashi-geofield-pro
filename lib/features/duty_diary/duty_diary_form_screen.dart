@@ -170,6 +170,7 @@ class _DutyDiaryFormScreenState extends State<DutyDiaryFormScreen> {
     }
 
     if (entry.campStation.isNotEmpty) {
+      if (!mounted) return;
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('diary_default_camp', entry.campStation);
     }
@@ -438,6 +439,6 @@ class _DutyDiaryFormScreenState extends State<DutyDiaryFormScreen> {
   int _weekNumber(DateTime date) {
     final startOfYear = DateTime(date.year, 1, 1);
     final diff = date.difference(startOfYear).inDays;
-    return (diff / 7).ceil() + 1;
+    return (diff / 7).floor() + 1;
   }
 }

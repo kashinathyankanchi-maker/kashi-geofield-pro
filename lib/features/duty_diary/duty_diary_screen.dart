@@ -193,7 +193,7 @@ class _DutyDiaryScreenState extends State<DutyDiaryScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.menu_book_rounded, size: 64, color: AppTheme.textMuted.withOpacity(0.5)),
+          Icon(Icons.menu_book_rounded, size: 64, color: AppTheme.textMuted.withAlpha(128)),
           const SizedBox(height: 16),
           const Text(
             'ಇನ್ನೂ ಯಾವುದೇ ದಿನಚರಿ ದಾಖಲಾಗಿಲ್ಲ.',
@@ -291,7 +291,7 @@ class _DutyDiaryScreenState extends State<DutyDiaryScreen> {
                       icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
                       padding: EdgeInsets.zero,
                       constraints: const BoxConstraints(),
-                      onPressed: () => _deleteEntry(entry.id!),
+                      onPressed: entry.id != null ? () => _deleteEntry(entry.id!) : null,
                     ),
                   )
                 ],

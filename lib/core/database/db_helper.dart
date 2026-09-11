@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
@@ -214,7 +215,7 @@ class DbHelper {
   Future<int> insertDutyDiary(Map<String, dynamic> row) async {
     final db = await database;
     final res = await db.insert('duty_diary', row);
-    autoBackup();
+    unawaited(autoBackup());
     return res;
   }
 
@@ -225,16 +226,16 @@ class DbHelper {
 
   Future<int> updateDutyDiary(Map<String, dynamic> row) async {
     final db = await database;
-    int id = row['id'] as int;
+    int id = (row['id'] as num).toInt();
     final res = await db.update('duty_diary', row, where: 'id = ?', whereArgs: [id]);
-    autoBackup();
+    unawaited(autoBackup());
     return res;
   }
 
   Future<int> deleteDutyDiary(int id) async {
     final db = await database;
     final res = await db.delete('duty_diary', where: 'id = ?', whereArgs: [id]);
-    autoBackup();
+    unawaited(autoBackup());
     return res;
   }
 
@@ -244,7 +245,7 @@ class DbHelper {
     final db = await database;
     final res = await db.insert('polygons', polygon.toMap(),
         conflictAlgorithm: ConflictAlgorithm.replace);
-    autoBackup();
+    unawaited(autoBackup());
     return res;
   }
 
@@ -264,14 +265,14 @@ class DbHelper {
     final db = await database;
     final res = await db.update('polygons', polygon.toMap(),
         where: 'id = ?', whereArgs: [polygon.id]);
-    autoBackup();
+    unawaited(autoBackup());
     return res;
   }
 
   Future<int> deletePolygon(int id) async {
     final db = await database;
     final res = await db.delete('polygons', where: 'id = ?', whereArgs: [id]);
-    autoBackup();
+    unawaited(autoBackup());
     return res;
   }
 

@@ -10,7 +10,7 @@ import '../database/db_helper.dart';
 import '../models/kml_file_model.dart';
 import '../models/polygon_model.dart';
 import '../models/village_model.dart';
-import '../models/print_history_model.dart';
+import '../models/print_history_model.dart'; // used in exportAllData (getPrintHistory)
 import 'storage_helper.dart';
 
 /// Handles full app data export (backup) and import (restore).

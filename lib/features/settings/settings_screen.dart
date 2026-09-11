@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:file_picker/file_picker.dart';
@@ -231,20 +232,114 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _exportAllPolygonsAsKml() async {
     setState(() => _saving = true);
     try {
-      // Placeholder: actual KML export requires reading polygons from DB.
-      // This generates a minimal KML skeleton.
-      const kmlContent = '''<?xml version="1.0" encoding="UTF-8"?>
-<kml xmlns="http://www.opengis.net/kml/2.2">
-  <Document>
-    <name>KashiGeoField Pro Export</name>
-  </Document>
-</kml>''';
+      final polygons = await DbHelper().getAllPolygons();
+      if (polygons.isEmpty) {
+        if (mounted) {
+          _showResultDialog(
+            title: 'ℹ️ No Data',
+            message: 'No polygons or markers found to export.',
+            success: false,
+          );
+        }
+        return;
+      }
 
-      await Share.share(kmlContent,
-          subject: 'KashiGeoField Pro - Polygon Export');
+      final buf = StringBuffer();
+      buf.writeln('<?xml version="1.0" encoding="UTF-8"?>');
+      buf.writeln('<kml xmlns="http://www.opengis.net/kml/2.2">');
+      buf.writeln('  <Document>');
+      buf.writeln('    <name>KashiGeoField Pro Export</name>');
+      buf.writeln('    <description>Exported on ${DateTime.now().toIso8601String()}</description>');
+
+      for (final p in polygons) {
+        buf.writeln('    <Placemark>');
+        buf.writeln('      <name>${_escapeXml(p.name)}</name>');
+        if (p.description != null && p.description!.isNotEmpty) {
+          buf.writeln('      <description>${_escapeXml(p.description!)}</description>');
+        }
+        buf.writeln('      <Style><LineStyle><color>ff${p.color.replaceFirst('#', '')}</color></LineStyle></Style>');
+
+
+        // Best-effort: parse coord JSON array
+        try {
+          final rawCoords = p.coordinates.trim();
+          if (rawCoords.startsWith('[')) {
+            // Try to parse as [{lat:..., lng:...}] or [[lat, lng]]
+            final List<dynamic> list = _parseJsonList(rawCoords);
+            if (list.isNotEmpty) {
+              final firstItem = list.first;
+              final List<String> kmlCoords = [];
+              if (firstItem is Map) {
+                for (final c in list) {
+                  final m = c as Map<String, dynamic>;
+                  final lat = (m['lat'] ?? m['latitude'] ?? 0).toString();
+                  final lng = (m['lng'] ?? m['longitude'] ?? m['lon'] ?? 0).toString();
+                  kmlCoords.add('$lng,$lat,0');
+                }
+              } else if (firstItem is List) {
+                for (final c in list) {
+                  final arr = c as List<dynamic>;
+                  final lat = arr[0].toString();
+                  final lng = arr[1].toString();
+                  kmlCoords.add('$lng,$lat,0');
+                }
+              }
+
+              if (kmlCoords.length == 1) {
+                // Single point → use Point
+                buf.writeln('      <Point><coordinates>${kmlCoords.first}</coordinates></Point>');
+              } else if (kmlCoords.length > 1) {
+                // Close polygon if needed
+                if (kmlCoords.first != kmlCoords.last) kmlCoords.add(kmlCoords.first);
+                buf.writeln('      <Polygon><outerBoundaryIs><LinearRing>');
+                buf.writeln('        <coordinates>${kmlCoords.join(' ')}</coordinates>');
+                buf.writeln('      </LinearRing></outerBoundaryIs></Polygon>');
+              }
+            }
+          }
+        } catch (_) {
+          // Coords could not be parsed — write an empty placemark
+        }
+
+        buf.writeln('    </Placemark>');
+      }
+
+      buf.writeln('  </Document>');
+      buf.writeln('</kml>');
+
+      await Share.share(buf.toString(),
+          subject: 'KashiGeoField Pro — ${polygons.length} Polygons/Markers');
+
+      if (mounted) {
+        _showResultDialog(
+          title: '✅ KML Export Done',
+          message: 'Exported ${polygons.length} polygons/markers as KML.',
+          success: true,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        _showResultDialog(
+          title: '❌ Export Failed',
+          message: 'Error: $e',
+          success: false,
+        );
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
     }
+  }
+
+  // Simple XML escape helper
+  String _escapeXml(String s) => s
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;');
+
+  // Parse JSON coordinate list using dart:convert
+  List<dynamic> _parseJsonList(String raw) {
+    return jsonDecode(raw) as List<dynamic>;
   }
 
   Future<void> _clearAllShapes() async {
@@ -620,7 +715,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _SettingRow(
           label: 'NASA FIRMS API Key',
           subtitle: 'Required for real-time fire detection',
-          trailing: Expanded(
+          trailing: SizedBox(
+            width: 160,
             child: TextField(
               controller: _firmsApiKeyCtrl,
               obscureText: true,
@@ -629,7 +725,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 hintText: 'Enter Map Key...',
                 isDense: true,
                 filled: true,
-                fillColor: AppTheme.textSecondary.withOpacity(0.05),
+                fillColor: AppTheme.textSecondary.withAlpha(13),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
                   borderSide: BorderSide.none,
@@ -644,7 +740,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _SettingRow(
           label: 'Alert Radius (km)',
           subtitle: 'Warn if fires are within ${_fireAlertRadius.toStringAsFixed(1)} km of your saved areas',
-          trailing: Expanded(
+          trailing: SizedBox(
+            width: 160,
             child: Slider(
               value: _fireAlertRadius,
               min: 1.0,
@@ -675,7 +772,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _SettingRow(
           label: 'Google AI (Gemini) Key',
           subtitle: 'Required for "Ask AI" (PDF chat). Get FREE key at aistudio.google.com',
-          trailing: Expanded(
+          trailing: SizedBox(
+            width: 160,
             child: TextField(
               controller: _geminiApiKeyCtrl,
               obscureText: true,
@@ -684,7 +782,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 hintText: 'Enter Gemini Key...',
                 isDense: true,
                 filled: true,
-                fillColor: AppTheme.textSecondary.withOpacity(0.05),
+                fillColor: AppTheme.textSecondary.withAlpha(13),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
                   borderSide: BorderSide.none,
@@ -699,7 +797,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _SettingRow(
           label: 'Google Cloud Vision Key',
           subtitle: 'Optional. Enhances Kannada OCR accuracy in document scanner.',
-          trailing: Expanded(
+          trailing: SizedBox(
+            width: 160,
             child: TextField(
               controller: _cloudVisionApiKeyCtrl,
               obscureText: true,
@@ -708,7 +807,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 hintText: 'Enter Cloud Vision Key...',
                 isDense: true,
                 filled: true,
-                fillColor: AppTheme.textSecondary.withOpacity(0.05),
+                fillColor: AppTheme.textSecondary.withAlpha(13),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
                   borderSide: BorderSide.none,
