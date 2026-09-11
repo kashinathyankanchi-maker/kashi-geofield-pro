@@ -2475,9 +2475,13 @@ $wpPlacemarks
                       fmap.TileLayer(
                         urlTemplate: _mapController.mapStyle == 'Satellite'
                             ? 'https://mt0.google.com/vt/lyrs=s&x={x}&y={y}&z={z}'
-                            : _mapController.mapStyle == 'Hybrid'
-                                ? 'https://mt0.google.com/vt/lyrs=y&x={x}&y={y}&z={z}'
-                                : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                            : _mapController.mapStyle == 'Google Maps'
+                                ? 'https://mt0.google.com/vt/lyrs=m&x={x}&y={y}&z={z}'
+                                : _mapController.mapStyle == 'Terrain'
+                                    ? 'https://mt0.google.com/vt/lyrs=p&x={x}&y={y}&z={z}'
+                                    : _mapController.mapStyle == 'OpenStreetMap'
+                                        ? 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
+                                        : 'https://mt0.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', // Default: Hybrid (Satellite + Location/Village Names)
                         userAgentPackageName: 'com.kashi.kashi_geofield_pro',
                         maxZoom: 20,
                         maxNativeZoom: 20,
@@ -2667,19 +2671,32 @@ $wpPlacemarks
                           ),
                           const SizedBox(width: 12),
                           // Map style indicator
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              border: Border.all(color: AppTheme.borderBright, width: 1),
-                              borderRadius: BorderRadius.circular(3),
-                            ),
-                            child: Text(
-                              _mapController.mapStyle.toUpperCase(),
-                              style: const TextStyle(
-                                color: AppTheme.textSecondary,
-                                fontSize: 9,
-                                letterSpacing: 1.5,
-                                fontFamily: 'monospace',
+                          InkWell(
+                            onTap: _showMapStyleSheet,
+                            borderRadius: BorderRadius.circular(4),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: AppTheme.greenAccent.withAlpha(25),
+                                border: Border.all(color: AppTheme.greenAccent.withAlpha(120), width: 1),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.layers_rounded, color: AppTheme.greenAccent, size: 12),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    _mapController.mapStyle.toUpperCase(),
+                                    style: const TextStyle(
+                                      color: AppTheme.greenAccent,
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.bold,
+                                      letterSpacing: 1.2,
+                                      fontFamily: 'monospace',
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           ),
@@ -2809,6 +2826,15 @@ $wpPlacemarks
                       color: const Color(0xFF39D353),
                       onTap: _loadingLocation ? null : _goToCurrentLocation,
                       isLoading: _loadingLocation,
+                    ),
+                    const SizedBox(height: 6),
+
+                    // ── Map Style & Location Names ──────────────────────────
+                    _MapFab(
+                      icon: Icons.layers_rounded,
+                      tooltip: 'Map Style & Location Names',
+                      color: const Color(0xFF4CAF50),
+                      onTap: _showMapStyleSheet,
                     ),
                     const SizedBox(height: 6),
 
@@ -3369,6 +3395,179 @@ $wpPlacemarks
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  void _showMapStyleSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppTheme.bgCard,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          final currentStyle = _mapController.mapStyle;
+          return Container(
+            padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(Icons.layers_rounded, color: AppTheme.greenAccent, size: 22),
+                        SizedBox(width: 10),
+                        Text(
+                          'Map Style & Location Names',
+                          style: TextStyle(
+                            color: AppTheme.textPrimary,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: AppTheme.textMuted, size: 20),
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Select tile style to toggle Google location names, village names, and road labels.',
+                  style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+                ),
+                const SizedBox(height: 16),
+                _buildStyleTile(
+                  title: 'Google Hybrid (Recommended)',
+                  subtitle: 'Satellite + Village, Town, City & Road Names (Google Maps)',
+                  icon: Icons.map_rounded,
+                  styleName: 'Hybrid',
+                  isSelected: currentStyle == 'Hybrid',
+                  onTap: () {
+                    _mapController.setMapStyle('Hybrid');
+                    setState(() {});
+                    Navigator.pop(ctx);
+                  },
+                ),
+                _buildStyleTile(
+                  title: 'Google Maps (Roadmap)',
+                  subtitle: 'Standard Google vector map with location names & streets',
+                  icon: Icons.alt_route_rounded,
+                  styleName: 'Google Maps',
+                  isSelected: currentStyle == 'Google Maps',
+                  onTap: () {
+                    _mapController.setMapStyle('Google Maps');
+                    setState(() {});
+                    Navigator.pop(ctx);
+                  },
+                ),
+                _buildStyleTile(
+                  title: 'Google Satellite (Clean)',
+                  subtitle: 'High-res satellite imagery without location labels',
+                  icon: Icons.satellite_alt_rounded,
+                  styleName: 'Satellite',
+                  isSelected: currentStyle == 'Satellite',
+                  onTap: () {
+                    _mapController.setMapStyle('Satellite');
+                    setState(() {});
+                    Navigator.pop(ctx);
+                  },
+                ),
+                _buildStyleTile(
+                  title: 'Google Terrain',
+                  subtitle: 'Topographic contour terrain map with place names',
+                  icon: Icons.terrain_rounded,
+                  styleName: 'Terrain',
+                  isSelected: currentStyle == 'Terrain',
+                  onTap: () {
+                    _mapController.setMapStyle('Terrain');
+                    setState(() {});
+                    Navigator.pop(ctx);
+                  },
+                ),
+                _buildStyleTile(
+                  title: 'OpenStreetMap',
+                  subtitle: 'Open community map with street & village labels',
+                  icon: Icons.public_rounded,
+                  styleName: 'OpenStreetMap',
+                  isSelected: currentStyle == 'OpenStreetMap',
+                  onTap: () {
+                    _mapController.setMapStyle('OpenStreetMap');
+                    setState(() {});
+                    Navigator.pop(ctx);
+                  },
+                ),
+                const SizedBox(height: 10),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildStyleTile({
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required String styleName,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: isSelected
+            ? AppTheme.greenAccent.withAlpha(25)
+            : AppTheme.bgSecondary,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isSelected
+              ? AppTheme.greenAccent
+              : AppTheme.borderBright.withAlpha(80),
+          width: isSelected ? 1.5 : 1,
+        ),
+      ),
+      child: ListTile(
+        onTap: onTap,
+        dense: true,
+        leading: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? AppTheme.greenAccent.withAlpha(40)
+                : AppTheme.bgCard,
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            icon,
+            color: isSelected ? AppTheme.greenAccent : AppTheme.textSecondary,
+            size: 20,
+          ),
+        ),
+        title: Text(
+          title,
+          style: TextStyle(
+            color: isSelected ? AppTheme.greenAccent : AppTheme.textPrimary,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+            fontSize: 13,
+          ),
+        ),
+        subtitle: Text(
+          subtitle,
+          style: const TextStyle(color: AppTheme.textSecondary, fontSize: 11),
+        ),
+        trailing: isSelected
+            ? const Icon(Icons.check_circle_rounded,
+                color: AppTheme.greenAccent, size: 20)
+            : null,
       ),
     );
   }
