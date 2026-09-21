@@ -45,6 +45,8 @@ import '../offline_maps/offline_maps_screen.dart';
 import 'offline_tile_provider.dart';
 import 'geo_reference_screen.dart';
 import 'package:flutter_compass/flutter_compass.dart';
+import '../../core/services/peer_session.dart';
+import '../team/widgets/peer_dot_layer.dart';
 
 // ── Top-level helpers for compute() isolates ───────────────────────────────────
 class _KmlParseArgs {
@@ -249,6 +251,8 @@ class MapScreenState extends State<MapScreen> {
         _positionNotifier.value = pt;
         // Feed into live tracker if active (no setState needed)
         _mapController.addTrackingPoint(pt);
+        // Broadcast to team peers if session is active
+        PeerSession.instance.broadcastMyLocation(pos.latitude, pos.longitude, _headingNotifier.value);
       });
     } catch (_) {}
   }
@@ -2572,6 +2576,8 @@ $wpPlacemarks
                           );
                         },
                       ),
+                      // ── Peer GPS dots (team collaboration) ─────────────────
+                      const PeerDotLayer(),
                     ],
                   ),
                 ),
@@ -2868,6 +2874,49 @@ $wpPlacemarks
                           ? const Color(0xFFE53935)
                           : const Color(0xFFF57C00),
                       onTap: () => setState(() => _showToolButtons = !_showToolButtons),
+                    ),
+                    const SizedBox(height: 6),
+
+                    // ── Team Collaboration FAB ────────────────────────────
+                    ListenableBuilder(
+                      listenable: PeerSession.instance,
+                      builder: (context, _) {
+                        final session = PeerSession.instance;
+                        return Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            _MapFab(
+                              icon: session.isActive
+                                  ? Icons.group_rounded
+                                  : Icons.group_add_rounded,
+                              tooltip: session.isActive ? 'Team Active' : 'Team Collaboration',
+                              color: session.isActive
+                                  ? const Color(0xFF1565C0)
+                                  : const Color(0xFF546E7A),
+                              onTap: () {
+                                session.clearUnread();
+                                Navigator.pushNamed(context, '/team');
+                              },
+                            ),
+                            if (session.unreadChat > 0)
+                              Positioned(
+                                right: 0,
+                                top: 0,
+                                child: Container(
+                                  padding: const EdgeInsets.all(4),
+                                  decoration: const BoxDecoration(
+                                    color: Colors.redAccent,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Text(
+                                    '${session.unreadChat}',
+                                    style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        );
+                      },
                     ),
 
                     // ── Collapsible tool buttons ──────────────────────────
