@@ -47,6 +47,8 @@ import 'geo_reference_screen.dart';
 import 'package:flutter_compass/flutter_compass.dart';
 import '../../core/services/peer_session.dart';
 import '../team/widgets/peer_dot_layer.dart';
+import '../../core/services/mesh_session.dart';
+import '../team/widgets/mesh_dot_layer.dart';
 
 // ── Top-level helpers for compute() isolates ───────────────────────────────────
 class _KmlParseArgs {
@@ -253,6 +255,7 @@ class MapScreenState extends State<MapScreen> {
         _mapController.addTrackingPoint(pt);
         // Broadcast to team peers if session is active
         PeerSession.instance.broadcastMyLocation(pos.latitude, pos.longitude, _headingNotifier.value);
+        MeshSession.instance.broadcastMyLocation(pos.latitude, pos.longitude, _headingNotifier.value);
       });
     } catch (_) {}
   }
@@ -2578,6 +2581,7 @@ $wpPlacemarks
                       ),
                       // ── Peer GPS dots (team collaboration) ─────────────────
                       const PeerDotLayer(),
+                      const MeshDotLayer(),
                     ],
                   ),
                 ),
@@ -2896,6 +2900,47 @@ $wpPlacemarks
                               onTap: () {
                                 session.clearUnread();
                                 Navigator.pushNamed(context, '/team');
+                              },
+                            ),
+                            if (session.unreadChat > 0)
+                              Positioned(
+                                right: 0,
+                                top: 0,
+                                child: Container(
+                                  padding: const EdgeInsets.all(4),
+                                  decoration: const BoxDecoration(
+                                    color: Colors.redAccent,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Text(
+                                    '${session.unreadChat}',
+                                    style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 6),
+
+                    // ── Mesh Network FAB ─────────────────────────────────
+                    ListenableBuilder(
+                      listenable: MeshSession.instance,
+                      builder: (context, _) {
+                        final session = MeshSession.instance;
+                        return Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            _MapFab(
+                              icon: Icons.hub_rounded,
+                              tooltip: session.isActive ? 'Mesh Active' : 'Mesh Network',
+                              color: session.isActive
+                                  ? Colors.orangeAccent
+                                  : const Color(0xFF546E7A),
+                              onTap: () {
+                                session.clearUnread();
+                                Navigator.pushNamed(context, '/mesh');
                               },
                             ),
                             if (session.unreadChat > 0)

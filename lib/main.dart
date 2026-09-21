@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'shared/theme.dart';
 import 'features/splash/splash_screen.dart';
 import 'features/team/team_screen.dart';
+import 'features/team/mesh_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -39,6 +40,7 @@ class KashiGeoFieldApp extends StatelessWidget {
       home: const SplashScreen(),
       routes: {
         '/team': (_) => const TeamScreen(),
+        '/mesh': (_) => const MeshScreen(),
       },
     );
   }
