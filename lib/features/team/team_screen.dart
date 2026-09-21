@@ -1,9 +1,8 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../core/models/peer_message.dart';
 import '../../core/services/peer_session.dart';
 import '../../shared/theme.dart';
 import 'widgets/chat_panel.dart';

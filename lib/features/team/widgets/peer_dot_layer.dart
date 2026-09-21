@@ -1,4 +1,3 @@
-﻿import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -48,7 +47,7 @@ class PeerDotLayer extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Transform.rotate(
-                    angle: heading * pi / 180,
+                    angle: heading * 3.14159265 / 180,
                     child: Icon(Icons.navigation, color: color, size: 28),
                   ),
                   const SizedBox(height: 2),

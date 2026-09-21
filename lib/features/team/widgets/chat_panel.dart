@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import '../../../core/models/peer_message.dart';
 import '../../../core/services/peer_session.dart';
 import '../../../shared/theme.dart';
@@ -25,9 +25,7 @@ class _ChatPanelState extends State<ChatPanel> {
     if (txt.isEmpty) return;
     final session = PeerSession.instance;
     session.sendMessage(PeerMessage.chat(from: session.myName, text: txt));
-    // Also add to local list
-    session.chatMessages.add(PeerMessage.chat(from: session.myName, text: txt));
-    session.notifyListeners();
+    session.addOwnChat(txt);
     _ctrl.clear();
     Future.delayed(const Duration(milliseconds: 100), _scrollToBottom);
   }

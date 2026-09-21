@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:latlong2/latlong.dart';
 import '../models/peer_message.dart';
@@ -83,6 +83,13 @@ class PeerSession extends ChangeNotifier {
     } else if (role == SessionRole.member) {
       _client.send(msg);
     }
+  }
+
+  /// Add a chat message from yourself to the local list and notify listeners.
+  void addOwnChat(String text) {
+    final msg = PeerMessage.chat(from: myName, text: text);
+    chatMessages.add(msg);
+    notifyListeners();
   }
 
   // ── Message handler ──────────────────────────────────────────────────────
