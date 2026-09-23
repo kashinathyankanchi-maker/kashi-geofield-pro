@@ -2979,6 +2979,8 @@ $wpPlacemarks
                                 initialCenter: _mapController.selectedShape?.points.isNotEmpty == true
                                     ? _mapController.selectedShape!.points.first
                                     : _currentPosition,
+                                initialZoom: _flutterMapController.camera.zoom,
+                                initialBearing: _flutterMapController.camera.rotation,
                                 drawnShapes: _mapController.drawnShapes,
                                 kmlShapes: _mapController.kmlShapes,
                               ),
