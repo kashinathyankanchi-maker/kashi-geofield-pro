@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -1625,7 +1625,8 @@ class _LayerToggle extends StatelessWidget {
             width: 30, height: 20,
             child: Switch(
               value: value, onChanged: onChanged,
-              activeColor: color,
+              activeThumbColor: color,
+              activeTrackColor: color.withValues(alpha: 0.4),
               materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
           ),
