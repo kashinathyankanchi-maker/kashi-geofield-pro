@@ -2848,16 +2848,7 @@ $wpPlacemarks
                     ),
                     const SizedBox(height: 6),
 
-                    // ── Map Style & Location Names ──────────────────────────
-                    _MapFab(
-                      icon: Icons.layers_rounded,
-                      tooltip: 'Map Style & Location Names',
-                      color: const Color(0xFF4CAF50),
-                      onTap: _showMapStyleSheet,
-                    ),
-                    const SizedBox(height: 6),
-
-                    // ── Always visible: Compass ───────────────────────────
+                    // ── Compass (always visible) ──────────────────────────
                     _MapFab(
                       icon: Icons.explore_rounded,
                       tooltip: 'Compass & Map Rotation',
@@ -2866,107 +2857,141 @@ $wpPlacemarks
                           : const Color(0xFF546E7A),
                       onTap: _showCompassPanel,
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 8),
 
-                    // ── Tools toggle button ───────────────────────────────
-                    _MapFab(
-                      icon: _showToolButtons
-                          ? Icons.close_rounded
-                          : Icons.construction_rounded,
-                      tooltip: _showToolButtons ? 'Hide Tools' : 'Show Tools',
-                      color: _showToolButtons
-                          ? const Color(0xFFE53935)
-                          : const Color(0xFFF57C00),
+                    // ── TOOLBOX toggle button (premium design) ────────────
+                    GestureDetector(
                       onTap: () => setState(() => _showToolButtons = !_showToolButtons),
-                    ),
-                    const SizedBox(height: 6),
-
-                    // ── Team Collaboration FAB ────────────────────────────
-                    ListenableBuilder(
-                      listenable: PeerSession.instance,
-                      builder: (context, _) {
-                        final session = PeerSession.instance;
-                        return Stack(
-                          clipBehavior: Clip.none,
-                          children: [
-                            _MapFab(
-                              icon: session.isActive
-                                  ? Icons.group_rounded
-                                  : Icons.group_add_rounded,
-                              tooltip: session.isActive ? 'Team Active' : 'Team Collaboration',
-                              color: session.isActive
-                                  ? const Color(0xFF1565C0)
-                                  : const Color(0xFF546E7A),
-                              onTap: () {
-                                session.clearUnread();
-                                Navigator.pushNamed(context, '/team');
-                              },
-                            ),
-                            if (session.unreadChat > 0)
-                              Positioned(
-                                right: 0,
-                                top: 0,
-                                child: Container(
-                                  padding: const EdgeInsets.all(4),
-                                  decoration: const BoxDecoration(
-                                    color: Colors.redAccent,
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: Text(
-                                    '${session.unreadChat}',
-                                    style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
-                                  ),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 250),
+                        width: 44,
+                        height: 52,
+                        decoration: BoxDecoration(
+                          gradient: _showToolButtons
+                              ? const LinearGradient(
+                                  colors: [Color(0xFFE53935), Color(0xFFB71C1C)],
+                                  begin: Alignment.topLeft, end: Alignment.bottomRight,
+                                )
+                              : const LinearGradient(
+                                  colors: [Color(0xFFFF8F00), Color(0xFFF57C00)],
+                                  begin: Alignment.topLeft, end: Alignment.bottomRight,
                                 ),
-                              ),
-                          ],
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 6),
-
-                    // ── Mesh Network FAB ─────────────────────────────────
-                    ListenableBuilder(
-                      listenable: MeshSession.instance,
-                      builder: (context, _) {
-                        final session = MeshSession.instance;
-                        return Stack(
-                          clipBehavior: Clip.none,
-                          children: [
-                            _MapFab(
-                              icon: Icons.hub_rounded,
-                              tooltip: session.isActive ? 'Mesh Active' : 'Mesh Network',
-                              color: session.isActive
-                                  ? Colors.orangeAccent
-                                  : const Color(0xFF546E7A),
-                              onTap: () {
-                                session.clearUnread();
-                                Navigator.pushNamed(context, '/mesh');
-                              },
+                          borderRadius: BorderRadius.circular(12),
+                          boxShadow: [
+                            BoxShadow(
+                              color: (_showToolButtons ? const Color(0xFFE53935) : const Color(0xFFFF8F00)).withValues(alpha: 0.55),
+                              blurRadius: 12,
+                              spreadRadius: 1,
+                              offset: const Offset(0, 3),
                             ),
-                            if (session.unreadChat > 0)
-                              Positioned(
-                                right: 0,
-                                top: 0,
-                                child: Container(
-                                  padding: const EdgeInsets.all(4),
-                                  decoration: const BoxDecoration(
-                                    color: Colors.redAccent,
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: Text(
-                                    '${session.unreadChat}',
-                                    style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
-                                  ),
-                                ),
-                              ),
                           ],
-                        );
-                      },
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.18),
+                            width: 1,
+                          ),
+                        ),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              _showToolButtons ? Icons.close_rounded : Icons.handyman_rounded,
+                              color: Colors.white,
+                              size: 20,
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              _showToolButtons ? 'CLOSE' : 'TOOLS',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 8,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 0.8,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
 
-                    // ── Collapsible tool buttons ──────────────────────────
+                    // ── Collapsible Toolbox buttons ───────────────────────
                     if (_showToolButtons) ...[
+                      const SizedBox(height: 8),
+
+                      // Map Style & Layers
+                      _MapFab(
+                        icon: Icons.layers_rounded,
+                        tooltip: 'Map Style & Location Names',
+                        color: const Color(0xFF4CAF50),
+                        onTap: _showMapStyleSheet,
+                      ),
                       const SizedBox(height: 6),
+
+                      // Team Collaboration
+                      ListenableBuilder(
+                        listenable: PeerSession.instance,
+                        builder: (context, _) {
+                          final session = PeerSession.instance;
+                          return Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              _MapFab(
+                                icon: session.isActive ? Icons.group_rounded : Icons.group_add_rounded,
+                                tooltip: session.isActive ? 'Team Active' : 'Team Collaboration',
+                                color: session.isActive ? const Color(0xFF1565C0) : const Color(0xFF546E7A),
+                                onTap: () {
+                                  session.clearUnread();
+                                  Navigator.pushNamed(context, '/team');
+                                },
+                              ),
+                              if (session.unreadChat > 0)
+                                Positioned(
+                                  right: 0, top: 0,
+                                  child: Container(
+                                    padding: const EdgeInsets.all(4),
+                                    decoration: const BoxDecoration(color: Colors.redAccent, shape: BoxShape.circle),
+                                    child: Text('${session.unreadChat}',
+                                      style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
+                                  ),
+                                ),
+                            ],
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 6),
+
+                      // Mesh Network
+                      ListenableBuilder(
+                        listenable: MeshSession.instance,
+                        builder: (context, _) {
+                          final session = MeshSession.instance;
+                          return Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              _MapFab(
+                                icon: Icons.hub_rounded,
+                                tooltip: session.isActive ? 'Mesh Active' : 'Mesh Network',
+                                color: session.isActive ? Colors.orangeAccent : const Color(0xFF546E7A),
+                                onTap: () {
+                                  session.clearUnread();
+                                  Navigator.pushNamed(context, '/mesh');
+                                },
+                              ),
+                              if (session.unreadChat > 0)
+                                Positioned(
+                                  right: 0, top: 0,
+                                  child: Container(
+                                    padding: const EdgeInsets.all(4),
+                                    decoration: const BoxDecoration(color: Colors.redAccent, shape: BoxShape.circle),
+                                    child: Text('${session.unreadChat}',
+                                      style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
+                                  ),
+                                ),
+                            ],
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 6),
+
                       _MapFab(
                         icon: Icons.terrain_rounded,
                         tooltip: '3D Google Earth Terrain Map',
@@ -4424,23 +4449,30 @@ class _MapFab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final effectiveColor = color ?? AppTheme.greenAccent;
-    final label = tooltip.toUpperCase().split(' ').take(2).join(' '); // max 2 words
+    final label = tooltip.toUpperCase().split(' ').take(2).join('\n');
 
     return Tooltip(
       message: tooltip,
+      preferBelow: false,
       child: GestureDetector(
         onTap: onTap,
         child: Container(
-          width: 36,
-          height: 36,
+          width: 42,
+          height: 46,
           decoration: BoxDecoration(
-            color: AppTheme.bgSecondary.withValues(alpha: 0.9),
-            borderRadius: BorderRadius.circular(6),
-            border: Border.all(color: effectiveColor.withValues(alpha: 0.5), width: 1),
+            color: AppTheme.bgSecondary.withValues(alpha: 0.94),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: effectiveColor.withValues(alpha: 0.65), width: 1.5),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.4),
-                blurRadius: 6,
+                color: effectiveColor.withValues(alpha: 0.22),
+                blurRadius: 10,
+                spreadRadius: 0,
+                offset: const Offset(0, 2),
+              ),
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.45),
+                blurRadius: 5,
                 offset: const Offset(0, 2),
               ),
             ],
@@ -4461,21 +4493,21 @@ class _MapFab extends StatelessWidget {
                   children: [
                     Icon(
                       icon,
-                      size: 14,
+                      size: 17,
                       color: effectiveColor,
                     ),
-                    const SizedBox(height: 1.5),
+                    const SizedBox(height: 2),
                     Text(
                       label,
                       style: TextStyle(
-                        color: effectiveColor,
-                        fontSize: 7.5,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.5,
-                        fontFamily: 'monospace',
+                        color: effectiveColor.withValues(alpha: 0.9),
+                        fontSize: 6.5,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.4,
+                        height: 1.1,
                       ),
                       textAlign: TextAlign.center,
-                      maxLines: 1,
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
                   ],
