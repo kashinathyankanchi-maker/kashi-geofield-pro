@@ -136,6 +136,8 @@ class MapScreenState extends State<MapScreen> {
     _loadData();
     // Load persisted shapes from DB
     _mapController.loadFromDatabase();
+    // Restore saved map style (Feature 4 — persist map style)
+    _loadSavedMapStyle();
     // Auto-navigate to current location on startup
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _goToCurrentLocation();
@@ -143,6 +145,23 @@ class MapScreenState extends State<MapScreen> {
       // Retroactively hide all app directories from Android Gallery / Google Photos
       _hideAllAppDirsFromGallery();
     });
+  }
+
+  /// Load previously saved map style from SharedPreferences
+  Future<void> _loadSavedMapStyle() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getString('map_tile_style') ?? 'Hybrid';
+      _mapController.setMapStyle(saved);
+    } catch (_) {}
+  }
+
+  /// Save the selected map style to SharedPreferences
+  Future<void> _saveMapStyle(String style) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('map_tile_style', style);
+    } catch (_) {}
   }
 
   /// Places .nomedia in every known app subdirectory so that PNG tiles,
@@ -1209,9 +1228,10 @@ class MapScreenState extends State<MapScreen> {
       }
     }
 
-    // In-progress drawing: numbered dots
-    for (int i = 0; i < _mapController.currentPoints.length; i++) {
-      final pt = _mapController.currentPoints[i];
+    // In-progress drawing: numbered dots + LIVE MEASUREMENT LABELS
+    final drawingPts = _mapController.currentPoints;
+    for (int i = 0; i < drawingPts.length; i++) {
+      final pt = drawingPts[i];
       final label = (i + 1).toString().padLeft(3, '0');
       markers.add(fmap.Marker(
         point: pt,
@@ -1221,31 +1241,104 @@ class MapScreenState extends State<MapScreen> {
         child: _WaypointPin(
             label: label, color: AppTheme.greenAccent, isActive: true),
       ));
+
+      // Live distance label at midpoint between this and previous point
+      if (i > 0) {
+        final prev = drawingPts[i - 1];
+        final mid = LatLng(
+          (prev.latitude + pt.latitude) / 2,
+          (prev.longitude + pt.longitude) / 2,
+        );
+        final distM = GeoCalculator.haversineDistance(
+          prev.latitude, prev.longitude, pt.latitude, pt.longitude,
+        );
+        final distLabel = distM >= 1000
+            ? '${(distM / 1000).toStringAsFixed(2)} km'
+            : '${distM.toStringAsFixed(0)} m';
+        markers.add(fmap.Marker(
+          point: mid,
+          width: 72,
+          height: 26,
+          alignment: Alignment.center,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1565C0).withValues(alpha: 0.92),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.white, width: 1),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.5),
+                  blurRadius: 6, offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Text(
+              distLabel,
+              style: const TextStyle(
+                color: Colors.white, fontSize: 10,
+                fontWeight: FontWeight.bold, letterSpacing: 0.3,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ));
+      }
     }
+
 
     // Completed polygon vertices
     if (_mapController.showPolygonLayer) {
       for (final shape in _mapController.drawnShapes) {
         if (shape.type == DrawMode.polygon) {
           final isSelected = _mapController.selectedShape?.id == shape.id;
-          for (int i = 0; i < shape.points.length; i++) {
-            final pt = shape.points[i];
-            final label = (i + 1).toString().padLeft(3, '0');
+          // Only show vertex pins if polygon is selected OR has few points (reduce clutter)
+          if (isSelected || shape.points.length <= 12) {
+            for (int i = 0; i < shape.points.length; i++) {
+              final pt = shape.points[i];
+              final label = (i + 1).toString().padLeft(3, '0');
+              markers.add(fmap.Marker(
+                point: pt,
+                width: 36,
+                height: 30,
+                alignment: Alignment.bottomCenter,
+                child: GestureDetector(
+                  onTap: () {
+                    _mapController.selectShape(shape);
+                    setState(() => _showWaypointPanel = true);
+                    _showShapeDetail();
+                  },
+                  child: _WaypointPin(
+                    label: label,
+                    color: shape.color,
+                    isActive: isSelected,
+                  ),
+                ),
+              ));
+            }
+          } else {
+            // For dense polygons: just show a single centroid tap target
+            final centroid = LatLng(
+              shape.points.map((p) => p.latitude).reduce((a, b) => a + b) / shape.points.length,
+              shape.points.map((p) => p.longitude).reduce((a, b) => a + b) / shape.points.length,
+            );
             markers.add(fmap.Marker(
-              point: pt,
-              width: 54,
-              height: 46,
-              alignment: Alignment.bottomCenter,
+              point: centroid,
+              width: 32,
+              height: 32,
               child: GestureDetector(
                 onTap: () {
                   _mapController.selectShape(shape);
                   setState(() => _showWaypointPanel = true);
                   _showShapeDetail();
                 },
-                child: _WaypointPin(
-                  label: label,
-                  color: shape.color,
-                  isActive: isSelected,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: shape.color.withValues(alpha: 0.85),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 2),
+                  ),
+                  child: const Icon(Icons.pentagon_rounded, color: Colors.white, size: 16),
                 ),
               ),
             ));
@@ -1255,14 +1348,14 @@ class MapScreenState extends State<MapScreen> {
         if (shape.type == DrawMode.marker) {
           final catIcon  = _iconForCategory(shape.category);
           final catColor = shape.color;
-          final displayName = shape.name.length > 12
-              ? '${shape.name.substring(0, 11)}…'
+          final displayName = shape.name.length > 10
+              ? '${shape.name.substring(0, 9)}…'
               : shape.name;
 
           markers.add(fmap.Marker(
             point: shape.points.first,
-            width: 56,
-            height: 68,
+            width: 40,
+            height: 52,
             alignment: Alignment.bottomCenter,
             child: GestureDetector(
               onTap: () {
@@ -1272,65 +1365,53 @@ class MapScreenState extends State<MapScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // ── Name label bubble ──────────────────────────────────────
+                  // ── Name label bubble (compact) ────────────────────────────
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                     decoration: BoxDecoration(
                       color: AppTheme.bgCard.withValues(alpha: 0.92),
-                      borderRadius: BorderRadius.circular(5),
-                      border: Border.all(color: catColor.withValues(alpha: 0.7), width: 1),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.35),
-                          blurRadius: 3,
-                          offset: const Offset(0, 1),
-                        ),
-                      ],
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(color: catColor.withValues(alpha: 0.6), width: 0.8),
                     ),
                     child: Text(
                       displayName,
                       style: TextStyle(
                         color: catColor,
-                        fontSize: 8,
+                        fontSize: 7,
                         fontWeight: FontWeight.bold,
-                        letterSpacing: 0.3,
+                        letterSpacing: 0.2,
                       ),
                     ),
                   ),
-                  const SizedBox(height: 2),
-                  // ── Category icon circle ──────────────────────────────────
+                  const SizedBox(height: 1),
+                  // ── Category icon circle (compact) ─────────────────────────
                   Container(
-                    width: 36,
-                    height: 36,
+                    width: 24,
+                    height: 24,
                     decoration: BoxDecoration(
                       color: catColor,
                       shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 2.5),
+                      border: Border.all(color: Colors.white, width: 1.5),
                       boxShadow: [
                         BoxShadow(
-                          color: catColor.withValues(alpha: 0.55),
-                          blurRadius: 8,
-                          spreadRadius: 1,
-                        ),
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.3),
+                          color: catColor.withValues(alpha: 0.4),
                           blurRadius: 4,
-                          offset: const Offset(0, 2),
+                          spreadRadius: 0,
                         ),
                       ],
                     ),
-                    child: Icon(catIcon, color: Colors.white, size: 18),
+                    child: Icon(catIcon, color: Colors.white, size: 13),
                   ),
                   // ── Pin stem ──────────────────────────────────────────────
                   Container(
-                    width: 3,
-                    height: 8,
+                    width: 2,
+                    height: 6,
                     color: catColor,
                   ),
                   // ── Pin tip dot ──────────────────────────────────────────
                   Container(
-                    width: 5,
-                    height: 5,
+                    width: 4,
+                    height: 4,
                     decoration: BoxDecoration(
                       color: catColor,
                       shape: BoxShape.circle,
@@ -1376,9 +1457,13 @@ class MapScreenState extends State<MapScreen> {
           markers.add(fmap.Marker(
             point: LatLng(kmlShape.coordinates.first['lat']!,
                 kmlShape.coordinates.first['lng']!),
-            width: 30,
-            height: 30,
-            child: Icon(Icons.room, color: cColor, size: 30),
+            width: 22,
+            height: 28,
+            alignment: Alignment.bottomCenter,
+            child: Tooltip(
+              message: kmlShape.name,
+              child: Icon(Icons.room, color: cColor, size: 22),
+            ),
           ));
         }
       }
@@ -3582,6 +3667,7 @@ $wpPlacemarks
                   isSelected: currentStyle == 'Hybrid',
                   onTap: () {
                     _mapController.setMapStyle('Hybrid');
+                    _saveMapStyle('Hybrid');
                     setState(() {});
                     Navigator.pop(ctx);
                   },
@@ -3594,6 +3680,7 @@ $wpPlacemarks
                   isSelected: currentStyle == 'Google Maps',
                   onTap: () {
                     _mapController.setMapStyle('Google Maps');
+                    _saveMapStyle('Google Maps');
                     setState(() {});
                     Navigator.pop(ctx);
                   },
@@ -3606,6 +3693,7 @@ $wpPlacemarks
                   isSelected: currentStyle == 'Satellite',
                   onTap: () {
                     _mapController.setMapStyle('Satellite');
+                    _saveMapStyle('Satellite');
                     setState(() {});
                     Navigator.pop(ctx);
                   },
@@ -3618,6 +3706,7 @@ $wpPlacemarks
                   isSelected: currentStyle == 'Terrain',
                   onTap: () {
                     _mapController.setMapStyle('Terrain');
+                    _saveMapStyle('Terrain');
                     setState(() {});
                     Navigator.pop(ctx);
                   },
@@ -3630,6 +3719,7 @@ $wpPlacemarks
                   isSelected: currentStyle == 'OpenStreetMap',
                   onTap: () {
                     _mapController.setMapStyle('OpenStreetMap');
+                    _saveMapStyle('OpenStreetMap');
                     setState(() {});
                     Navigator.pop(ctx);
                   },

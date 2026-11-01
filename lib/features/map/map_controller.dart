@@ -404,6 +404,22 @@ class MapController extends ChangeNotifier {
     }
   }
 
+  /// Update description, photoPath and other metadata on a shape
+  void updateShapeMeta(String id, {
+    String? description,
+    String? photoPath,
+    Color? color,
+  }) {
+    final idx = _drawnShapes.indexWhere((s) => s.id == id);
+    if (idx < 0) return;
+    final s = _drawnShapes[idx];
+    if (description != null) s.description = description.isEmpty ? null : description;
+    if (photoPath != null) s.photoPath = photoPath;
+    if (color != null) s.color = color;
+    notifyListeners();
+    _autoSaveShape(s);
+  }
+
   void changeShapeColor(String id, Color color) {
     final idx = _drawnShapes.indexWhere((s) => s.id == id);
     if (idx >= 0) {
