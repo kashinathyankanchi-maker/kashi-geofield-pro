@@ -7,6 +7,7 @@ import 'package:share_plus/share_plus.dart';
 import '../../shared/theme.dart';
 import '../../core/database/db_helper.dart';
 import '../../core/utils/backup_helper.dart';
+import 'backup_restore_screen.dart';
 
 // ---------------------------------------------------------------------------
 // Constants – SharedPreferences keys
@@ -151,7 +152,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
     );
     setState(() => _polygonColor = temp);
-    await _saveSetting(_Keys.polygonColor, temp.value);
+    await _saveSetting(_Keys.polygonColor, temp.toARGB32());
   }
 
   Future<void> _exportBackup() async {
@@ -489,6 +490,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           : ListView(
               padding: const EdgeInsets.all(16),
               children: [
+                _buildBackupRestoreCard(),
+                const SizedBox(height: 16),
                 _buildOrganizationSection(),
                 const SizedBox(height: 16),
                 _buildPrintSection(),
@@ -507,6 +510,65 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(height: 32),
               ],
             ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Backup & Restore Card – prominent entry at the top
+  // ---------------------------------------------------------------------------
+
+  Widget _buildBackupRestoreCard() {
+    return GestureDetector(
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const BackupRestoreScreen()),
+      ),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              AppTheme.greenPrimary.withValues(alpha: 0.85),
+              AppTheme.greenAccent.withValues(alpha: 0.6),
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: AppTheme.greenPrimary.withValues(alpha: 0.35),
+              blurRadius: 16,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Row(children: [
+          Container(
+            width: 52, height: 52,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Icon(Icons.shield_rounded, color: Colors.white, size: 28),
+          ),
+          const SizedBox(width: 14),
+          const Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Backup & Restore',
+                style: TextStyle(color: Colors.white,
+                  fontSize: 17, fontWeight: FontWeight.bold)),
+              SizedBox(height: 3),
+              Text(
+                'Export data · Import backup · Edit restored shapes',
+                style: TextStyle(color: Colors.white70, fontSize: 12),
+              ),
+            ]),
+          ),
+          const Icon(Icons.arrow_forward_ios_rounded,
+            color: Colors.white70, size: 18),
+        ]),
+      ),
     );
   }
 
@@ -628,7 +690,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 border: Border.all(color: Colors.grey.shade300, width: 1.5),
                 boxShadow: [
                   BoxShadow(
-                    color: _polygonColor.withOpacity(0.4),
+                    color: _polygonColor.withValues(alpha: 0.4),
                     blurRadius: 6,
                     offset: const Offset(0, 2),
                   ),
@@ -655,7 +717,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
-                    color: AppTheme.primaryColor.withOpacity(0.1),
+                    color: AppTheme.primaryColor.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
@@ -882,9 +944,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: const Color(0xFF1565C0).withOpacity(0.12),
+            color: const Color(0xFF1565C0).withValues(alpha: 0.12),
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: const Color(0xFF1565C0).withOpacity(0.4)),
+            border: Border.all(color: const Color(0xFF1565C0).withValues(alpha: 0.4)),
           ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
